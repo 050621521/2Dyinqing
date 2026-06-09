@@ -35,6 +35,8 @@ private:
     void setupCentralArea();
     void setupBottomBar();
     void positionCBPanel();
+    void dockBlueprintAsTab();
+    void undockBlueprintFromTab();
 
     QWidget* buildViewportToolBar(QWidget* parent);
     QWidget* buildPanelHeader(const QString& title, QWidget* parent);
@@ -70,6 +72,9 @@ private:
     QWidget*         m_bpTitleBar       = nullptr;
     bool             m_bpDragging       = false;
     QPoint           m_bpDragOffset;
+    bool             m_bpDocked         = false;
+    int              m_bpTabIndex       = -1;
+    int              m_bpGhostTabIndex  = -1;
     QMap<QString, LevelDocument*> m_openLevels;
     QList<QMetaObject::Connection> m_tabConnections;
 };

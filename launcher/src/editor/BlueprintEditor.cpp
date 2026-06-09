@@ -493,6 +493,7 @@ void BlueprintEditor::drawDanglingWire(QPainter& p) {
 // ── 滚轮缩放 ──────────────────────────────────────────────────────────
 
 void BlueprintEditor::wheelEvent(QWheelEvent* e) {
+    cancelInlineEdit();
     const float factor = e->angleDelta().y() > 0 ? 1.15f : (1.0f / 1.15f);
     float newZoom = qBound(0.1f, m_zoom * factor, 3.0f);
     // 以鼠标为中心缩放
@@ -507,6 +508,11 @@ void BlueprintEditor::wheelEvent(QWheelEvent* e) {
 // ── 鼠标事件 ──────────────────────────────────────────────────────────
 
 void BlueprintEditor::mousePressEvent(QMouseEvent* e) {
+    // 内联编辑框激活时，点击外部提交
+    if (m_inlineEdit && m_inlineEdit->isVisible()) {
+        if (!m_inlineEdit->geometry().contains(e->pos()))
+            commitInlineEdit();
+    }
     // 弹窗显示时，点击弹窗外部关闭它
     if (m_wireDropPopup && m_wireDropPopup->isVisible()) {
         if (!m_wireDropPopup->geometry().contains(e->pos())) {
@@ -537,9 +543,15 @@ void BlueprintEditor::mousePressEvent(QMouseEvent* e) {
     if (hit.type == Hit::Pin || hit.type == Hit::Node || hit.type == Hit::PinValue)
         m_selectedNodeId = hit.nodeId;
 
-    // 点击引脚值区域 → 弹出编辑面板
+    // 点击引脚值区域
     if (hit.type == Hit::PinValue) {
-        showParamEditPopup(e->pos(), hit.nodeId, hit.pinName);
+        if (hit.pinName == "actorId") {
+            // actorId 仍用弹窗（需要 Actor 列表选择器）
+            showParamEditPopup(e->pos(), hit.nodeId, hit.pinName);
+        } else {
+            // 数值/文本 pin → 原地内联编辑，不弹窗
+            showInlineEdit(hit.nodeId, hit.pinName);
+        }
         update();
         return;
     }
@@ -763,6 +775,10 @@ bool BlueprintEditor::eventFilter(QObject* obj, QEvent* e) {
     if (e->type() == QEvent::KeyPress) {
         auto* ke = static_cast<QKeyEvent*>(e);
         if (ke->key() == Qt::Key_Escape) {
+            if (m_inlineEdit && m_inlineEdit->isVisible()) {
+                cancelInlineEdit();
+                return true;
+            }
             if (m_wireDropPopup && m_wireDropPopup->isVisible()) {
                 hideWireDropPopup();
                 m_wireFromNode.clear();
@@ -775,6 +791,9 @@ bool BlueprintEditor::eventFilter(QObject* obj, QEvent* e) {
             }
         }
     }
+    // 内联编辑框失焦时提交
+    if (obj == m_inlineEdit && e->type() == QEvent::FocusOut)
+        QTimer::singleShot(0, this, &BlueprintEditor::commitInlineEdit);
     return QWidget::eventFilter(obj, e);
 }
 
@@ -981,7 +1000,81 @@ void BlueprintEditor::onWireDropSelected(const QString& typeId, const QString& c
     update();
 }
 
-// ── 引脚值编辑弹窗 ────────────────────────────────────────────────────
+// ── 引脚值内联编辑 ────────────────────────────────────────────────────
+
+void BlueprintEditor::showInlineEdit(const QString& nodeId, const QString& pinKey) {
+    commitInlineEdit();
+    if (!m_doc) return;
+
+    const BPNode* node = findNode(nodeId);
+    if (!node) return;
+    const NodeDef* def = findNodeDef(node->type);
+    if (!def) return;
+
+    // 计算该 pin 所在行
+    int extraRows = (node->type == "Var.ActorRef") ? 1 : 0;
+    int row = 0;
+    for (const PinDef& pd : def->pins) {
+        if (pd.key == pinKey) break;
+        ++row;
+    }
+
+    QPointF tl  = canvasToScreen({node->x, node->y});
+    float   nw  = kNodeW * (float)m_zoom;
+    float   rowY = (float)(tl.y() + (kHeaderH + (row + extraRows) * kRowH) * m_zoom);
+    float   rowH = kRowH * (float)m_zoom;
+    QPointF pc  = pinCenter(*node, pinKey, false);
+    float   x0  = (float)(pc.x() + 12.0 * m_zoom);
+    float   x1  = (float)(tl.x() + nw - 6.0);
+
+    m_inlineEditNodeId = nodeId;
+    m_inlineEditPinKey = pinKey;
+
+    m_inlineEdit = new QLineEdit(this);
+    m_inlineEdit->setText(node->params.value(pinKey));
+    m_inlineEdit->setGeometry(QRect((int)x0, (int)(rowY + 2),
+                                    (int)(x1 - x0), (int)(rowH - 4)));
+    m_inlineEdit->setFrame(false);
+    m_inlineEdit->setStyleSheet(
+        "QLineEdit { background: #1c2d3e; color: #5a9fd4;"
+        "  border: 1px solid #2a5070; border-radius: 2px;"
+        "  font-size: 8pt; padding: 0 2px; }");
+    m_inlineEdit->show();
+    m_inlineEdit->setFocus();
+    m_inlineEdit->selectAll();
+    m_inlineEdit->installEventFilter(this);
+
+    connect(m_inlineEdit, &QLineEdit::returnPressed, this, &BlueprintEditor::commitInlineEdit);
+}
+
+void BlueprintEditor::commitInlineEdit() {
+    if (!m_inlineEdit || !m_doc) return;
+    QString val = m_inlineEdit->text();
+    cancelInlineEdit();     // 先移除控件
+    if (m_inlineEditNodeId.isEmpty()) return;
+    // 写回 doc
+    for (BPNode node : m_doc->bpNodes()) {   // 拷贝查找，再 updateBPNode
+        if (node.id == m_inlineEditNodeId) {
+            node.params[m_inlineEditPinKey] = val;
+            m_doc->updateBPNode(node);
+            emit documentModified();
+            break;
+        }
+    }
+    m_inlineEditNodeId.clear();
+    m_inlineEditPinKey.clear();
+    update();
+}
+
+void BlueprintEditor::cancelInlineEdit() {
+    if (!m_inlineEdit) return;
+    m_inlineEdit->hide();
+    m_inlineEdit->deleteLater();
+    m_inlineEdit = nullptr;
+    update();
+}
+
+// ── 引脚值编辑弹窗（actorId 专用）────────────────────────────────────
 
 void BlueprintEditor::showParamEditPopup(QPoint screenPos, const QString& nodeId, const QString& pinKey) {
     hideParamEditPopup();

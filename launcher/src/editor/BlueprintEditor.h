@@ -9,6 +9,7 @@
 
 class QPainter;
 class QFrame;
+class QLineEdit;
 
 class BlueprintEditor : public QWidget {
     Q_OBJECT
@@ -68,7 +69,11 @@ private:
     QFrame*  m_wireDropPopup    = nullptr;
     QPointF  m_wireDropCanvasPos;
 
-    // 引脚值编辑弹窗
+    // 引脚值内联编辑（原地 QLineEdit，不弹窗）
+    QLineEdit* m_inlineEdit      = nullptr;
+    QString    m_inlineEditNodeId;
+    QString    m_inlineEditPinKey;
+    // actorId 选择仍用弹窗
     QFrame*  m_paramEditPopup   = nullptr;
     QString  m_paramEditNodeId;
     QString  m_paramEditPinKey;
@@ -120,7 +125,11 @@ private:
     void hideWireDropPopup();
     void onWireDropSelected(const QString& typeId, const QString& compatPin);
 
-    // 引脚值编辑弹窗
+    // 引脚值内联编辑
+    void showInlineEdit(const QString& nodeId, const QString& pinKey);
+    void commitInlineEdit();
+    void cancelInlineEdit();
+    // actorId 选择弹窗
     void showParamEditPopup(QPoint screenPos, const QString& nodeId, const QString& pinKey);
     void hideParamEditPopup();
     void onParamValueConfirmed(const QString& value);

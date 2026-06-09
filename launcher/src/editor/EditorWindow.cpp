@@ -287,20 +287,37 @@ bool EditorWindow::eventFilter(QObject* obj, QEvent* e) {
             }
         } else if (e->type() == QEvent::MouseMove && m_bpDragging) {
             auto* me = static_cast<QMouseEvent*>(e);
-            // 在 QMainWindow 坐标系下移动，限制在中央区域
             QPoint newPos = mapFromGlobal(
                 me->globalPosition().toPoint() - m_bpDragOffset);
-            QRect allowed = centralWidget() ? centralWidget()->geometry() : rect();
-            int minX = allowed.left();
-            int minY = allowed.top();
+            QRect allowed = rect();
+            int minX = allowed.left(), minY = allowed.top();
             int maxX = allowed.right()  - m_bpPanel->width()  + 1;
             int maxY = allowed.bottom() - m_bpPanel->height() + 1;
             newPos.setX(qBound(minX, newPos.x(), qMax(minX, maxX)));
             newPos.setY(qBound(minY, newPos.y(), qMax(minY, maxY)));
             m_bpPanel->move(newPos);
+
+            // 进入/离开展示栏区域时显示/移除幽灵标签页
+            if (!m_bpDocked && m_docTabBar && centralWidget()) {
+                bool inZone = newPos.y() < centralWidget()->geometry().top();
+                if (inZone && m_bpGhostTabIndex < 0) {
+                    QSignalBlocker b(m_docTabBar);
+                    m_bpGhostTabIndex = m_docTabBar->addTab("  关卡蓝图");
+                    m_docTabBar->setTabData(m_bpGhostTabIndex,
+                                            QStringLiteral("blueprint_ghost"));
+                } else if (!inZone && m_bpGhostTabIndex >= 0) {
+                    QSignalBlocker b(m_docTabBar);
+                    m_docTabBar->removeTab(m_bpGhostTabIndex);
+                    m_bpGhostTabIndex = -1;
+                }
+            }
             return true;
         } else if (e->type() == QEvent::MouseButtonRelease) {
-            m_bpDragging = false;
+            if (m_bpDragging) {
+                m_bpDragging = false;
+                if (!m_bpDocked && m_bpGhostTabIndex >= 0)
+                    dockBlueprintAsTab();  // 幽灵标签 → 真实标签
+            }
         }
     }
 
@@ -369,6 +386,11 @@ QWidget* EditorWindow::buildViewportToolBar(QWidget* parent) {
     sep();
     auto* bpBtn = vBtn("关卡蓝图", "打开关卡蓝图（可视化脚本）");
     connect(bpBtn, &QToolButton::clicked, this, [this]() {
+        // 已停靠为标签页：切换到蓝图标签
+        if (m_bpDocked) {
+            if (m_bpTabIndex >= 0) m_docTabBar->setCurrentIndex(m_bpTabIndex);
+            return;
+        }
         if (!m_bpPanel) return;
         if (m_bpPanel->isVisible()) {
             m_bpPanel->hide();
@@ -377,8 +399,8 @@ QWidget* EditorWindow::buildViewportToolBar(QWidget* parent) {
             QString path = idx >= 0 ? m_docTabBar->tabData(idx).toString() : QString{};
             if (m_blueprintEditor)
                 m_blueprintEditor->loadLevel(m_openLevels.value(path, nullptr));
-            // 居中显示（在整个中央区域）
-            QRect allowed = centralWidget() ? centralWidget()->geometry() : rect();
+            // 居中显示（在整个窗口范围）
+            QRect allowed = rect();
             int x = allowed.left() + qMax(0, (allowed.width()  - m_bpPanel->width())  / 2);
             int y = allowed.top()  + qMax(0, (allowed.height() - m_bpPanel->height()) / 2);
             m_bpPanel->move(x, y);
@@ -484,6 +506,18 @@ void EditorWindow::onTabChanged(int index) {
     m_tabConnections.clear();
 
     const QString path = m_docTabBar->tabData(index).toString();
+
+    // 蓝图标签页（包含拖拽中的幽灵标签）
+    if (path == QLatin1String("blueprint") || path == QLatin1String("blueprint_ghost")) {
+        if (path == QLatin1String("blueprint") && m_viewStack && m_blueprintEditor)
+            m_viewStack->setCurrentWidget(m_blueprintEditor);
+        return;
+    }
+
+    // 切换到关卡标签时，确保 viewStack 显示视口
+    if (m_viewStack && m_viewport)
+        m_viewStack->setCurrentWidget(m_viewport);
+
     if (path.isEmpty()) {
         m_sceneOutliner->clear();
         m_detailsPanel->clearActor();
@@ -568,6 +602,27 @@ void EditorWindow::onTabChanged(int index) {
 
 void EditorWindow::onTabClosed(int index) {
     const QString path = m_docTabBar->tabData(index).toString();
+
+    // 幽灵标签关闭（拖拽中意外触发）
+    if (path == QLatin1String("blueprint_ghost")) {
+        { QSignalBlocker b(m_docTabBar); m_docTabBar->removeTab(index); }
+        m_bpGhostTabIndex = -1;
+        return;
+    }
+
+    // 蓝图标签关闭 → undock 回浮动面板
+    if (path == QLatin1String("blueprint")) {
+        undockBlueprintFromTab();
+        {
+            QSignalBlocker b(m_docTabBar);
+            m_docTabBar->removeTab(index);
+        }
+        // 切回当前关卡 tab（若有）
+        if (m_docTabBar->count() > 0)
+            onTabChanged(m_docTabBar->currentIndex());
+        return;
+    }
+
     LevelDocument* doc = m_openLevels.value(path);
 
     if (doc && doc->isDirty()) {
@@ -729,5 +784,52 @@ void EditorWindow::stopRuntime() {
 
     if (m_runBtn)  m_runBtn->setEnabled(true);
     if (m_stopBtn) m_stopBtn->setEnabled(false);
+}
+
+void EditorWindow::dockBlueprintAsTab() {
+    if (m_bpDocked || !m_blueprintEditor || !m_viewStack) return;
+    m_bpDocked = true;
+
+    // 加载当前关卡蓝图（跳过 ghost 占位数据）
+    const int idx = m_docTabBar->currentIndex();
+    const QString path = idx >= 0 ? m_docTabBar->tabData(idx).toString() : QString{};
+    if (path != QLatin1String("blueprint") && path != QLatin1String("blueprint_ghost"))
+        m_blueprintEditor->loadLevel(m_openLevels.value(path, nullptr));
+
+    // 将蓝图编辑器移入 viewStack（自动 re-parent）
+    m_viewStack->addWidget(m_blueprintEditor);
+
+    // 幽灵标签已存在 → 直接转为真实标签；否则新建
+    if (m_bpGhostTabIndex >= 0) {
+        QSignalBlocker b(m_docTabBar);
+        m_docTabBar->setTabData(m_bpGhostTabIndex, QStringLiteral("blueprint"));
+        m_bpTabIndex      = m_bpGhostTabIndex;
+        m_bpGhostTabIndex = -1;
+    } else {
+        QSignalBlocker b(m_docTabBar);
+        m_bpTabIndex = m_docTabBar->addTab("  关卡蓝图");
+        m_docTabBar->setTabData(m_bpTabIndex, QStringLiteral("blueprint"));
+    }
+
+    m_bpPanel->hide();
+    m_docTabBar->setCurrentIndex(m_bpTabIndex);
+}
+
+void EditorWindow::undockBlueprintFromTab() {
+    if (!m_bpDocked || !m_blueprintEditor) return;
+    m_bpDocked = false;
+
+    // 将蓝图编辑器移回 bpPanel 布局
+    auto* bpLay = qobject_cast<QVBoxLayout*>(m_bpPanel->layout());
+    if (bpLay) bpLay->addWidget(m_blueprintEditor, 1);
+
+    // viewStack 切回视口
+    if (m_viewStack && m_viewport)
+        m_viewStack->setCurrentWidget(m_viewport);
+
+    // 显示浮动面板
+    m_bpPanel->show();
+    m_bpPanel->raise();
+    m_bpTabIndex = -1;
 }
 
