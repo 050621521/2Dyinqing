@@ -1,0 +1,19 @@
+# CMake 编译产物
+launcher/build/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# C++ 编译中间文件
+*.o
+*.a
+*.dylib
+*.so
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

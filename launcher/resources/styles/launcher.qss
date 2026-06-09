@@ -1,0 +1,600 @@
+/* ── Global ──────────────────────────────────────────────────────── */
+QWidget {
+    background-color: #1a1a1a;
+    color: #cccccc;
+    font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 13px;
+}
+
+QScrollBar:vertical {
+    background: #222;
+    width: 6px;
+    margin: 0;
+}
+QScrollBar::handle:vertical {
+    background: #444;
+    border-radius: 3px;
+    min-height: 20px;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+
+/* ── Top search bar ──────────────────────────────────────────────── */
+#topBar {
+    background-color: #1e1e1e;
+    border-bottom: 1px solid #2a2a2a;
+    padding: 6px 12px;
+    min-height: 40px;
+}
+
+#searchEdit {
+    background-color: #2c2c2c;
+    border: 1px solid #3a3a3a;
+    border-radius: 4px;
+    padding: 4px 10px;
+    color: #ccc;
+    font-size: 13px;
+}
+#searchEdit:focus {
+    border-color: #0078d7;
+}
+
+#iconBtn {
+    background: transparent;
+    border: none;
+    color: #888;
+    font-size: 16px;
+    padding: 2px 6px;
+}
+#iconBtn:hover { color: #ccc; }
+
+/* ── Category list (left) ────────────────────────────────────────── */
+#categoryList {
+    background-color: #1e1e1e;
+    border-right: 1px solid #2a2a2a;
+}
+
+#categoryList::item {
+    color: #bbb;
+    padding: 0 16px;
+    border-bottom: 1px solid #252525;
+    font-size: 14px;
+}
+#categoryList::item:first {
+    background-color: #252525;
+    color: #eee;
+    font-size: 13px;
+    font-weight: bold;
+}
+#categoryList::item:selected {
+    background-color: #0d3a6a;
+    color: #ffffff;
+}
+#categoryList::item:hover:!selected {
+    background-color: #2a2a2a;
+}
+
+/* ── Project grid ────────────────────────────────────────────────── */
+#projectGrid, #gridContainer {
+    background-color: #1a1a1a;
+}
+
+/* ── Project card ────────────────────────────────────────────────── */
+#projectCard {
+    background-color: #222222;
+    border: 1px solid transparent;
+    border-radius: 3px;
+}
+#projectCard[hovered="true"] {
+    border-color: #444;
+}
+#projectCard[selected="true"] {
+    background-color: #0d3a6a;
+    border-color: #0078d7;
+}
+
+#cardThumb {
+    background-color: #111;
+    border-radius: 2px;
+}
+#cardName {
+    font-size: 11px;
+    color: #ccc;
+    padding: 0 2px;
+}
+#cardTag {
+    font-size: 10px;
+    color: #88c0ff;
+    padding: 0 2px;
+}
+
+/* ── Bottom bar ──────────────────────────────────────────────────── */
+#bottomBar {
+    background-color: #1e1e1e;
+    border-top: 1px solid #2a2a2a;
+}
+#bottomLabel {
+    color: #888;
+    font-size: 12px;
+}
+#bottomEdit {
+    background-color: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    border-radius: 3px;
+    padding: 3px 8px;
+    color: #ccc;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────── */
+#primaryBtn {
+    background-color: #0078d7;
+    color: #fff;
+    border: none;
+    border-radius: 3px;
+    padding: 5px 20px;
+    font-size: 13px;
+    min-width: 64px;
+}
+#primaryBtn:hover   { background-color: #1589e8; }
+#primaryBtn:pressed { background-color: #005fa3; }
+#primaryBtn:disabled { background-color: #2a4a6a; color: #668; }
+
+#secondaryBtn {
+    background-color: #2c2c2c;
+    color: #ccc;
+    border: 1px solid #3a3a3a;
+    border-radius: 3px;
+    padding: 5px 16px;
+    font-size: 13px;
+}
+#secondaryBtn:hover   { background-color: #363636; }
+#secondaryBtn:pressed { background-color: #222; }
+
+#cancelBtn {
+    background-color: transparent;
+    color: #aaa;
+    border: 1px solid #3a3a3a;
+    border-radius: 3px;
+    padding: 5px 16px;
+    font-size: 13px;
+}
+#cancelBtn:hover { color: #ccc; border-color: #555; }
+
+/* ── Context menu ────────────────────────────────────────────────── */
+QMenu {
+    background-color: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    padding: 4px 0;
+    color: #ccc;
+}
+QMenu::item {
+    padding: 6px 20px;
+    font-size: 13px;
+}
+QMenu::item:selected {
+    background-color: #c0392b;
+    color: #fff;
+}
+
+/* ── New project dialog ──────────────────────────────────────────── */
+#newProjectDialog {
+    background-color: #1e1e1e;
+}
+#dialogTitle {
+    font-size: 16px;
+    color: #eee;
+    font-weight: bold;
+}
+#formEdit, #formCombo {
+    background-color: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    border-radius: 3px;
+    padding: 4px 8px;
+    color: #ccc;
+}
+#formEdit:focus { border-color: #0078d7; }
+
+QDialogButtonBox QPushButton {
+    min-width: 72px;
+    padding: 5px 16px;
+    border-radius: 3px;
+    font-size: 13px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Editor
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Menu bar */
+#editorMenuBar {
+    background-color: #1e1e1e;
+    color: #ccc;
+    border-bottom: 1px solid #2a2a2a;
+}
+#editorMenuBar::item { padding: 4px 10px; }
+#editorMenuBar::item:selected { background-color: #2e2e2e; }
+
+QMenu { background-color: #2a2a2a; border: 1px solid #3a3a3a; color: #ccc; }
+QMenu::item:selected { background-color: #0078d7; }
+
+/* Document tab toolbar */
+#docTabToolBar {
+    background: #1a1a1a;
+    border-bottom: 1px solid #2a2a2a;
+    padding: 0;
+    spacing: 0;
+}
+#docTabBar {
+    background: transparent;
+}
+#docTabBar::tab {
+    background: #252525;
+    color: #999;
+    padding: 4px 16px 4px 12px;
+    border-right: 1px solid #2a2a2a;
+    border-bottom: 2px solid transparent;
+    font-size: 12px;
+}
+#docTabBar::tab:selected {
+    background: #1a1a1a;
+    color: #eee;
+    border-bottom: 2px solid #0078d7;
+}
+#docTabBar::tab:hover:!selected { background: #2a2a2a; }
+
+/* Main toolbar */
+#editorMainToolBar {
+    background: #232323;
+    border-bottom: 1px solid #2a2a2a;
+    spacing: 2px;
+    padding: 2px 6px;
+}
+#mainTBBtn {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    color: #ccc;
+    font-size: 14px;
+    min-width: 28px;
+    min-height: 26px;
+    padding: 0 4px;
+}
+#mainTBBtn:hover  { background: #333; border-color: #444; }
+#mainTBBtn:pressed { background: #222; }
+#mainTBDropBtn {
+    background: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    border-radius: 3px;
+    color: #ccc;
+    font-size: 12px;
+    padding: 3px 10px;
+    min-height: 24px;
+}
+#mainTBDropBtn:hover { background: #333; }
+#projNameLabel { color: #777; font-size: 13px; }
+
+/* Viewport container & secondary toolbar */
+#viewportContainer { background: #1a1a1a; }
+#viewportToolBar {
+    background: #212121;
+    border-bottom: 1px solid #2a2a2a;
+}
+#vpTBBtn {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 2px;
+    color: #aaa;
+    font-size: 13px;
+    min-width: 24px;
+    min-height: 22px;
+    padding: 0 3px;
+}
+#vpTBBtn:hover   { background: #333; border-color: #444; color: #eee; }
+#vpTBBtn:checked { background: #1a4a8a; border-color: #2a6abf; color: #fff; }
+#vpDropBtn {
+    background: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    border-radius: 2px;
+    color: #ccc;
+    font-size: 11px;
+    padding: 2px 8px;
+    min-height: 20px;
+}
+#vpDropBtn:hover { background: #333; }
+#vpSep { color: #333; max-width: 1px; margin: 3px 4px; }
+#vpZoomLabel { color: #888; font-size: 11px; padding: 0 6px; }
+
+/* Viewport */
+#viewportWrap  { background: #1a1a1a; }
+#viewport2D    { background-color: #1a1a1a; }
+
+/* Splitters */
+#editorHSplit::handle { background: #2a2a2a; width: 2px; }
+#editorVSplit::handle { background: #2a2a2a; height: 2px; }
+
+/* Panel wrap & header */
+#panelWrap { background: #1a1a1a; }
+#panelHeader {
+    background: #252525;
+    border-bottom: 1px solid #2a2a2a;
+}
+#panelHeaderTitle {
+    color: #ccc;
+    font-size: 13px;
+    font-weight: bold;
+}
+#panelCloseBtn {
+    background: transparent;
+    border: none;
+    color: #666;
+    font-size: 14px;
+    min-width: 20px;
+    min-height: 20px;
+}
+#panelCloseBtn:hover { color: #ccc; background: #3a3a3a; border-radius: 3px; }
+
+/* Bottom status dock */
+QDockWidget#bottomStatusDock { background: #1a1a1a; }
+QDockWidget#bottomStatusDock > QWidget { background: #1a1a1a; }
+
+/* Scene outliner */
+#sceneOutliner { background: #1a1a1a; }
+#outlineSearchRow { background: #1e1e1e; border-bottom: 1px solid #2a2a2a; }
+#outlineSearch {
+    background: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    border-radius: 3px;
+    padding: 3px 8px;
+    color: #ccc;
+    font-size: 12px;
+}
+#sceneTree {
+    background: #1a1a1a;
+    color: #ccc;
+    font-size: 12px;
+    border: none;
+}
+#sceneTree::item:selected { background: #0d3a6a; color: #fff; }
+#sceneTree::item:hover:!selected { background: #252525; }
+#sceneTreeHeader {
+    background: #222;
+    color: #888;
+    font-size: 11px;
+    border-bottom: 1px solid #2a2a2a;
+}
+
+/* Details panel */
+#detailsPanel  { background: #1a1a1a; }
+#detailEntity  {
+    font-size: 13px; font-weight: bold;
+    color: #eee; background: #222;
+    border-bottom: 1px solid #2a2a2a;
+}
+#detailContent { background: #1a1a1a; }
+#detailScroll  { background: #1a1a1a; border: none; }
+
+/* 头部区域：略微抬高背景，形成自然区段 */
+#detailHeader {
+    background: #1e1e1e;
+}
+
+/* 分隔线：极细暗线，不突兀 */
+#detailSeparator {
+    border: none;
+    background-color: #272727;
+    max-height: 1px;
+    min-height: 1px;
+}
+
+#detailGroup {
+    color: #aaa; font-size: 12px;
+    border: none; border-top: 1px solid #272727;
+    margin-top: 0px;
+}
+#detailGroup::title { color: #aaa; padding-left: 4px; }
+#detailTitleBar { background: #222222; }
+#detailTriangle {
+    background: transparent; border: none;
+    color: #888; font-size: 11px;
+    padding: 0 4px 0 0; min-width: 14px;
+}
+#detailTriangle:hover { color: #ccc; }
+#detailGroupTitle { color: #cccccc; font-size: 12px; }
+#detailSpin {
+    background: #2a2a2a; border: 1px solid #3a3a3a;
+    border-radius: 2px; color: #ccc;
+    font-size: 12px; padding: 1px 4px;
+}
+#axisLabel   { color: #888; font-size: 11px; min-width: 12px; }
+#detailValue { color: #666; font-size: 12px; }
+
+/* Component tree：略深背景使区域自然可辨，无需边框 */
+#componentTree {
+    background: #1e1e1e;
+    color: #ccc;
+    font-size: 12px;
+    border: none;
+    outline: none;
+}
+#componentTree::item {
+    height: 22px;
+    padding-left: 2px;
+}
+#componentTree::item:selected {
+    background: #1a4a7a;
+    color: #e8e8e8;
+}
+#componentTree::item:hover:!selected {
+    background: #272727;
+}
+#componentTree::branch {
+    background: #1e1e1e;
+}
+#componentTree::branch:has-children:!has-siblings:closed,
+#componentTree::branch:closed:has-children:has-siblings {
+    image: url(none);
+}
+
+/* 添加组件按钮（头部小按钮） */
+#addComponentBtn {
+    background: #2a2a2a;
+    border: 1px solid #404040;
+    border-radius: 3px;
+    color: #9ecfff;
+    font-size: 12px;
+    padding: 2px 8px;
+}
+#addComponentBtn:hover  { background: #353535; color: #c8e8ff; border-color: #558bc8; }
+#addComponentBtn:pressed { background: #1e1e1e; }
+
+/* Bottom status bar */
+#bottomStatusDock { background: #1a1a1a; }
+#editorStatusBar  {
+    background: #1a1a1a;
+    border-top: 1px solid #2a2a2a;
+}
+#statusBtn {
+    background: transparent;
+    border: none;
+    color: #888;
+    font-size: 12px;
+    padding: 2px 10px;
+}
+#statusBtn:hover   { color: #ccc; background: #2a2a2a; }
+#statusBtn:checked { color: #eee; background: #2a2a2a; border-bottom: 2px solid #0078d7; }
+#statusSep { color: #333; max-width: 1px; margin: 4px 2px; }
+#cmdLabel  { color: #777; font-size: 12px; }
+#cmdEdit {
+    background: #222; border: 1px solid #333;
+    border-radius: 3px; color: #ccc;
+    font-size: 12px; padding: 1px 6px;
+}
+#saveLabel { color: #e8a000; font-size: 12px; padding: 0 10px; }
+
+/* Content browser dock */
+#contentBrowserDock { background: #1a1a1a; }
+#contentBrowser { background: #1a1a1a; }
+
+/* Folder tree */
+#cbFolderWrap { background: #1e1e1e; border-right: 1px solid #2a2a2a; }
+#cbFolderTree {
+    background: #1e1e1e;
+    color: #ccc;
+    font-size: 12px;
+    border: none;
+}
+#cbFolderTree::item { padding: 3px 4px; }
+#cbFolderTree::item:selected { background: #0d3a6a; color: #fff; }
+#cbFolderTree::item:hover:!selected { background: #2a2a2a; }
+#cbDivider { background: #2a2a2a; }
+
+/* Content browser toolbar */
+#cbToolbar { background: #212121; border-bottom: 1px solid #2a2a2a; }
+#cbToolBtn {
+    background: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    border-radius: 3px;
+    color: #ccc;
+    font-size: 11px;
+    padding: 2px 8px;
+    min-height: 20px;
+}
+#cbToolBtn:hover { background: #333; }
+#cbSearchEdit {
+    background: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    border-radius: 3px;
+    padding: 2px 8px;
+    color: #ccc;
+    font-size: 12px;
+}
+#cbSearchEdit:focus { border-color: #0078d7; }
+#cbSep { background: #3a3a3a; max-width: 1px; margin: 4px 2px; }
+#cbHDivider { background: #2a2a2a; }
+
+/* Asset grid */
+#cbAssetGrid {
+    background: #1a1a1a;
+    border: none;
+    color: #ccc;
+    font-size: 11px;
+}
+#cbAssetGrid::item { background: #2a2a2a; border-radius: 3px; }
+#cbAssetGrid::item:selected { background: #0d3a6a; color: #fff; }
+#cbAssetGrid::item:hover:!selected { background: #333; }
+
+/* Breadcrumb */
+#cbBreadcrumb { background: #1e1e1e; border-top: 1px solid #2a2a2a; }
+#cbBcLabel    { color: #888; font-size: 11px; padding: 0 4px; }
+#cbCountLabel { color: #555; font-size: 11px; padding: 0 4px; }
+
+/* New level button */
+#cbNewLevelBtn {
+    background: #1a4a2a;
+    border: 1px solid #2a7a3a;
+    color: #88ee99;
+    border-radius: 3px;
+    font-size: 11px;
+    padding: 2px 8px;
+    min-height: 20px;
+}
+#cbNewLevelBtn:hover { background: #225a33; }
+
+/* ── 项目设置对话框 ── */
+#projectSettingsDialog { background: #1e1e1e; }
+#psLabel { color: #aaaaaa; font-size: 12px; }
+#psInput {
+    background: #2a2a2a; color: #dddddd;
+    border: 1px solid #3a3a3a; border-radius: 3px;
+    padding: 4px 8px; font-size: 12px;
+}
+#psInput:focus { border-color: #2563eb; }
+#psCombo {
+    background: #2a2a2a; color: #dddddd;
+    border: 1px solid #3a3a3a; border-radius: 3px;
+    padding: 4px 8px; font-size: 12px;
+}
+#psCombo::drop-down { border: none; width: 20px; }
+#psCombo QAbstractItemView {
+    background: #2a2a2a; color: #dddddd;
+    border: 1px solid #3a3a3a; selection-background-color: #0078d7;
+}
+#psBtn {
+    background: #333333; color: #cccccc;
+    border: 1px solid #444444; border-radius: 4px;
+    padding: 5px 16px; font-size: 12px; min-width: 64px;
+}
+#psBtn:hover { background: #3c3c3c; }
+#psBtnPrimary {
+    background: #2563eb; color: #ffffff;
+    border: none; border-radius: 4px;
+    padding: 5px 16px; font-size: 12px; min-width: 64px;
+}
+#psBtnPrimary:hover { background: #1d4ed8; }
+
+/* ── Blueprint Editor ────────────────────────────────────────────── */
+#blueprintEditor {
+    background-color: #161616;
+}
+
+/* ── Blueprint Float Panel ───────────────────────────────────────── */
+#bpFloatPanel {
+    background: #1e1e1e;
+    border: 1px solid #444444;
+    border-radius: 4px;
+}
+#bpPanelTitleBar {
+    background: #2a2a2a;
+    border-bottom: 1px solid #444444;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+}
+#bpPanelTitle {
+    color: #cccccc;
+    font-size: 12px;
+    font-weight: bold;
+}
+#bpPanelClose {
+    background: transparent; border: none;
+    color: #888888; font-size: 13px;
+}
+#bpPanelClose:hover { color: #ffffff; background: #c0392b; border-radius: 3px; }

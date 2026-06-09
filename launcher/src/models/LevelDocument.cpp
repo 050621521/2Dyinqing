@@ -1,0 +1,221 @@
+#include "LevelDocument.h"
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QUuid>
+
+// ── ActorData ─────────────────────────────────────────────────────────
+
+QJsonObject ActorData::toJson() const {
+    QJsonObject pos; pos["x"] = x; pos["y"] = y;
+    QJsonObject scale; scale["x"] = scaleX; scale["y"] = scaleY;
+    QJsonObject obj;
+    obj["id"]          = id;
+    obj["name"]        = name;
+    obj["type"]        = type;
+    obj["position"]    = pos;
+    obj["rotation"]    = rotation;
+    obj["scale"]       = scale;
+    obj["active"]      = active;
+    obj["static"]      = isStatic;
+    obj["tag"]         = tag;
+    obj["layer"]       = layer;
+    QJsonArray compArr;
+    for (const QString& c : components) compArr.append(c);
+    obj["components"]  = compArr;
+    obj["spritePath"]  = spritePath;
+    obj["spriteColor"] = spriteColor.name(QColor::HexArgb);
+    obj["sortingLayer"]= sortingLayer;
+    obj["orderInLayer"]= orderInLayer;
+    obj["flipX"]       = flipX;
+    obj["flipY"]       = flipY;
+    obj["drawMode"]    = drawMode;
+    return obj;
+}
+
+ActorData ActorData::fromJson(const QJsonObject& obj) {
+    ActorData a;
+    a.id       = obj["id"].toString();
+    a.name     = obj["name"].toString();
+    a.type     = obj["type"].toString();
+    a.rotation = (float)obj["rotation"].toDouble();
+    const QJsonObject pos   = obj["position"].toObject();
+    const QJsonObject scale = obj["scale"].toObject();
+    a.x        = (float)pos["x"].toDouble();
+    a.y        = (float)pos["y"].toDouble();
+    a.scaleX   = (float)scale["x"].toDouble(1.0);
+    a.scaleY   = (float)scale["y"].toDouble(1.0);
+    a.active   = obj["active"].toBool(true);
+    a.isStatic = obj["static"].toBool(false);
+    a.tag      = obj["tag"].toString("未标记");
+    a.layer    = obj["layer"].toString("默认");
+    for (const QJsonValue& v : obj["components"].toArray())
+        a.components.append(v.toString());
+    a.spritePath   = obj["spritePath"].toString();
+    a.spriteColor  = QColor(obj["spriteColor"].toString("#ffffffff"));
+    a.sortingLayer = obj["sortingLayer"].toString("默认");
+    a.orderInLayer = obj["orderInLayer"].toInt(0);
+    a.flipX        = obj["flipX"].toBool(false);
+    a.flipY        = obj["flipY"].toBool(false);
+    a.drawMode     = obj["drawMode"].toString("简单");
+    return a;
+}
+
+// ── BPNode ────────────────────────────────────────────────────────────
+
+QJsonObject BPNode::toJson() const {
+    QJsonObject obj;
+    obj["id"]   = id;
+    obj["type"] = type;
+    obj["x"]    = x;
+    obj["y"]    = y;
+    QJsonObject paramsObj;
+    for (auto it = params.begin(); it != params.end(); ++it)
+        paramsObj[it.key()] = it.value();
+    obj["params"] = paramsObj;
+    return obj;
+}
+
+BPNode BPNode::fromJson(const QJsonObject& obj) {
+    BPNode n;
+    n.id   = obj["id"].toString();
+    n.type = obj["type"].toString();
+    n.x    = (float)obj["x"].toDouble(100.0);
+    n.y    = (float)obj["y"].toDouble(100.0);
+    const QJsonObject paramsObj = obj["params"].toObject();
+    for (auto it = paramsObj.begin(); it != paramsObj.end(); ++it)
+        n.params[it.key()] = it.value().toString();
+    return n;
+}
+
+// ── BPConnection ──────────────────────────────────────────────────────
+
+QJsonObject BPConnection::toJson() const {
+    QJsonObject obj;
+    obj["id"]       = id;
+    obj["fromNode"] = fromNode;
+    obj["fromPin"]  = fromPin;
+    obj["toNode"]   = toNode;
+    obj["toPin"]    = toPin;
+    return obj;
+}
+
+BPConnection BPConnection::fromJson(const QJsonObject& obj) {
+    BPConnection c;
+    c.id       = obj["id"].toString();
+    c.fromNode = obj["fromNode"].toString();
+    c.fromPin  = obj["fromPin"].toString();
+    c.toNode   = obj["toNode"].toString();
+    c.toPin    = obj["toPin"].toString();
+    return c;
+}
+
+// ── LevelDocument ─────────────────────────────────────────────────────
+
+bool LevelDocument::load(const QString& filePath) {
+    m_filePath = filePath;
+    m_actors.clear();
+
+    QFile f(filePath);
+    if (!f.open(QIODevice::ReadOnly)) return false;
+
+    const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+    if (!doc.isObject()) return false;
+
+    const QJsonObject root = doc.object();
+    m_name = root["name"].toString();
+
+    for (const QJsonValue& v : root["objects"].toArray())
+        m_actors.append(ActorData::fromJson(v.toObject()));
+
+    m_bpNodes.clear();
+    m_bpConnections.clear();
+    const QJsonObject bp = root["blueprint"].toObject();
+    for (const QJsonValue& v : bp["nodes"].toArray())
+        m_bpNodes.append(BPNode::fromJson(v.toObject()));
+    for (const QJsonValue& v : bp["connections"].toArray())
+        m_bpConnections.append(BPConnection::fromJson(v.toObject()));
+
+    m_dirty = false;
+    return true;
+}
+
+bool LevelDocument::save() {
+    QJsonArray arr;
+    for (const ActorData& a : m_actors)
+        arr.append(a.toJson());
+
+    QJsonArray nodesArr, connsArr;
+    for (const BPNode& n : m_bpNodes)             nodesArr.append(n.toJson());
+    for (const BPConnection& c : m_bpConnections) connsArr.append(c.toJson());
+    QJsonObject bp;
+    bp["nodes"]       = nodesArr;
+    bp["connections"] = connsArr;
+
+    QJsonObject root;
+    root["name"]      = m_name;
+    root["version"]   = "0.1";
+    root["objects"]   = arr;
+    root["blueprint"] = bp;
+
+    QFile f(m_filePath);
+    if (!f.open(QIODevice::WriteOnly)) return false;
+    f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+    m_dirty = false;
+    return true;
+}
+
+void LevelDocument::addActor(const ActorData& actor) {
+    ActorData a = actor;
+    if (a.id.isEmpty())
+        a.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    m_actors.append(a);
+    m_dirty = true;
+}
+
+void LevelDocument::removeActor(const QString& id) {
+    for (int i = 0; i < m_actors.size(); ++i) {
+        if (m_actors[i].id == id) { m_actors.removeAt(i); break; }
+    }
+    m_dirty = true;
+}
+
+void LevelDocument::updateActor(const ActorData& actor) {
+    for (ActorData& a : m_actors) {
+        if (a.id == actor.id) { a = actor; break; }
+    }
+    m_dirty = true;
+}
+
+// ── Blueprint 增删改 ──────────────────────────────────────────────────
+
+void LevelDocument::addBPNode(const BPNode& node) {
+    m_bpNodes.append(node);
+    m_dirty = true;
+}
+
+void LevelDocument::removeBPNode(const QString& id) {
+    for (int i = 0; i < m_bpNodes.size(); ++i) {
+        if (m_bpNodes[i].id == id) { m_bpNodes.removeAt(i); break; }
+    }
+    m_dirty = true;
+}
+
+void LevelDocument::updateBPNode(const BPNode& node) {
+    for (BPNode& n : m_bpNodes) {
+        if (n.id == node.id) { n = node; break; }
+    }
+    m_dirty = true;
+}
+
+void LevelDocument::addBPConnection(const BPConnection& conn) {
+    m_bpConnections.append(conn);
+    m_dirty = true;
+}
+
+void LevelDocument::removeBPConnection(const QString& id) {
+    for (int i = 0; i < m_bpConnections.size(); ++i) {
+        if (m_bpConnections[i].id == id) { m_bpConnections.removeAt(i); break; }
+    }
+    m_dirty = true;
+}

@@ -1,0 +1,1121 @@
+#include "BlueprintEditor.h"
+#include <QPainter>
+#include <QPainterPath>
+#include <QWheelEvent>
+#include <QMouseEvent>
+#include <QKeyEvent>
+#include <QContextMenuEvent>
+#include <QMenu>
+#include <QUuid>
+#include <cmath>
+#include <QFrame>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QLineEdit>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
+#include <QListWidget>
+#include <QTimer>
+
+// ── 节点类型注册 ──────────────────────────────────────────────────────
+
+const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
+    static QList<NodeDef> defs = {
+        {
+            "Event.BeginPlay", "开始运行", QColor("#6a2a8a"),
+            {
+                {"exec_out", "exec", true, true}
+            }
+        },
+        {
+            "Event.KeyDown", "按键按下", QColor("#6a2a8a"),
+            {
+                {"exec_out", "exec", true,  true},
+                {"key",      "key",  false, false}
+            }
+        },
+        {
+            "Action.Print", "打印字符串", QColor("#1a4a8a"),
+            {
+                {"exec_in",  "exec", true,  false},
+                {"exec_out", "exec", true,  true},
+                {"text",     "text", false, false}
+            }
+        },
+        {
+            "Action.MoveActor", "移动对象", QColor("#1a5a2a"),
+            {
+                {"exec_in",  "exec",    true,  false},
+                {"exec_out", "exec",    true,  true},
+                {"actorId",  "对象ID",  false, false},
+                {"dx",       "X偏移",   false, false},
+                {"dy",       "Y偏移",   false, false}
+            }
+        },
+        {
+            "Action.SetActive", "设置激活", QColor("#1a5a2a"),
+            {
+                {"exec_in",  "exec",   true,  false},
+                {"exec_out", "exec",   true,  true},
+                {"actorId",  "对象ID", false, false},
+                {"active",   "激活",   false, false}
+            }
+        },
+        {
+            "Flow.Branch", "条件分支", QColor("#3a3a3a"),
+            {
+                {"exec_in",   "exec",      true,  false},
+                {"true",      "true",      true,  true},
+                {"false",     "false",     true,  true},
+                {"condition", "条件",      false, false}
+            }
+        },
+        {
+            "Var.GetActorPos", "获取位置", QColor("#2a4a1a"),
+            {
+                {"actorId", "对象ID", false, false},
+                {"x",       "X",      false, true},
+                {"y",       "Y",      false, true}
+            }
+        },
+        {
+            "Var.ActorRef", "Actor引用", QColor("#4a2a0a"),
+            {
+                {"actorId", "对象ID", false, true}
+            }
+        }
+    };
+    return defs;
+}
+
+const BlueprintEditor::NodeDef* BlueprintEditor::findNodeDef(const QString& typeId) {
+    for (const NodeDef& def : nodeDefs()) {
+        if (def.typeId == typeId) return &def;
+    }
+    return nullptr;
+}
+
+// ── 构造 ──────────────────────────────────────────────────────────────
+
+BlueprintEditor::BlueprintEditor(QWidget* parent) : QWidget(parent) {
+    setObjectName("blueprintEditor");
+    setFocusPolicy(Qt::StrongFocus);
+    setAttribute(Qt::WA_OpaquePaintEvent);
+    setMouseTracking(true);
+}
+
+void BlueprintEditor::loadLevel(LevelDocument* doc) {
+    m_doc = doc;
+    m_selectedNodeId.clear();
+    m_dragState = DragState::None;
+    update();
+}
+
+// ── 坐标变换 ──────────────────────────────────────────────────────────
+
+QPointF BlueprintEditor::canvasToScreen(QPointF c) const {
+    QPointF center(width() / 2.0 + m_offset.x(), height() / 2.0 + m_offset.y());
+    return center + c * m_zoom;
+}
+
+QPointF BlueprintEditor::screenToCanvas(QPointF s) const {
+    QPointF center(width() / 2.0 + m_offset.x(), height() / 2.0 + m_offset.y());
+    return (s - center) / m_zoom;
+}
+
+// ── 节点几何 ──────────────────────────────────────────────────────────
+
+float BlueprintEditor::nodeHeight(const BPNode& node) const {
+    const NodeDef* def = findNodeDef(node.type);
+    int pinCount = def ? def->pins.size() : 1;
+    int extraRows = (node.type == "Var.ActorRef") ? 1 : 0;
+    return kHeaderH + kRowH * qMax(1, pinCount + extraRows) + 4.0f;
+}
+
+QRectF BlueprintEditor::nodeRect(const BPNode& node) const {
+    return QRectF(node.x, node.y, kNodeW, nodeHeight(node));
+}
+
+QPointF BlueprintEditor::pinCenter(const BPNode& node, const QString& pinKey, bool isOutput) const {
+    const NodeDef* def = findNodeDef(node.type);
+    if (!def) return {};
+    QPointF topLeftScreen = canvasToScreen({node.x, node.y});
+    int extraRows = (node.type == "Var.ActorRef") ? 1 : 0;
+    int row = 0;
+    for (const PinDef& pd : def->pins) {
+        if (pd.key == pinKey && pd.isOutput == isOutput) {
+            float cy = (float)(topLeftScreen.y() + (kHeaderH + (row + extraRows) * kRowH + kRowH * 0.5f) * m_zoom);
+            float cx = isOutput
+                ? (float)(topLeftScreen.x() + kNodeW * m_zoom - 10.0f)
+                : (float)(topLeftScreen.x() + 10.0f);
+            return {cx, cy};
+        }
+        ++row;
+    }
+    return {};
+}
+
+// ── 辅助查询 ──────────────────────────────────────────────────────────
+
+const BPNode* BlueprintEditor::findNode(const QString& id) const {
+    if (!m_doc) return nullptr;
+    for (const BPNode& n : m_doc->bpNodes())
+        if (n.id == id) return &n;
+    return nullptr;
+}
+
+bool BlueprintEditor::isPinConnected(const QString& nodeId, const QString& pinKey, bool isOutput) const {
+    if (!m_doc) return false;
+    for (const BPConnection& c : m_doc->bpConnections()) {
+        if (isOutput  && c.fromNode == nodeId && c.fromPin == pinKey) return true;
+        if (!isOutput && c.toNode   == nodeId && c.toPin   == pinKey) return true;
+    }
+    return false;
+}
+
+bool BlueprintEditor::isPinExec(const QString& typeId, const QString& pinKey, bool isOutput) const {
+    const NodeDef* def = findNodeDef(typeId);
+    if (!def) return false;
+    for (const PinDef& pd : def->pins)
+        if (pd.key == pinKey && pd.isOutput == isOutput) return pd.isExec;
+    return false;
+}
+
+// ── 命中检测 ──────────────────────────────────────────────────────────
+
+BlueprintEditor::Hit BlueprintEditor::hitTest(QPointF screenPos) const {
+    if (!m_doc) return {};
+    // 逆序遍历（后添加的在最上层）
+    const auto& nodes = m_doc->bpNodes();
+    for (int i = nodes.size() - 1; i >= 0; --i) {
+        const BPNode& node = nodes[i];
+        const NodeDef* def = findNodeDef(node.type);
+        if (!def) continue;
+
+        int row = 0;
+        for (const PinDef& pd : def->pins) {
+            QPointF pc = pinCenter(node, pd.key, pd.isOutput);
+            float hitR = (pd.isExec ? kPinR : kPinSq) * m_zoom + 4.0f;
+            QPointF delta = screenPos - pc;
+            if (delta.x() * delta.x() + delta.y() * delta.y() <= hitR * hitR) {
+                Hit h;
+                h.type        = Hit::Pin;
+                h.nodeId      = node.id;
+                h.pinName     = pd.key;
+                h.pinIsOutput = pd.isOutput;
+                h.pinIsExec   = pd.isExec;
+                return h;
+            }
+            ++row;
+        }
+    }
+    // PinValue 命中：ActorRef 选择器 + 普通数据输入引脚值区域
+    for (int i = nodes.size() - 1; i >= 0; --i) {
+        const BPNode& node = nodes[i];
+        const NodeDef* def = findNodeDef(node.type);
+        if (!def) continue;
+        QPointF tl = canvasToScreen({node.x, node.y});
+        float nw = kNodeW * m_zoom;
+
+        // Var.ActorRef：选择器按钮占据第 0 行（紧接 header）
+        if (node.type == "Var.ActorRef") {
+            float rowY = tl.y() + kHeaderH * m_zoom;
+            float rowH = kRowH * m_zoom;
+            if (screenPos.x() >= tl.x() + 4*m_zoom && screenPos.x() <= tl.x() + nw - 4*m_zoom &&
+                screenPos.y() >= rowY && screenPos.y() <= rowY + rowH) {
+                Hit h;
+                h.type    = Hit::PinValue;
+                h.nodeId  = node.id;
+                h.pinName = "actorId";
+                return h;
+            }
+            continue; // ActorRef 无数据输入引脚，跳过后续检测
+        }
+
+        // 其他节点：检测未连接的非 actorId 数据输入引脚
+        int extraRows = 0;
+        int row = 0;
+        for (const PinDef& pd : def->pins) {
+            if (!pd.isExec && !pd.isOutput && pd.key != "actorId"
+                && !isPinConnected(node.id, pd.key, false)) {
+                QPointF pc = pinCenter(node, pd.key, false);
+                float rowY = tl.y() + (kHeaderH + (row + extraRows) * kRowH) * m_zoom;
+                float rowH = kRowH * m_zoom;
+                float valX0 = (float)(pc.x() + 10.0);
+                float valX1 = (float)(tl.x() + nw - 6.0);
+                if (screenPos.x() >= valX0 && screenPos.x() <= valX1 &&
+                    screenPos.y() >= rowY  && screenPos.y() <= rowY + rowH) {
+                    Hit h;
+                    h.type    = Hit::PinValue;
+                    h.nodeId  = node.id;
+                    h.pinName = pd.key;
+                    return h;
+                }
+            }
+            ++row;
+        }
+    }
+
+    for (int i = nodes.size() - 1; i >= 0; --i) {
+        const BPNode& node = nodes[i];
+        QPointF tl = canvasToScreen({node.x, node.y});
+        float nw = kNodeW * m_zoom;
+        float nh = nodeHeight(node) * m_zoom;
+        if (screenPos.x() >= tl.x() && screenPos.x() <= tl.x() + nw &&
+            screenPos.y() >= tl.y() && screenPos.y() <= tl.y() + nh) {
+            Hit h;
+            h.type   = Hit::Node;
+            h.nodeId = node.id;
+            return h;
+        }
+    }
+    return {};
+}
+
+// ── 绘制 ──────────────────────────────────────────────────────────────
+
+void BlueprintEditor::paintEvent(QPaintEvent*) {
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+
+    p.fillRect(rect(), QColor(0x16, 0x16, 0x16));
+    drawBackground(p);
+    drawConnections(p);
+    drawNodes(p);
+    drawDanglingWire(p);
+}
+
+void BlueprintEditor::drawBackground(QPainter& p) {
+    const float baseStep = 20.0f;
+    float step = baseStep * m_zoom;
+    while (step < 10.0f) step *= 2.0f;
+    while (step > 60.0f) step /= 2.0f;
+
+    QPointF origin = canvasToScreen({0, 0});
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(0x2a, 0x2a, 0x2a));
+
+    float startX = std::fmod((float)origin.x(), step);
+    if (startX < 0) startX += step;
+    float startY = std::fmod((float)origin.y(), step);
+    if (startY < 0) startY += step;
+
+    for (float x = startX; x < width(); x += step)
+        for (float y = startY; y < height(); y += step)
+            p.drawEllipse(QPointF(x, y), 1.2, 1.2);
+}
+
+void BlueprintEditor::drawBezier(QPainter& p, QPointF from, QPointF to, bool isExec) {
+    const QColor color = isExec ? QColor(0xe0, 0x7a, 0x30) : QColor(0xcc, 0xcc, 0xcc);
+    p.setPen(QPen(color, qMax(1.5, 2.0 * m_zoom), Qt::SolidLine, Qt::RoundCap));
+    p.setBrush(Qt::NoBrush);
+
+    float dx = qMax(80.0f * (float)m_zoom, (float)std::fabs(to.x() - from.x()) * 0.5f);
+    QPainterPath path;
+    path.moveTo(from);
+    path.cubicTo(from + QPointF(dx, 0), to - QPointF(dx, 0), to);
+    p.drawPath(path);
+}
+
+void BlueprintEditor::drawConnections(QPainter& p) {
+    if (!m_doc) return;
+    for (const BPConnection& conn : m_doc->bpConnections()) {
+        const BPNode* fromNode = findNode(conn.fromNode);
+        const BPNode* toNode   = findNode(conn.toNode);
+        if (!fromNode || !toNode) continue;
+
+        QPointF from = pinCenter(*fromNode, conn.fromPin, true);
+        QPointF to   = pinCenter(*toNode,   conn.toPin,   false);
+        bool isExec  = isPinExec(fromNode->type, conn.fromPin, true);
+        drawBezier(p, from, to, isExec);
+    }
+}
+
+void BlueprintEditor::drawPin(QPainter& p, QPointF center, bool isExec, bool connected) {
+    const QColor execColor(0xe0, 0x7a, 0x30);
+    const QColor dataColor(0xcc, 0xcc, 0xcc);
+    const QColor emptyBg(0x22, 0x22, 0x22);
+
+    if (isExec) {
+        float r = kPinR * (float)m_zoom;
+        p.setPen(QPen(execColor, 1.5));
+        p.setBrush(connected ? execColor : emptyBg);
+        p.drawEllipse(center, r, r);
+    } else {
+        float half = kPinSq * (float)m_zoom;
+        QRectF sq(center.x() - half, center.y() - half, half * 2.0f, half * 2.0f);
+        p.setPen(QPen(dataColor, 1.5));
+        p.setBrush(connected ? dataColor : emptyBg);
+        p.drawRect(sq);
+    }
+}
+
+void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
+    const NodeDef* def = findNodeDef(node.type);
+    if (!def) return;
+
+    QPointF tl = canvasToScreen({node.x, node.y});
+    float nw = kNodeW * (float)m_zoom;
+    float nh = nodeHeight(node) * (float)m_zoom;
+    float hh = kHeaderH * (float)m_zoom;
+    float radius = 6.0f * (float)m_zoom;
+
+    QRectF nodeRc(tl.x(), tl.y(), nw, nh);
+
+    // 节点背景
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(0x22, 0x22, 0x22));
+    p.drawRoundedRect(nodeRc, radius, radius);
+
+    // 表头（仅顶部两角圆角）
+    QRectF headerRc(tl.x(), tl.y(), nw, hh);
+    QPainterPath headerPath;
+    headerPath.moveTo(headerRc.bottomLeft());
+    headerPath.lineTo(headerRc.topLeft() + QPointF(0, radius));
+    headerPath.quadTo(headerRc.topLeft(), headerRc.topLeft() + QPointF(radius, 0));
+    headerPath.lineTo(headerRc.topRight() - QPointF(radius, 0));
+    headerPath.quadTo(headerRc.topRight(), headerRc.topRight() + QPointF(0, radius));
+    headerPath.lineTo(headerRc.bottomRight());
+    headerPath.closeSubpath();
+    p.setBrush(def->headerColor);
+    p.drawPath(headerPath);
+
+    // 色块图标
+    float iconSz = 8.0f * (float)m_zoom;
+    float iconX  = tl.x() + 6.0f * (float)m_zoom;
+    float iconY  = tl.y() + (hh - iconSz) * 0.5f;
+    QColor iconColor = def->headerColor.lighter(150);
+    p.setBrush(iconColor);
+    p.drawRect(QRectF(iconX, iconY, iconSz, iconSz));
+
+    // 节点标题文字
+    float fontSize = qMax(8.0, 10.0 * m_zoom);
+    QFont font; font.setPointSizeF(fontSize); font.setBold(false);
+    p.setFont(font);
+    p.setPen(QColor(0xff, 0xff, 0xff));
+    float textX = iconX + iconSz + 5.0f * (float)m_zoom;
+    p.drawText(QRectF(textX, tl.y(), nw - (textX - tl.x()) - 4, hh),
+               Qt::AlignVCenter | Qt::AlignLeft, def->displayName);
+
+    // 分隔线
+    p.setPen(QPen(QColor(0x33, 0x33, 0x33), 1.0));
+    p.drawLine(QPointF(tl.x(), tl.y() + hh), QPointF(tl.x() + nw, tl.y() + hh));
+
+    // Var.ActorRef：选择器按钮（在 pin 行上方的额外行）
+    if (node.type == "Var.ActorRef") {
+        QString actorName = "(点击选择对象)";
+        QString actorId = node.params.value("actorId");
+        bool hasActor = !actorId.isEmpty();
+        if (hasActor && m_doc) {
+            for (const ActorData& a : m_doc->actors())
+                if (a.id == actorId) { actorName = a.name; break; }
+        }
+        float btnRowY = tl.y() + kHeaderH * (float)m_zoom;
+        float btnRowH = kRowH * (float)m_zoom;
+        QRectF btnRc(tl.x() + 6.0f*(float)m_zoom, btnRowY + 3.0f*(float)m_zoom,
+                     nw - 12.0f*(float)m_zoom, btnRowH - 6.0f*(float)m_zoom);
+        p.setBrush(QColor(0x33, 0x28, 0x18));
+        p.setPen(QPen(hasActor ? QColor(0x5a, 0x9f, 0xd4) : QColor(0x55, 0x44, 0x33), 1.0));
+        p.drawRoundedRect(btnRc, 3.0*(float)m_zoom, 3.0*(float)m_zoom);
+        QFont bf; bf.setPointSizeF(qMax(7.0, 9.0 * m_zoom));
+        p.setFont(bf);
+        p.setPen(hasActor ? QColor(0x5a, 0x9f, 0xd4) : QColor(0x77, 0x66, 0x55));
+        p.drawText(btnRc, Qt::AlignCenter, actorName);
+    }
+
+    // Pin 行
+    font.setBold(false);
+    float pinFontSize = qMax(7.0, 9.0 * m_zoom);
+    font.setPointSizeF(pinFontSize);
+    p.setFont(font);
+
+    int extraRows = (node.type == "Var.ActorRef") ? 1 : 0;
+    int row = 0;
+    for (const PinDef& pd : def->pins) {
+        QPointF pc = pinCenter(node, pd.key, pd.isOutput);
+        bool connected = isPinConnected(node.id, pd.key, pd.isOutput);
+        drawPin(p, pc, pd.isExec, connected);
+
+        // 标签
+        p.setPen(QColor(0xaa, 0xaa, 0xaa));
+        float rowY = tl.y() + (kHeaderH + (row + extraRows) * kRowH) * (float)m_zoom;
+        float rowH = kRowH * (float)m_zoom;
+        if (pd.isOutput) {
+            QRectF labelRc(tl.x(), rowY, nw - 18.0f * (float)m_zoom, rowH);
+            p.drawText(labelRc, Qt::AlignVCenter | Qt::AlignRight, pd.label);
+        } else {
+            QRectF labelRc(tl.x() + 18.0f * (float)m_zoom, rowY, nw - 18.0f * (float)m_zoom, rowH);
+            p.drawText(labelRc, Qt::AlignVCenter | Qt::AlignLeft, pd.label);
+
+            // 未连接的非 actorId 数据输入引脚：右侧显示当前参数值
+            if (!pd.isExec && pd.key != "actorId" && !isPinConnected(node.id, pd.key, false)) {
+                QString val = node.params.value(pd.key);
+                QString display = val.isEmpty() ? "···" : val;
+                p.setPen(val.isEmpty() ? QColor(0x55, 0x55, 0x55) : QColor(0x5a, 0x9f, 0xd4));
+                QFont vf; vf.setPointSizeF(qMax(7.0, 8.5 * m_zoom));
+                p.setFont(vf);
+                QRectF valRc(tl.x() + 16.0f * (float)m_zoom, rowY, nw - 22.0f * (float)m_zoom, rowH);
+                p.drawText(valRc, Qt::AlignVCenter | Qt::AlignRight, display);
+                p.setFont(font); // 恢复 pin 字体
+            }
+        }
+        ++row;
+    }
+
+    // 选中高亮（最后绘制，保证在所有内容上方）
+    if (node.id == m_selectedNodeId) {
+        p.setPen(QPen(QColor(0xff, 0xff, 0xff), 2.0));
+        p.setBrush(Qt::NoBrush);
+        p.drawRoundedRect(nodeRc.adjusted(-3, -3, 3, 3), radius + 2, radius + 2);
+    }
+}
+
+void BlueprintEditor::drawNodes(QPainter& p) {
+    if (!m_doc) return;
+    for (const BPNode& node : m_doc->bpNodes())
+        drawNode(p, node);
+}
+
+void BlueprintEditor::drawDanglingWire(QPainter& p) {
+    if (m_dragState != DragState::DraggingWire) return;
+    const BPNode* fromNode = findNode(m_wireFromNode);
+    if (!fromNode) return;
+
+    QPointF from = pinCenter(*fromNode, m_wireFromPin, m_wireFromIsOutput);
+    QPointF to   = canvasToScreen(m_wireCursorPos);
+    bool isExec  = isPinExec(fromNode->type, m_wireFromPin, m_wireFromIsOutput);
+
+    if (!m_wireFromIsOutput) qSwap(from, to);
+    drawBezier(p, from, to, isExec);
+}
+
+// ── 滚轮缩放 ──────────────────────────────────────────────────────────
+
+void BlueprintEditor::wheelEvent(QWheelEvent* e) {
+    const float factor = e->angleDelta().y() > 0 ? 1.15f : (1.0f / 1.15f);
+    float newZoom = qBound(0.1f, m_zoom * factor, 3.0f);
+    // 以鼠标为中心缩放
+    QPointF mouse = e->position();
+    QPointF canvasBefore = screenToCanvas(mouse);
+    m_zoom = newZoom;
+    QPointF screenAfter = canvasToScreen(canvasBefore);
+    m_offset += mouse - screenAfter;
+    update();
+}
+
+// ── 鼠标事件 ──────────────────────────────────────────────────────────
+
+void BlueprintEditor::mousePressEvent(QMouseEvent* e) {
+    // 弹窗显示时，点击弹窗外部关闭它
+    if (m_wireDropPopup && m_wireDropPopup->isVisible()) {
+        if (!m_wireDropPopup->geometry().contains(e->pos())) {
+            hideWireDropPopup();
+            m_wireFromNode.clear();
+            m_wireFromPin.clear();
+        }
+        return;
+    }
+    if (m_paramEditPopup && m_paramEditPopup->isVisible()) {
+        if (!m_paramEditPopup->geometry().contains(e->pos())) {
+            hideParamEditPopup();
+        }
+        return;
+    }
+    setFocus();
+    if (e->button() == Qt::MiddleButton) {
+        m_panning   = true;
+        m_lastMouse = e->pos();
+        setCursor(Qt::ClosedHandCursor);
+        return;
+    }
+    if (e->button() != Qt::LeftButton) return;
+
+    Hit hit = hitTest(e->position());
+
+    // 点中节点上的任意位置（含 pin/value 区域）都算选中该节点
+    if (hit.type == Hit::Pin || hit.type == Hit::Node || hit.type == Hit::PinValue)
+        m_selectedNodeId = hit.nodeId;
+
+    // 点击引脚值区域 → 弹出编辑面板
+    if (hit.type == Hit::PinValue) {
+        showParamEditPopup(e->pos(), hit.nodeId, hit.pinName);
+        update();
+        return;
+    }
+
+    if (hit.type == Hit::Pin) {
+        if (hit.pinIsOutput) {
+            // 从输出 pin 开始连线
+            m_dragState         = DragState::DraggingWire;
+            m_wireFromNode      = hit.nodeId;
+            m_wireFromPin       = hit.pinName;
+            m_wireFromIsOutput  = true;
+            m_wireCursorPos     = screenToCanvas(e->position());
+        } else {
+            // 从输入 pin 开始：若已有连接，断开旧连接并从旧的输出端开始拖拽
+            if (!m_doc) return;
+            QString oldConnId, oldFromNode, oldFromPin;
+            for (const BPConnection& c : m_doc->bpConnections()) {
+                if (c.toNode == hit.nodeId && c.toPin == hit.pinName) {
+                    oldConnId   = c.id;
+                    oldFromNode = c.fromNode;
+                    oldFromPin  = c.fromPin;
+                    break;
+                }
+            }
+            if (!oldConnId.isEmpty()) {
+                m_doc->removeBPConnection(oldConnId);
+                emit documentModified();
+                m_dragState        = DragState::DraggingWire;
+                m_wireFromNode     = oldFromNode;
+                m_wireFromPin      = oldFromPin;
+                m_wireFromIsOutput = true;
+                m_wireCursorPos    = screenToCanvas(e->position());
+            } else {
+                // 未连接的输入 pin，从该 pin 向外拖拽（方向输入→输出）
+                m_dragState        = DragState::DraggingWire;
+                m_wireFromNode     = hit.nodeId;
+                m_wireFromPin      = hit.pinName;
+                m_wireFromIsOutput = false;
+                m_wireCursorPos    = screenToCanvas(e->position());
+            }
+        }
+        update();
+        return;
+    }
+
+    if (hit.type == Hit::Node) {
+        m_selectedNodeId  = hit.nodeId;
+        m_dragState       = DragState::DraggingNode;
+        m_draggingNodeId  = hit.nodeId;
+        const BPNode* n = findNode(hit.nodeId);
+        if (n) m_dragOffset = screenToCanvas(e->position()) - QPointF(n->x, n->y);
+        update();
+        return;
+    }
+
+    // 点击空白
+    m_selectedNodeId.clear();
+    update();
+}
+
+void BlueprintEditor::mouseMoveEvent(QMouseEvent* e) {
+    if (m_panning) {
+        QPoint delta = e->pos() - m_lastMouse;
+        m_offset   += delta;
+        m_lastMouse = e->pos();
+        update();
+        return;
+    }
+    if (m_dragState == DragState::DraggingNode && m_doc) {
+        QPointF canvasPos = screenToCanvas(e->position()) - m_dragOffset;
+        // 直接修改节点坐标（临时，不标脏）
+        for (BPNode& n : const_cast<QList<BPNode>&>(m_doc->bpNodes())) {
+            if (n.id == m_draggingNodeId) {
+                n.x = (float)canvasPos.x();
+                n.y = (float)canvasPos.y();
+                break;
+            }
+        }
+        update();
+        return;
+    }
+    if (m_dragState == DragState::DraggingWire) {
+        m_wireCursorPos = screenToCanvas(e->position());
+        update();
+    }
+}
+
+void BlueprintEditor::mouseReleaseEvent(QMouseEvent* e) {
+    if (e->button() == Qt::MiddleButton) {
+        m_panning = false;
+        setCursor(Qt::ArrowCursor);
+        return;
+    }
+    if (e->button() != Qt::LeftButton) return;
+
+    if (m_dragState == DragState::DraggingNode && m_doc) {
+        // 正式提交节点位置
+        const BPNode* n = findNode(m_draggingNodeId);
+        if (n) {
+            m_doc->updateBPNode(*n);
+            emit documentModified();
+        }
+        m_dragState = DragState::None;
+        m_draggingNodeId.clear();
+        update();
+        return;
+    }
+
+    if (m_dragState == DragState::DraggingWire && m_doc) {
+        Hit hit = hitTest(e->position());
+        if (hit.type == Hit::Pin && hit.nodeId != m_wireFromNode
+            && hit.pinIsOutput != m_wireFromIsOutput)
+        {
+            // 确定方向：from=输出端，to=输入端
+            QString fromNode = m_wireFromIsOutput ? m_wireFromNode : hit.nodeId;
+            QString fromPin  = m_wireFromIsOutput ? m_wireFromPin  : hit.pinName;
+            QString toNode   = m_wireFromIsOutput ? hit.nodeId     : m_wireFromNode;
+            QString toPin    = m_wireFromIsOutput ? hit.pinName    : m_wireFromPin;
+
+            // 类型兼容校验（exec-exec 或 data-data）
+            const BPNode* fromNodePtr = findNode(fromNode);
+            const BPNode* toNodePtr   = findNode(toNode);
+            bool typeOk = false;
+            if (fromNodePtr && toNodePtr) {
+                bool fromExec = isPinExec(fromNodePtr->type, fromPin, true);
+                bool toExec   = isPinExec(toNodePtr->type,   toPin,   false);
+                typeOk = (fromExec == toExec);
+            }
+
+            if (typeOk) {
+                // 若目标输入 pin 已有连接，先删除
+                for (const BPConnection& c : m_doc->bpConnections()) {
+                    if (c.toNode == toNode && c.toPin == toPin) {
+                        m_doc->removeBPConnection(c.id);
+                        break;
+                    }
+                }
+                BPConnection conn;
+                conn.id       = QUuid::createUuid().toString(QUuid::WithoutBraces);
+                conn.fromNode = fromNode;
+                conn.fromPin  = fromPin;
+                conn.toNode   = toNode;
+                conn.toPin    = toPin;
+                m_doc->addBPConnection(conn);
+                emit documentModified();
+            }
+            m_dragState = DragState::None;
+            update();
+            return;
+        }
+
+        // 落到空白处 → 显示节点创建弹窗
+        if (hit.type == Hit::None) {
+            showWireDropPopup(e->pos());
+            return;
+        }
+
+        m_dragState = DragState::None;
+        update();
+        return;
+    }
+
+    m_dragState = DragState::None;
+}
+
+// ── 键盘事件 ──────────────────────────────────────────────────────────
+
+void BlueprintEditor::keyPressEvent(QKeyEvent* e) {
+    if ((e->key() == Qt::Key_Delete || e->key() == Qt::Key_Backspace)
+        && !m_selectedNodeId.isEmpty() && m_doc) {
+        // 先删除所有关联连接
+        QStringList toRemove;
+        for (const BPConnection& c : m_doc->bpConnections())
+            if (c.fromNode == m_selectedNodeId || c.toNode == m_selectedNodeId)
+                toRemove.append(c.id);
+        for (const QString& id : toRemove)
+            m_doc->removeBPConnection(id);
+        m_doc->removeBPNode(m_selectedNodeId);
+        m_selectedNodeId.clear();
+        emit documentModified();
+        update();
+    }
+}
+
+// ── 右键菜单 ──────────────────────────────────────────────────────────
+
+void BlueprintEditor::contextMenuEvent(QContextMenuEvent* e) {
+    if (!m_doc) return;
+    QPointF canvasPos = screenToCanvas(e->pos());
+
+    QMenu menu(this);
+    auto* eventMenu  = menu.addMenu("事件");
+    auto* actionMenu = menu.addMenu("动作");
+    auto* flowMenu   = menu.addMenu("流程控制");
+    auto* varMenu    = menu.addMenu("变量");
+
+    for (const NodeDef& def : nodeDefs()) {
+        QMenu* target = def.typeId.startsWith("Event.")  ? eventMenu  :
+                        def.typeId.startsWith("Action.") ? actionMenu :
+                        def.typeId.startsWith("Flow.")   ? flowMenu   : varMenu;
+        const QString typeId = def.typeId;
+        target->addAction(def.displayName, [this, typeId, canvasPos]() {
+            if (!m_doc) return;
+            BPNode node;
+            node.id   = QUuid::createUuid().toString(QUuid::WithoutBraces);
+            node.type = typeId;
+            node.x    = (float)canvasPos.x();
+            node.y    = (float)canvasPos.y();
+            m_doc->addBPNode(node);
+            m_selectedNodeId = node.id;
+            emit documentModified();
+            update();
+        });
+    }
+    menu.exec(e->globalPos());
+}
+
+// ── eventFilter（捕获弹窗内 Escape）────────────────────────────────────
+
+bool BlueprintEditor::eventFilter(QObject* obj, QEvent* e) {
+    if (e->type() == QEvent::KeyPress) {
+        auto* ke = static_cast<QKeyEvent*>(e);
+        if (ke->key() == Qt::Key_Escape) {
+            if (m_wireDropPopup && m_wireDropPopup->isVisible()) {
+                hideWireDropPopup();
+                m_wireFromNode.clear();
+                m_wireFromPin.clear();
+                return true;
+            }
+            if (m_paramEditPopup && m_paramEditPopup->isVisible()) {
+                hideParamEditPopup();
+                return true;
+            }
+        }
+    }
+    return QWidget::eventFilter(obj, e);
+}
+
+// ── 拖线松开弹窗 ──────────────────────────────────────────────────────
+
+void BlueprintEditor::showWireDropPopup(QPoint screenPos) {
+    hideWireDropPopup();
+
+    m_wireDropCanvasPos = m_wireCursorPos;
+
+    const BPNode* fromNodePtr = findNode(m_wireFromNode);
+    if (!fromNodePtr) {
+        m_dragState = DragState::None;
+        update();
+        return;
+    }
+    const bool isExecWire   = isPinExec(fromNodePtr->type, m_wireFromPin, m_wireFromIsOutput);
+    const bool needInputPin = m_wireFromIsOutput; // 从输出拖，新节点需要输入 pin
+
+    m_wireDropPopup = new QFrame(this);
+    m_wireDropPopup->setObjectName("wireDropPopup");
+    m_wireDropPopup->setStyleSheet(
+        "QFrame#wireDropPopup {"
+        "  background:#252526; border:1px solid #454545; border-radius:6px; }"
+        "QLineEdit {"
+        "  background:#3c3c3c; color:#ccc; border:1px solid #555;"
+        "  border-radius:3px; padding:4px 6px; }"
+        "QTreeWidget {"
+        "  background:transparent; color:#ccc; border:none; outline:0; }"
+        "QTreeWidget::item { padding:3px 4px; }"
+        "QTreeWidget::item:hover { background:#2a2d2e; }"
+        "QTreeWidget::item:selected { background:#094771; color:#fff; }"
+        "QScrollBar:vertical { background:#252526; width:8px; border:none; }"
+        "QScrollBar::handle:vertical { background:#454545; border-radius:4px; min-height:20px; }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0; }"
+    );
+
+    auto* vlay = new QVBoxLayout(m_wireDropPopup);
+    vlay->setContentsMargins(0, 0, 0, 6);
+    vlay->setSpacing(0);
+
+    // 标题栏
+    auto* titleBar = new QWidget(m_wireDropPopup);
+    titleBar->setStyleSheet("background:#1e1e1e;");
+    auto* titleLay = new QHBoxLayout(titleBar);
+    titleLay->setContentsMargins(10, 7, 8, 7);
+    auto* titleLbl = new QLabel("添加节点", titleBar);
+    titleLbl->setStyleSheet("color:#aaa; font-size:11px; font-weight:bold; background:transparent;");
+    auto* pinTypeLbl = new QLabel(isExecWire ? "[执行]" : "[数据]", titleBar);
+    pinTypeLbl->setStyleSheet(
+        QString("color:%1; font-size:10px; background:transparent;")
+            .arg(isExecWire ? "#e07a30" : "#cccccc"));
+    titleLay->addWidget(titleLbl);
+    titleLay->addStretch();
+    titleLay->addWidget(pinTypeLbl);
+    vlay->addWidget(titleBar);
+
+    // 搜索框
+    auto* searchEdit = new QLineEdit(m_wireDropPopup);
+    searchEdit->setPlaceholderText("搜索...");
+    searchEdit->setClearButtonEnabled(true);
+    QFont sf; sf.setPointSize(11); searchEdit->setFont(sf);
+    QWidget* searchWrap = new QWidget(m_wireDropPopup);
+    searchWrap->setStyleSheet("background:transparent;");
+    auto* searchLay = new QHBoxLayout(searchWrap);
+    searchLay->setContentsMargins(6, 6, 6, 4);
+    searchLay->addWidget(searchEdit);
+    vlay->addWidget(searchWrap);
+
+    // 树形列表
+    auto* tree = new QTreeWidget(m_wireDropPopup);
+    tree->setHeaderHidden(true);
+    tree->setRootIsDecorated(true);
+    tree->setIndentation(16);
+    tree->setAnimated(false);
+    QFont tf; tf.setPointSize(10); tree->setFont(tf);
+    vlay->addWidget(tree, 1);
+
+    // 收集兼容节点并按分类插入
+    QMap<QString, QTreeWidgetItem*> catItems;
+    auto getCat = [&](const QString& name) -> QTreeWidgetItem* {
+        if (!catItems.contains(name)) {
+            auto* ci = new QTreeWidgetItem(tree, {name});
+            ci->setFlags(ci->flags() & ~Qt::ItemIsSelectable);
+            QFont cf; cf.setBold(true); cf.setPointSize(9); ci->setFont(0, cf);
+            ci->setForeground(0, QColor("#888888"));
+            catItems[name] = ci;
+        }
+        return catItems[name];
+    };
+
+    for (const NodeDef& def : nodeDefs()) {
+        QString compatPin;
+        for (const PinDef& pd : def.pins) {
+            // 兼容条件：pin 方向相对于新节点；类型相同
+            bool wantOutput = !needInputPin;
+            if (pd.isOutput == wantOutput && pd.isExec == isExecWire) {
+                compatPin = pd.key;
+                break;
+            }
+        }
+        if (compatPin.isEmpty()) continue;
+
+        QString catName = def.typeId.startsWith("Event.")  ? "事件"    :
+                          def.typeId.startsWith("Action.") ? "动作"    :
+                          def.typeId.startsWith("Flow.")   ? "流程控制" : "变量";
+        auto* ci  = getCat(catName);
+        auto* ni  = new QTreeWidgetItem(ci, {def.displayName});
+        ni->setData(0, Qt::UserRole,     def.typeId);
+        ni->setData(0, Qt::UserRole + 1, compatPin);
+    }
+    tree->expandAll();
+
+    // 搜索过滤
+    connect(searchEdit, &QLineEdit::textChanged, tree, [tree](const QString& text) {
+        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+            auto* cat = tree->topLevelItem(i);
+            bool anyVis = false;
+            for (int j = 0; j < cat->childCount(); ++j) {
+                auto* item = cat->child(j);
+                bool vis = text.isEmpty() || item->text(0).contains(text, Qt::CaseInsensitive);
+                item->setHidden(!vis);
+                if (vis) anyVis = true;
+            }
+            cat->setHidden(!text.isEmpty() && !anyVis);
+            if (!text.isEmpty() && anyVis) cat->setExpanded(true);
+        }
+    });
+
+    // 选择节点（Enter 或单击，itemActivated 已覆盖双击，不重复连接 itemDoubleClicked 以防重入）
+    auto onSelect = [this](QTreeWidgetItem* item) {
+        if (!item || !item->parent()) return;
+        onWireDropSelected(item->data(0, Qt::UserRole).toString(),
+                           item->data(0, Qt::UserRole + 1).toString());
+    };
+    connect(tree, &QTreeWidget::itemActivated, m_wireDropPopup, [onSelect](QTreeWidgetItem* i, int) { onSelect(i); });
+    connect(tree, &QTreeWidget::itemClicked,   m_wireDropPopup, [onSelect](QTreeWidgetItem* i, int) { onSelect(i); });
+
+    // 安装 Escape 过滤器
+    searchEdit->installEventFilter(this);
+    tree->installEventFilter(this);
+
+    // 位置与大小
+    const int popW = 240, popH = 300;
+    QPoint pos = screenPos;
+    if (pos.x() + popW > width())  pos.setX(width()  - popW);
+    if (pos.y() + popH > height()) pos.setY(height() - popH);
+    if (pos.x() < 0) pos.setX(0);
+    if (pos.y() < 0) pos.setY(0);
+    m_wireDropPopup->setGeometry(pos.x(), pos.y(), popW, popH);
+    m_wireDropPopup->show();
+    m_wireDropPopup->raise();
+    searchEdit->setFocus();
+
+    m_dragState = DragState::None;
+    update();
+}
+
+void BlueprintEditor::hideWireDropPopup() {
+    if (m_wireDropPopup) {
+        m_wireDropPopup->hide();
+        m_wireDropPopup->deleteLater();
+        m_wireDropPopup = nullptr;
+    }
+}
+
+void BlueprintEditor::onWireDropSelected(const QString& typeId, const QString& compatPin) {
+    // 防止 itemActivated + itemClicked 在同一次操作中重复触发
+    if (!m_doc || m_wireFromNode.isEmpty()) { hideWireDropPopup(); return; }
+
+    // 立即占住 wire 来源，防止任何重入再次进入此函数
+    const QString fromNode        = m_wireFromNode;
+    const QString fromPin         = m_wireFromPin;
+    const bool    fromIsOutput    = m_wireFromIsOutput;
+    m_wireFromNode.clear();
+    m_wireFromPin.clear();
+
+    BPNode node;
+    node.id   = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    node.type = typeId;
+    node.x    = (float)m_wireDropCanvasPos.x();
+    node.y    = (float)m_wireDropCanvasPos.y();
+    m_doc->addBPNode(node);
+
+    BPConnection conn;
+    conn.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    if (fromIsOutput) {
+        conn.fromNode = fromNode;
+        conn.fromPin  = fromPin;
+        conn.toNode   = node.id;
+        conn.toPin    = compatPin;
+    } else {
+        conn.fromNode = node.id;
+        conn.fromPin  = compatPin;
+        conn.toNode   = fromNode;
+        conn.toPin    = fromPin;
+    }
+    m_doc->addBPConnection(conn);
+
+    m_selectedNodeId = node.id;
+    emit documentModified();
+
+    hideWireDropPopup();
+    update();
+}
+
+// ── 引脚值编辑弹窗 ────────────────────────────────────────────────────
+
+void BlueprintEditor::showParamEditPopup(QPoint screenPos, const QString& nodeId, const QString& pinKey) {
+    hideParamEditPopup();
+
+    const BPNode* node = findNode(nodeId);
+    if (!node || !m_doc) return;
+    const NodeDef* def = findNodeDef(node->type);
+    if (!def) return;
+
+    // 找到引脚的 label
+    QString pinLabel = pinKey;
+    for (const PinDef& pd : def->pins)
+        if (pd.key == pinKey) { pinLabel = pd.label; break; }
+
+    m_paramEditNodeId = nodeId;
+    m_paramEditPinKey = pinKey;
+
+    m_paramEditPopup = new QFrame(this);
+    m_paramEditPopup->setObjectName("paramEditPopup");
+    m_paramEditPopup->setStyleSheet(
+        "QFrame#paramEditPopup {"
+        "  background:#252526; border:1px solid #454545; border-radius:6px; }"
+        "QLineEdit {"
+        "  background:#3c3c3c; color:#ccc; border:1px solid #555;"
+        "  border-radius:3px; padding:4px 6px; }"
+        "QListWidget {"
+        "  background:transparent; color:#ccc; border:none; outline:0; }"
+        "QListWidget::item { padding:4px 8px; }"
+        "QListWidget::item:hover { background:#2a2d2e; }"
+        "QListWidget::item:selected { background:#094771; color:#fff; }"
+        "QScrollBar:vertical { background:#252526; width:8px; border:none; }"
+        "QScrollBar::handle:vertical { background:#454545; border-radius:4px; min-height:20px; }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0; }"
+    );
+
+    auto* vlay = new QVBoxLayout(m_paramEditPopup);
+    vlay->setContentsMargins(0, 0, 0, 6);
+    vlay->setSpacing(0);
+
+    // 标题栏
+    auto* titleBar = new QWidget(m_paramEditPopup);
+    titleBar->setStyleSheet("background:#1e1e1e;");
+    auto* titleLay = new QHBoxLayout(titleBar);
+    titleLay->setContentsMargins(10, 7, 8, 7);
+    bool isActorId = (pinKey == "actorId");
+    auto* titleLbl = new QLabel(isActorId ? "选择对象" : ("设置：" + pinLabel), titleBar);
+    titleLbl->setStyleSheet("color:#aaa; font-size:11px; font-weight:bold; background:transparent;");
+    titleLay->addWidget(titleLbl);
+    titleLay->addStretch();
+    vlay->addWidget(titleBar);
+
+    int popW = 220, popH = 0;
+
+    if (isActorId) {
+        // Actor 选择列表
+        auto* list = new QListWidget(m_paramEditPopup);
+        QFont lf; lf.setPointSize(10); list->setFont(lf);
+
+        auto* clearItem = new QListWidgetItem("（清空）", list);
+        clearItem->setForeground(QColor("#888"));
+        clearItem->setData(Qt::UserRole, QString(""));
+
+        QString currentId = node->params.value(pinKey);
+        for (const ActorData& a : m_doc->actors()) {
+            auto* item = new QListWidgetItem(a.name, list);
+            item->setData(Qt::UserRole, a.id);
+            if (a.id == currentId)
+                list->setCurrentItem(item);
+        }
+
+        connect(list, &QListWidget::itemClicked, m_paramEditPopup, [this](QListWidgetItem* item) {
+            onParamValueConfirmed(item->data(Qt::UserRole).toString());
+        });
+        list->installEventFilter(this);
+
+        vlay->addWidget(list, 1);
+        int itemCount = qMin(list->count(), 8);
+        popH = 42 + itemCount * 28 + 12;
+    } else {
+        // 文本输入
+        auto* wrap = new QWidget(m_paramEditPopup);
+        wrap->setStyleSheet("background:transparent;");
+        auto* wl = new QHBoxLayout(wrap);
+        wl->setContentsMargins(8, 6, 8, 4);
+        auto* edit = new QLineEdit(wrap);
+        edit->setText(node->params.value(pinKey));
+        edit->selectAll();
+        QFont ef; ef.setPointSize(11); edit->setFont(ef);
+        wl->addWidget(edit);
+        vlay->addWidget(wrap);
+
+        connect(edit, &QLineEdit::returnPressed, m_paramEditPopup, [this, edit]() {
+            onParamValueConfirmed(edit->text());
+        });
+        edit->installEventFilter(this);
+        QTimer::singleShot(0, edit, [edit]() { edit->setFocus(); });
+
+        popH = 42 + 48;
+    }
+
+    // 位置与大小
+    QPoint pos = screenPos;
+    if (pos.x() + popW > width())  pos.setX(width()  - popW);
+    if (pos.y() + popH > height()) pos.setY(height() - popH);
+    if (pos.x() < 0) pos.setX(0);
+    if (pos.y() < 0) pos.setY(0);
+    m_paramEditPopup->setGeometry(pos.x(), pos.y(), popW, popH);
+    m_paramEditPopup->show();
+    m_paramEditPopup->raise();
+}
+
+void BlueprintEditor::hideParamEditPopup() {
+    if (m_paramEditPopup) {
+        m_paramEditPopup->hide();
+        m_paramEditPopup->deleteLater();
+        m_paramEditPopup = nullptr;
+    }
+}
+
+void BlueprintEditor::onParamValueConfirmed(const QString& value) {
+    if (!m_doc || m_paramEditNodeId.isEmpty()) { hideParamEditPopup(); return; }
+    const QString nodeId  = m_paramEditNodeId;
+    const QString pinKey  = m_paramEditPinKey;
+    m_paramEditNodeId.clear();
+    m_paramEditPinKey.clear();
+    for (BPNode& n : const_cast<QList<BPNode>&>(m_doc->bpNodes())) {
+        if (n.id == nodeId) {
+            if (value.isEmpty()) n.params.remove(pinKey);
+            else                  n.params[pinKey] = value;
+            m_doc->updateBPNode(n);
+            emit documentModified();
+            break;
+        }
+    }
+    hideParamEditPopup();
+    update();
+}
