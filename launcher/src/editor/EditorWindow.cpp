@@ -6,6 +6,8 @@
 #include "DetailsPanel.h"
 #include "ContentBrowser.h"
 #include "LayoutManager.h"
+#include "DocTabBar.h"
+#include "BlueprintFloatWindow.h"
 #include "ProjectSettingsDialog.h"
 #include "models/LevelDocument.h"
 #include <DockManager.h>
@@ -90,7 +92,7 @@ void EditorWindow::setupDocTabBar() {
     tb->setFixedHeight(30);
     tb->setContextMenuPolicy(Qt::PreventContextMenu);
 
-    auto* tabBar = new QTabBar(tb);
+    auto* tabBar = new DocTabBar(tb);
     tabBar->setObjectName("docTabBar");
     tabBar->setTabsClosable(true);
     tabBar->setExpanding(false);
@@ -100,6 +102,8 @@ void EditorWindow::setupDocTabBar() {
 
     connect(tabBar, &QTabBar::currentChanged,    this, &EditorWindow::onTabChanged);
     connect(tabBar, &QTabBar::tabCloseRequested, this, &EditorWindow::onTabClosed);
+    connect(tabBar, &DocTabBar::blueprintDraggedOut,
+            this, &EditorWindow::floatBlueprint);
 }
 
 // ── 3. 主工具栏 ──────────────────────────────────────────────────────
@@ -166,9 +170,20 @@ void EditorWindow::setupCentralArea() {
     leftLay->addWidget(buildViewportToolBar(leftWrap));
     m_viewport = new Viewport2D(leftWrap);
     leftLay->addWidget(m_viewport, 1);
+    m_viewportPage = leftWrap;
+
+    m_blueprintEditor = new BlueprintEditor();
+    connect(m_blueprintEditor, &BlueprintEditor::documentModified, this, [this]() {
+        updateTabTitle(m_docTabBar->currentIndex());
+        updateSaveLabel();
+    });
+
+    m_centralStack = new QStackedWidget();
+    m_centralStack->addWidget(m_viewportPage);     // index 0
+    m_centralStack->addWidget(m_blueprintEditor);  // index 1
 
     m_viewportDock = new ads::CDockWidget("视口");
-    m_viewportDock->setWidget(leftWrap);
+    m_viewportDock->setWidget(m_centralStack);
     m_viewportDock->setFeatures(ads::CDockWidget::NoDockWidgetFeatures);
     auto* centralArea = m_dockManager->setCentralWidget(m_viewportDock);
 
@@ -215,24 +230,10 @@ void EditorWindow::setupCentralArea() {
     m_dockManager->addDockWidget(ads::BottomDockWidgetArea, m_cbDockW);
     m_cbDockW->closeDockWidget();
 
-    // ── 关卡蓝图（浮动窗口，默认隐藏）──────────────────────
-    m_blueprintEditor = new BlueprintEditor();
-    connect(m_blueprintEditor, &BlueprintEditor::documentModified, this, [this]() {
-        updateTabTitle(m_docTabBar->currentIndex());
-        updateSaveLabel();
-    });
-    m_bpDockW = new ads::CDockWidget("关卡蓝图");
-    m_bpDockW->setWidget(m_blueprintEditor);
-    m_dockManager->addDockWidgetFloating(m_bpDockW);
-    m_bpDockW->closeDockWidget();
-
-    connect(m_bpDockW, &ads::CDockWidget::viewToggled,
-            this, [this](bool open) {
-        if (!open || !m_blueprintEditor) return;
-        const int idx = m_docTabBar->currentIndex();
-        const QString path = idx >= 0 ? m_docTabBar->tabData(idx).toString() : QString{};
-        m_blueprintEditor->loadLevel(m_openLevels.value(path, nullptr));
-    });
+    // ── 蓝图浮动窗口 ──────────────────────────────────────────────────
+    m_bpFloatWin = new BlueprintFloatWindow(this);
+    connect(m_bpFloatWin, &BlueprintFloatWindow::closed,
+            this, &EditorWindow::embedBlueprint);
 
     // ── 布局管理器 ────────────────────────────────────────────────────
     m_layoutManager = new LayoutManager(m_dockManager, m_project.path, this);
@@ -246,7 +247,6 @@ void EditorWindow::setupWindowMenu() {
     m_windowMenu->addAction(m_outlineDockW->toggleViewAction());
     m_windowMenu->addAction(m_detailsDockW->toggleViewAction());
     m_windowMenu->addAction(m_cbDockW->toggleViewAction());
-    m_windowMenu->addAction(m_bpDockW->toggleViewAction());
     m_windowMenu->addSeparator();
 
     m_layoutMenu = m_windowMenu->addMenu("布局");
@@ -348,16 +348,7 @@ QWidget* EditorWindow::buildViewportToolBar(QWidget* parent) {
     vBtn("⊠", "显示选项"); vBtn("⚙", "视口设置");
     sep();
     auto* bpBtn = vBtn("关卡蓝图", "打开关卡蓝图（可视化脚本）");
-    connect(bpBtn, &QToolButton::clicked, this, [this]() {
-        if (!m_bpDockW) return;
-        if (m_bpDockW->isClosed()) {
-            m_bpDockW->toggleView(true);
-            if (!m_bpDockW->isFloating())
-                m_bpDockW->setFloating();
-        } else {
-            m_bpDockW->toggleView(false);
-        }
-    });
+    connect(bpBtn, &QToolButton::clicked, this, &EditorWindow::openBlueprintTab);
     hl->addStretch();
     auto* zl = new QLabel("1×", bar); zl->setObjectName("vpZoomLabel");
     hl->addWidget(zl);
@@ -432,6 +423,19 @@ void EditorWindow::onTabChanged(int index) {
 
     const QString path = m_docTabBar->tabData(index).toString();
 
+    // 蓝图 Tab
+    if (path == DocTabBar::kBlueprintTabData) {
+        if (m_centralStack->indexOf(m_blueprintEditor) < 0)
+            m_centralStack->addWidget(m_blueprintEditor);
+        m_centralStack->setCurrentWidget(m_blueprintEditor);
+        LevelDocument* doc = m_openLevels.value(m_activeLevelPath, nullptr);
+        if (m_blueprintEditor) m_blueprintEditor->loadLevel(doc);
+        return;
+    }
+
+    // 切换到视口
+    if (m_centralStack) m_centralStack->setCurrentWidget(m_viewportPage);
+
     if (path.isEmpty()) {
         m_sceneOutliner->clear();
         m_detailsPanel->clearActor();
@@ -445,11 +449,12 @@ void EditorWindow::onTabChanged(int index) {
         m_openLevels[path] = doc;
     }
     LevelDocument* doc = m_openLevels[path];
+    m_activeLevelPath = path;
 
     m_sceneOutliner->loadLevel(doc);
     if (m_viewport) m_viewport->loadLevel(doc);
 
-    if (m_bpDockW && !m_bpDockW->isClosed() && m_blueprintEditor)
+    if (m_bpFloatWin && m_bpFloatWin->isVisible() && m_blueprintEditor)
         m_blueprintEditor->loadLevel(doc);
 
     m_detailsPanel->clearActor();
@@ -507,6 +512,13 @@ void EditorWindow::onTabChanged(int index) {
 
 void EditorWindow::onTabClosed(int index) {
     const QString path = m_docTabBar->tabData(index).toString();
+
+    if (path == DocTabBar::kBlueprintTabData) {
+        m_docTabBar->removeTab(index);
+        if (m_centralStack) m_centralStack->setCurrentWidget(m_viewportPage);
+        return;
+    }
+
     LevelDocument* doc = m_openLevels.value(path);
 
     if (doc && doc->isDirty()) {
@@ -657,4 +669,73 @@ void EditorWindow::stopRuntime() {
     }
     if (m_runBtn)  m_runBtn->setEnabled(true);
     if (m_stopBtn) m_stopBtn->setEnabled(false);
+}
+
+void EditorWindow::openBlueprintTab() {
+    // 已嵌入：切换到蓝图 Tab
+    for (int i = 0; i < m_docTabBar->count(); ++i) {
+        if (m_docTabBar->tabData(i).toString() == DocTabBar::kBlueprintTabData) {
+            m_docTabBar->setCurrentIndex(i);
+            return;
+        }
+    }
+    // 已浮动：置顶浮动窗口
+    if (m_bpFloatWin && m_bpFloatWin->isVisible()) {
+        m_bpFloatWin->raise();
+        m_bpFloatWin->activateWindow();
+        return;
+    }
+    // 首次打开：确保蓝图编辑器在 stack 中
+    if (m_centralStack->indexOf(m_blueprintEditor) < 0)
+        m_centralStack->addWidget(m_blueprintEditor);
+
+    int idx;
+    {
+        QSignalBlocker b(m_docTabBar);
+        idx = m_docTabBar->addTab("  关卡蓝图");
+        m_docTabBar->setTabData(idx, DocTabBar::kBlueprintTabData);
+    }
+    if (m_docTabBar->currentIndex() == idx)
+        onTabChanged(idx);
+    else
+        m_docTabBar->setCurrentIndex(idx);
+}
+
+void EditorWindow::floatBlueprint(QPoint globalPos) {
+    // 移除 Tab
+    for (int i = 0; i < m_docTabBar->count(); ++i) {
+        if (m_docTabBar->tabData(i).toString() == DocTabBar::kBlueprintTabData) {
+            QSignalBlocker b(m_docTabBar);
+            m_docTabBar->removeTab(i);
+            break;
+        }
+    }
+    // 切换到视口
+    m_centralStack->setCurrentWidget(m_viewportPage);
+    // 将蓝图编辑器从 stack 移入浮动窗口
+    m_centralStack->removeWidget(m_blueprintEditor);
+    m_bpFloatWin->setCentralWidget(m_blueprintEditor);
+    m_bpFloatWin->move(globalPos - QPoint(50, 10));
+    m_bpFloatWin->show();
+    m_bpFloatWin->raise();
+}
+
+void EditorWindow::embedBlueprint() {
+    // 从浮动窗口取回蓝图编辑器（reparent 到 nullptr）
+    QWidget* bpWidget = m_bpFloatWin->takeCentralWidget();
+    if (!bpWidget) bpWidget = m_blueprintEditor;
+
+    // 加回 stack
+    m_centralStack->addWidget(bpWidget);
+
+    int idx;
+    {
+        QSignalBlocker b(m_docTabBar);
+        idx = m_docTabBar->addTab("  关卡蓝图");
+        m_docTabBar->setTabData(idx, DocTabBar::kBlueprintTabData);
+    }
+    if (m_docTabBar->currentIndex() == idx)
+        onTabChanged(idx);
+    else
+        m_docTabBar->setCurrentIndex(idx);
 }

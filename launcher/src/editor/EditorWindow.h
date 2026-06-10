@@ -4,6 +4,7 @@
 #include <QMainWindow>
 #include <QMap>
 #include <QButtonGroup>
+#include <QStackedWidget>
 
 class QTabBar;
 class QMenu;
@@ -16,6 +17,8 @@ class Viewport2D;
 class BlueprintEditor;
 class BPRuntime;
 class LayoutManager;
+class DocTabBar;
+class BlueprintFloatWindow;
 
 namespace ads {
     class CDockManager;
@@ -48,6 +51,9 @@ private:
     void     saveAllLevels();
     void     updateTabTitle(int index);
     void     updateSaveLabel();
+    void openBlueprintTab();
+    void floatBlueprint(QPoint globalPos);
+    void embedBlueprint();
 
 private slots:
     void onTabChanged(int index);
@@ -59,7 +65,7 @@ private slots:
 private:
     ProjectInfo  m_project;
 
-    QTabBar* m_docTabBar = nullptr;
+    DocTabBar* m_docTabBar = nullptr;
 
     Viewport2D*      m_viewport        = nullptr;
     SceneOutliner*   m_sceneOutliner   = nullptr;
@@ -71,7 +77,11 @@ private:
     ads::CDockWidget*  m_outlineDockW = nullptr;
     ads::CDockWidget*  m_detailsDockW = nullptr;
     ads::CDockWidget*  m_cbDockW      = nullptr;
-    ads::CDockWidget*  m_bpDockW      = nullptr;
+
+    QStackedWidget*       m_centralStack = nullptr;
+    QWidget*              m_viewportPage = nullptr;
+    BlueprintFloatWindow* m_bpFloatWin   = nullptr;
+    QString               m_activeLevelPath;
 
     LayoutManager* m_layoutManager = nullptr;
     QMenu*         m_windowMenu    = nullptr;
