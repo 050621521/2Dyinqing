@@ -6,16 +6,21 @@
 #include <QButtonGroup>
 
 class QTabBar;
-class QStackedWidget;
-class QDockWidget;
+class QMenu;
+class QToolButton;
+class QLabel;
+class QButtonGroup;
 class SceneOutliner;
 class DetailsPanel;
 class Viewport2D;
 class BlueprintEditor;
 class BPRuntime;
-class QToolButton;
+class LayoutManager;
 
-class QLabel;
+namespace ads {
+    class CDockManager;
+    class CDockWidget;
+}
 
 class EditorWindow : public QMainWindow {
     Q_OBJECT
@@ -27,7 +32,6 @@ signals:
 
 protected:
     void closeEvent(QCloseEvent* e) override;
-    bool eventFilter(QObject* obj, QEvent* e) override;
 
 private:
     void setupMenuBar();
@@ -35,13 +39,10 @@ private:
     void setupMainToolBar();
     void setupCentralArea();
     void setupBottomBar();
-    void positionCBPanel();
-    void positionBPDockedBar();
-    void dockBlueprintAsTab();
-    void undockBlueprintFromTab();
+    void setupWindowMenu();
+    void rebuildLayoutMenu();
 
     QWidget* buildViewportToolBar(QWidget* parent);
-    QWidget* buildPanelHeader(const QString& title, QWidget* parent);
     void     openLevelTab(const QString& path);
     void     saveCurrentLevel();
     void     saveAllLevels();
@@ -57,29 +58,32 @@ private slots:
 
 private:
     ProjectInfo  m_project;
-    QTabBar*     m_docTabBar           = nullptr;
-    QWidget*     m_viewportWrap        = nullptr;
-    QWidget*     m_contentBrowserPanel = nullptr;
-    QLabel*      m_saveLabel           = nullptr;
-    Viewport2D*      m_viewport          = nullptr;
-    BlueprintEditor* m_blueprintEditor  = nullptr;
-    QStackedWidget*  m_viewStack        = nullptr;
-    SceneOutliner*   m_sceneOutliner    = nullptr;
-    DetailsPanel*    m_detailsPanel     = nullptr;
-    QButtonGroup*    m_toolBtnGroup     = nullptr;
-    QToolButton*     m_runBtn           = nullptr;
-    QToolButton*     m_stopBtn          = nullptr;
-    BPRuntime*       m_runtime          = nullptr;
-    QWidget*         m_bpPanel          = nullptr;
-    QWidget*         m_bpTitleBar       = nullptr;
-    QWidget*         m_bpDockedBar      = nullptr;
-    bool             m_bpDragging       = false;
-    QPoint           m_bpDragOffset;
-    bool             m_bpDocked         = false;
-    int              m_bpTabIndex       = -1;
-    int              m_bpGhostTabIndex  = -1;
-    QDockWidget* m_outlineDock  = nullptr;
-    QDockWidget* m_detailsDock  = nullptr;
+
+    QTabBar* m_docTabBar = nullptr;
+
+    Viewport2D*      m_viewport        = nullptr;
+    SceneOutliner*   m_sceneOutliner   = nullptr;
+    DetailsPanel*    m_detailsPanel    = nullptr;
+    BlueprintEditor* m_blueprintEditor = nullptr;
+
+    ads::CDockManager* m_dockManager  = nullptr;
+    ads::CDockWidget*  m_viewportDock = nullptr;
+    ads::CDockWidget*  m_outlineDockW = nullptr;
+    ads::CDockWidget*  m_detailsDockW = nullptr;
+    ads::CDockWidget*  m_cbDockW      = nullptr;
+    ads::CDockWidget*  m_bpDockW      = nullptr;
+
+    LayoutManager* m_layoutManager = nullptr;
+    QMenu*         m_windowMenu    = nullptr;
+    QMenu*         m_layoutMenu    = nullptr;
+
+    QButtonGroup* m_toolBtnGroup = nullptr;
+    QToolButton*  m_runBtn       = nullptr;
+    QToolButton*  m_stopBtn      = nullptr;
+    QLabel*       m_saveLabel    = nullptr;
+
+    BPRuntime* m_runtime = nullptr;
+
     QMap<QString, LevelDocument*> m_openLevels;
     QList<QMetaObject::Connection> m_tabConnections;
 };
