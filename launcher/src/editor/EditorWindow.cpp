@@ -1,5 +1,6 @@
 #include "EditorWindow.h"
 #include "Viewport2D.h"
+#include "GameViewport.h"
 #include "BlueprintEditor.h"
 #include "BPRuntime.h"
 #include "SceneOutliner.h"
@@ -188,6 +189,27 @@ void EditorWindow::setupCentralArea() {
     m_centralStack = new QStackedWidget();
     m_centralStack->addWidget(m_viewportPage);  // index 0
     m_centralStack->addWidget(m_bpWrapper);     // index 1
+
+    // ── 游戏视图页面 ──────────────────────────────────────────────────────
+    auto* gvWrap = new QWidget();
+    gvWrap->setObjectName("gameViewWrap");
+    auto* gvLay = new QVBoxLayout(gvWrap);
+    gvLay->setContentsMargins(0, 0, 0, 0);
+    gvLay->setSpacing(0);
+    gvLay->addWidget(buildGameViewToolBar(gvWrap));
+    m_gameViewport = new GameViewport(gvWrap);
+    gvLay->addWidget(m_gameViewport, 1);
+    m_gameViewPage = gvWrap;
+    m_centralStack->addWidget(m_gameViewPage);  // index 2
+
+    // 在 DocTabBar 末尾固定添加「游戏视图」Tab（不可关闭）
+    {
+        QSignalBlocker b(m_docTabBar);
+        const int gvIdx = m_docTabBar->addTab("  游戏视图");
+        m_docTabBar->setTabData(gvIdx, DocTabBar::kGameViewTabData);
+        m_docTabBar->setTabButton(gvIdx, QTabBar::RightSide, nullptr);
+        m_docTabBar->setTabButton(gvIdx, QTabBar::LeftSide,  nullptr);
+    }
 
     m_viewportDock = new ads::CDockWidget("视口");
     m_viewportDock->setWidget(m_centralStack);
@@ -421,6 +443,59 @@ QWidget* EditorWindow::buildViewportToolBar(QWidget* parent) {
     return bar;
 }
 
+QWidget* EditorWindow::buildGameViewToolBar(QWidget* parent) {
+    auto* bar = new QWidget(parent);
+    bar->setObjectName("viewportToolBar");
+    bar->setFixedHeight(28);
+    auto* hl = new QHBoxLayout(bar);
+    hl->setContentsMargins(6, 2, 6, 2);
+    hl->setSpacing(6);
+
+    m_gvCamNameLabel = new QLabel("摄像机：—", bar);
+    m_gvCamNameLabel->setObjectName("vpZoomLabel");
+    hl->addWidget(m_gvCamNameLabel);
+
+    auto* sep1 = new QFrame(bar);
+    sep1->setFrameShape(QFrame::VLine);
+    sep1->setObjectName("vpSep");
+    hl->addSpacing(4); hl->addWidget(sep1); hl->addSpacing(4);
+
+    m_gvResLabel = new QLabel("—", bar);
+    m_gvResLabel->setObjectName("vpZoomLabel");
+    hl->addWidget(m_gvResLabel);
+
+    hl->addStretch();
+
+    auto* fsBtn = new QToolButton(bar);
+    fsBtn->setText("⛶");
+    fsBtn->setToolTip("最大化窗口");
+    fsBtn->setObjectName("vpTBBtn");
+    hl->addWidget(fsBtn);
+    connect(fsBtn, &QToolButton::clicked, this, [this]() {
+        isMaximized() ? showNormal() : showMaximized();
+    });
+
+    return bar;
+}
+
+void EditorWindow::updateGameViewToolbar(LevelDocument* doc) {
+    if (!m_gvCamNameLabel || !m_gvResLabel) return;
+    if (!doc) {
+        m_gvCamNameLabel->setText("摄像机：—");
+        m_gvResLabel->setText("—");
+        return;
+    }
+    for (const ActorData& a : doc->actors()) {
+        if (a.components.contains("摄像机组件") && a.cameraIsMain) {
+            m_gvCamNameLabel->setText("摄像机：" + a.name);
+            m_gvResLabel->setText(QString("%1×%2").arg(a.cameraResW).arg(a.cameraResH));
+            return;
+        }
+    }
+    m_gvCamNameLabel->setText("摄像机：无");
+    m_gvResLabel->setText("—");
+}
+
 // ── 6. 底部状态栏 ─────────────────────────────────────────────────────
 void EditorWindow::setupBottomBar() {
     auto* dock = new QDockWidget(this);
@@ -478,13 +553,13 @@ void EditorWindow::setupBottomBar() {
 
 // ── Tab 切换 / 关闭 ───────────────────────────────────────────────────
 void EditorWindow::onTabChanged(int index) {
-    if (m_runtime) stopRuntime();
+    const QString path = m_docTabBar->tabData(index).toString();
+    if (m_runtime && path != DocTabBar::kGameViewTabData)
+        stopRuntime();
     if (!m_sceneOutliner || !m_detailsPanel) return;
 
     for (auto& conn : m_tabConnections) disconnect(conn);
     m_tabConnections.clear();
-
-    const QString path = m_docTabBar->tabData(index).toString();
 
     // 蓝图 Tab
     if (path == DocTabBar::kBlueprintTabData) {
@@ -493,6 +568,17 @@ void EditorWindow::onTabChanged(int index) {
         m_centralStack->setCurrentWidget(m_bpWrapper);
         LevelDocument* doc = m_openLevels.value(m_activeLevelPath, nullptr);
         if (m_blueprintEditor) m_blueprintEditor->loadLevel(doc);
+        return;
+    }
+
+    // 游戏视图 Tab
+    if (path == DocTabBar::kGameViewTabData) {
+        if (m_centralStack) m_centralStack->setCurrentWidget(m_gameViewPage);
+        LevelDocument* doc = m_openLevels.value(m_activeLevelPath, nullptr);
+        if (m_gameViewport) {
+            m_gameViewport->loadLevel(doc);
+            updateGameViewToolbar(doc);
+        }
         return;
     }
 
@@ -552,10 +638,25 @@ void EditorWindow::onTabChanged(int index) {
 
     m_tabConnections << connect(m_detailsPanel, &DetailsPanel::actorModified,
                                 this, [this, doc](const ActorData& a) {
+        // 主摄像机互斥：取消同关卡其他摄像机的主摄像机标记
+        if (a.components.contains("摄像机组件") && a.cameraIsMain) {
+            for (const ActorData& other : doc->actors()) {
+                if (other.id != a.id && other.components.contains("摄像机组件")
+                        && other.cameraIsMain) {
+                    ActorData updated = other;
+                    updated.cameraIsMain = false;
+                    doc->updateActor(updated);
+                }
+            }
+        }
         doc->updateActor(a);
         updateTabTitle(m_docTabBar->currentIndex());
         updateSaveLabel();
         if (m_viewport) m_viewport->update();
+        if (m_gameViewport) {
+            m_gameViewport->update();
+            updateGameViewToolbar(doc);
+        }
         m_sceneOutliner->loadLevel(doc);
     });
 
@@ -575,6 +676,8 @@ void EditorWindow::onTabChanged(int index) {
 
 void EditorWindow::onTabClosed(int index) {
     const QString path = m_docTabBar->tabData(index).toString();
+
+    if (path == DocTabBar::kGameViewTabData) return;
 
     if (path == DocTabBar::kBlueprintTabData) {
         m_docTabBar->removeTab(index);

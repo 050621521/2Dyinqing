@@ -14,6 +14,7 @@ class QButtonGroup;
 class SceneOutliner;
 class DetailsPanel;
 class Viewport2D;
+class GameViewport;
 class BlueprintEditor;
 class BPRuntime;
 class LayoutManager;
@@ -45,6 +46,8 @@ private:
     void rebuildLayoutMenu();
 
     QWidget* buildViewportToolBar(QWidget* parent);
+    QWidget* buildGameViewToolBar(QWidget* parent);
+    void     updateGameViewToolbar(LevelDocument* doc);
     void     openLevelTab(const QString& path);
     void     saveCurrentLevel();
     void     saveAllLevels();
@@ -67,6 +70,10 @@ private:
     DocTabBar* m_docTabBar = nullptr;
 
     Viewport2D*      m_viewport        = nullptr;
+    GameViewport*    m_gameViewport   = nullptr;
+    QWidget*         m_gameViewPage   = nullptr;
+    QLabel*          m_gvCamNameLabel = nullptr;
+    QLabel*          m_gvResLabel     = nullptr;
     SceneOutliner*   m_sceneOutliner   = nullptr;
     DetailsPanel*    m_detailsPanel    = nullptr;
     BlueprintEditor* m_blueprintEditor = nullptr;
