@@ -1,6 +1,7 @@
 #pragma once
 #include "models/LevelDocument.h"
 #include <QObject>
+#include <QSet>
 
 class BPRuntime : public QObject {
     Q_OBJECT
@@ -17,7 +18,8 @@ signals:
     void stateChanged();
 
 private:
-    void    executeChain(const QString& fromNodeId, const QString& fromPin);
+    void    executeChain(const QString& fromNodeId, const QString& fromPin,
+                         QSet<QString>* visited = nullptr);
     QString executeNode (const QString& nodeId);
     QString resolveDataPin  (const QString& nodeId, const QString& pinKey);
     QString resolveOutputPin(const QString& nodeId, const QString& pinKey);

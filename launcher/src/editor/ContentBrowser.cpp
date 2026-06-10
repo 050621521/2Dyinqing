@@ -141,10 +141,6 @@ ContentBrowser::ContentBrowser(const QString& projectRoot, QWidget* parent)
     // 连接信号
     connect(m_folderTree, &QTreeWidget::itemClicked, this, &ContentBrowser::onFolderSelected);
     connect(m_assetGrid, &QListWidget::itemDoubleClicked, this, &ContentBrowser::onGridItemDoubleClicked);
-    connect(m_assetGrid, &QListWidget::itemClicked, this, [this](QListWidgetItem* item) {
-        if (item && item->data(Qt::UserRole).toString() == "image")
-            emit imageAssignRequested(item->data(Qt::UserRole + 1).toString());
-    });
     connect(m_searchEdit, &QLineEdit::textChanged, this, &ContentBrowser::onSearchChanged);
     connect(newLevelBtn, &QPushButton::clicked, this, &ContentBrowser::onNewLevel);
     connect(m_assetGrid, &QListWidget::customContextMenuRequested, this, &ContentBrowser::showGridContextMenu);

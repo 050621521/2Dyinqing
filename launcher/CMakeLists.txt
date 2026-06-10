@@ -9,6 +9,17 @@ set(CMAKE_AUTOUIC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
 
+include(FetchContent)
+FetchContent_Declare(
+    QtADS
+    GIT_REPOSITORY https://github.com/githubuser0xFFFF/Qt-Advanced-Docking-System.git
+    GIT_TAG        4.3.1
+)
+set(ADS_VERSION "4.3.1" CACHE STRING "" FORCE)
+set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(BUILD_STATIC   OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(QtADS)
+
 set(SOURCES
     src/main.cpp
     src/launcher/LauncherWindow.cpp
@@ -38,6 +49,7 @@ set(HEADERS
     src/launcher/SearchBar.h
     src/models/ProjectInfo.h
     src/models/ProjectManager.h
+    src/models/ActorTypeUtils.h
     src/editor/EditorWindow.h
     src/editor/Viewport2D.h
     src/editor/SceneOutliner.h
@@ -51,7 +63,7 @@ set(HEADERS
 qt_add_executable(launcher ${SOURCES} ${HEADERS} resources/resources.qrc)
 
 target_include_directories(launcher PRIVATE src)
-target_link_libraries(launcher PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets)
+target_link_libraries(launcher PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets qt6advanceddocking)
 
 set_target_properties(launcher PROPERTIES
     MACOSX_BUNDLE TRUE

@@ -25,6 +25,7 @@
 #include <QStackedWidget>
 #include <QCloseEvent>
 #include <QEvent>
+#include <QTimer>
 #include <QFileInfo>
 #include <QMessageBox>
 #include <QShortcut>
@@ -41,6 +42,7 @@ EditorWindow::EditorWindow(const ProjectInfo& project, QWidget* parent)
     setupDocTabBar();           // 第一行：文档 Tab
     addToolBarBreak();          // ← 换行，保证主工具栏独占第二行
     setupMainToolBar();         // 第二行：模式 + 播放 + 平台
+    setDockOptions(QMainWindow::AnimatedDocks);
     setupCentralArea();         // 中央：视口（含次级工具栏）+ 右侧面板
     setupBottomBar();           // 底部：极细状态栏
 
@@ -129,7 +131,7 @@ void EditorWindow::setupMainToolBar() {
     connect(m_stopBtn, &QToolButton::clicked, this, &EditorWindow::stopRuntime);
     m_stopBtn->setEnabled(false);
     dropBtn("平台  ▾");
-
+    tb->addSeparator();
     auto* spacer = new QWidget(tb);
     spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     tb->addWidget(spacer);
@@ -144,13 +146,8 @@ void EditorWindow::setupMainToolBar() {
 
 // ── 4. 中央区域 ───────────────────────────────────────────────────────
 void EditorWindow::setupCentralArea() {
-    // 左右主分隔（视口 + 右侧面板），直接作为中央 widget
-    auto* hSplit = new QSplitter(Qt::Horizontal, this);
-    hSplit->setObjectName("editorHSplit");
-    hSplit->setHandleWidth(2);
-
-    // 左：视口次级工具栏 + Viewport2D
-    auto* leftWrap = new QWidget(hSplit);
+    // 左：视口次级工具栏 + Viewport2D（直接作为 central widget，右侧用 QDockWidget）
+    auto* leftWrap = new QWidget(this);
     leftWrap->setObjectName("viewportWrap");
     auto* leftLay = new QVBoxLayout(leftWrap);
     leftLay->setContentsMargins(0, 0, 0, 0);
@@ -161,7 +158,6 @@ void EditorWindow::setupCentralArea() {
     m_viewStack = new QStackedWidget(leftWrap);
     m_viewStack->addWidget(m_viewport);
     leftLay->addWidget(m_viewStack, 1);
-    hSplit->addWidget(leftWrap);
 
     // 记录 leftWrap，用于覆盖层定位
     m_viewportWrap = leftWrap;
@@ -205,34 +201,52 @@ void EditorWindow::setupCentralArea() {
         updateSaveLabel();
     });
 
-    // 右：大纲 + 细节（上下分隔，不受内容浏览器影响）
-    auto* vSplit = new QSplitter(Qt::Vertical, hSplit);
-    vSplit->setObjectName("editorVSplit");
-    vSplit->setHandleWidth(2);
+    // 嵌入状态下的拖拽句柄（覆盖在 viewStack 顶部，parent = viewportWrap）
+    m_bpDockedBar = new QWidget(leftWrap);
+    m_bpDockedBar->setObjectName("bpDockedBar");
+    m_bpDockedBar->setFixedHeight(30);
+    m_bpDockedBar->setCursor(Qt::SizeAllCursor);
+    m_bpDockedBar->hide();
+    m_bpDockedBar->installEventFilter(this);
+    auto* dbLay = new QHBoxLayout(m_bpDockedBar);
+    dbLay->setContentsMargins(10, 0, 6, 0);
+    auto* dbLbl = new QLabel("关卡蓝图", m_bpDockedBar);
+    dbLbl->setObjectName("bpDockedBarTitle");
+    dbLay->addWidget(dbLbl);
+    dbLay->addStretch();
+    auto* dbFloatBtn = new QToolButton(m_bpDockedBar);
+    dbFloatBtn->setText("↗");
+    dbFloatBtn->setObjectName("bpDockedBarFloat");
+    dbFloatBtn->setFixedSize(22, 22);
+    dbFloatBtn->setToolTip("浮出为独立窗口");
+    dbLay->addWidget(dbFloatBtn);
+    // 点击"↗"直接浮出，无需拖拽
+    connect(dbFloatBtn, &QToolButton::clicked, this, [this]() {
+        if (!m_bpDocked) return;
+        // 删除蓝图 tab
+        if (m_bpTabIndex >= 0) {
+            QSignalBlocker b(m_docTabBar);
+            m_docTabBar->removeTab(m_bpTabIndex);
+            m_bpTabIndex = -1;
+        }
+        m_bpDocked = false;
+        auto* bpLay = qobject_cast<QVBoxLayout*>(m_bpPanel->layout());
+        if (bpLay) bpLay->addWidget(m_blueprintEditor, 1);
+        m_blueprintEditor->show();
+        if (m_viewStack && m_viewport) m_viewStack->setCurrentWidget(m_viewport);
+        m_bpDockedBar->hide();
+        // 居中显示浮动面板
+        QRect allowed = m_viewportWrap->geometry();
+        int x = allowed.left() + qMax(0, (allowed.width()  - m_bpPanel->width())  / 2);
+        int y = allowed.top()  + qMax(0, (allowed.height() - m_bpPanel->height()) / 2);
+        m_bpPanel->move(mapFromParent(m_viewportWrap->mapToParent(QPoint(x, y))));
+        m_bpPanel->show();
+        m_bpPanel->raise();
+    });
 
-    auto* outlinerWrap = new QWidget(vSplit);
-    outlinerWrap->setObjectName("panelWrap");
-    auto* oLay = new QVBoxLayout(outlinerWrap);
-    oLay->setContentsMargins(0, 0, 0, 0); oLay->setSpacing(0);
-    oLay->addWidget(buildPanelHeader("大纲", outlinerWrap));
-    m_sceneOutliner = new SceneOutliner(outlinerWrap);
-    oLay->addWidget(m_sceneOutliner, 1);
-    vSplit->addWidget(outlinerWrap);
-
-    auto* detailsWrap = new QWidget(vSplit);
-    detailsWrap->setObjectName("panelWrap");
-    auto* dLay = new QVBoxLayout(detailsWrap);
-    dLay->setContentsMargins(0, 0, 0, 0); dLay->setSpacing(0);
-    dLay->addWidget(buildPanelHeader("细节", detailsWrap));
-    m_detailsPanel = new DetailsPanel(detailsWrap);
+    // 细节面板提前创建，供内容浏览器信号连接
+    m_detailsPanel = new DetailsPanel(this);
     m_detailsPanel->setProjectRoot(m_project.path);
-    dLay->addWidget(m_detailsPanel, 1);
-    vSplit->addWidget(detailsWrap);
-
-    vSplit->setSizes({300, 420});
-    hSplit->addWidget(vSplit);
-    hSplit->setSizes({1080, 340});
-    hSplit->setStretchFactor(0, 1);
 
     // 内容浏览器：作为 leftWrap 的悬浮子 widget，不加入布局，仅覆盖视口区域
     m_contentBrowserPanel = new QWidget(leftWrap);
@@ -260,7 +274,33 @@ void EditorWindow::setupCentralArea() {
     cbLay->addWidget(cb, 1);
     m_contentBrowserPanel->hide();
 
-    setCentralWidget(hSplit);
+    setCentralWidget(leftWrap);
+
+    // 右侧：大纲 + 细节，使用 QDockWidget 支持浮动、停靠和布局还原
+    m_sceneOutliner = new SceneOutliner(this);
+    m_outlineDock = new QDockWidget("大纲", this);
+    m_outlineDock->setObjectName("outlineDock");
+    m_outlineDock->setWidget(m_sceneOutliner);
+    addDockWidget(Qt::RightDockWidgetArea, m_outlineDock);
+    m_outlineDock->setFeatures(QDockWidget::NoDockWidgetFeatures);
+    m_outlineDock->setTitleBarWidget(buildPanelHeader("大纲", m_outlineDock));
+
+    m_detailsDock = new QDockWidget("细节", this);
+    m_detailsDock->setObjectName("detailsDock");
+    m_detailsDock->setWidget(m_detailsPanel);
+    splitDockWidget(m_outlineDock, m_detailsDock, Qt::Vertical);
+    m_detailsDock->setFeatures(QDockWidget::NoDockWidgetFeatures);
+    m_detailsDock->setTitleBarWidget(buildPanelHeader("细节", m_detailsDock));
+    resizeDocks({m_outlineDock, m_detailsDock}, {300, 300}, Qt::Vertical);
+    resizeDocks({m_outlineDock}, {340}, Qt::Horizontal);
+}
+
+// 定位嵌入句柄到 viewStack 顶部
+void EditorWindow::positionBPDockedBar() {
+    if (!m_bpDockedBar || !m_viewStack || !m_viewportWrap) return;
+    const QPoint p = m_viewStack->mapTo(m_viewportWrap, QPoint(0, 0));
+    m_bpDockedBar->setGeometry(p.x(), p.y(), m_viewportWrap->width(), 30);
+    m_bpDockedBar->raise();
 }
 
 // 定位覆盖层到 leftWrap 底部
@@ -273,8 +313,72 @@ void EditorWindow::positionCBPanel() {
 }
 
 bool EditorWindow::eventFilter(QObject* obj, QEvent* e) {
-    if (obj == m_viewportWrap && e->type() == QEvent::Resize)
+    if (obj == m_viewportWrap && e->type() == QEvent::Resize) {
         positionCBPanel();
+        positionBPDockedBar();
+    }
+
+    // 嵌入状态拖拽句柄：拖拽时立即浮出并接管后续拖拽
+    if (obj == m_bpDockedBar && m_bpPanel && m_viewportWrap) {
+        if (e->type() == QEvent::MouseButtonPress) {
+            auto* me = static_cast<QMouseEvent*>(e);
+            if (me->button() == Qt::LeftButton && m_bpDocked) {
+                // 删除蓝图 tab
+                if (m_bpTabIndex >= 0) {
+                    QSignalBlocker b(m_docTabBar);
+                    m_docTabBar->removeTab(m_bpTabIndex);
+                    m_bpTabIndex = -1;
+                }
+                m_bpDocked = false;
+                // 蓝图编辑器移回 bpPanel
+                auto* bpLay = qobject_cast<QVBoxLayout*>(m_bpPanel->layout());
+                if (bpLay) bpLay->addWidget(m_blueprintEditor, 1);
+                m_blueprintEditor->show();
+                if (m_viewStack && m_viewport) m_viewStack->setCurrentWidget(m_viewport);
+                m_bpDockedBar->hide();
+                // 将 bpPanel 定位到光标处（标题栏随鼠标）
+                const QPoint globalCursor = me->globalPosition().toPoint();
+                m_bpPanel->move(mapFromGlobal(globalCursor - QPoint(m_bpPanel->width() / 2, 15)));
+                m_bpPanel->show();
+                m_bpPanel->raise();
+                // 启动拖拽
+                m_bpDragging   = true;
+                m_bpDragOffset = globalCursor - m_bpPanel->mapToGlobal(QPoint(0, 0));
+            }
+            return true;
+        } else if (e->type() == QEvent::MouseMove && m_bpDragging) {
+            auto* me = static_cast<QMouseEvent*>(e);
+            QPoint newPos = mapFromGlobal(me->globalPosition().toPoint() - m_bpDragOffset);
+            QRect allowed = rect();
+            int minX = allowed.left(), minY = allowed.top();
+            int maxX = allowed.right()  - m_bpPanel->width()  + 1;
+            int maxY = allowed.bottom() - m_bpPanel->height() + 1;
+            newPos.setX(qBound(minX, newPos.x(), qMax(minX, maxX)));
+            newPos.setY(qBound(minY, newPos.y(), qMax(minY, maxY)));
+            m_bpPanel->move(newPos);
+            // ghost tab 逻辑（与 m_bpTitleBar 相同）
+            if (!m_bpDocked && m_docTabBar && centralWidget()) {
+                bool inZone = newPos.y() < centralWidget()->geometry().top();
+                if (inZone && m_bpGhostTabIndex < 0) {
+                    QSignalBlocker b(m_docTabBar);
+                    m_bpGhostTabIndex = m_docTabBar->addTab("  关卡蓝图");
+                    m_docTabBar->setTabData(m_bpGhostTabIndex, QStringLiteral("blueprint_ghost"));
+                } else if (!inZone && m_bpGhostTabIndex >= 0) {
+                    QSignalBlocker b(m_docTabBar);
+                    m_docTabBar->removeTab(m_bpGhostTabIndex);
+                    m_bpGhostTabIndex = -1;
+                }
+            }
+            return true;
+        } else if (e->type() == QEvent::MouseButtonRelease) {
+            if (m_bpDragging) {
+                m_bpDragging = false;
+                if (!m_bpDocked && m_bpGhostTabIndex >= 0)
+                    dockBlueprintAsTab();
+            }
+            return true;
+        }
+    }
 
     // 蓝图面板标题栏拖拽
     if (obj == m_bpTitleBar && m_bpPanel && m_viewportWrap) {
@@ -720,6 +824,18 @@ void EditorWindow::saveAllLevels() {
 void EditorWindow::updateTabTitle(int index) {
     if (index < 0 || index >= m_docTabBar->count()) return;
     const QString path = m_docTabBar->tabData(index).toString();
+
+    // 蓝图停靠 Tab：从当前加载的关卡 doc 取脏状态
+    if (path == QLatin1String("blueprint")) {
+        // 找到蓝图编辑器对应的关卡 doc
+        bool dirty = false;
+        for (LevelDocument* doc : m_openLevels) {
+            if (doc && doc->isDirty()) { dirty = true; break; }
+        }
+        m_docTabBar->setTabText(index, dirty ? "● 关卡蓝图" : "  关卡蓝图");
+        return;
+    }
+
     const QString baseName = QFileInfo(path).baseName();
     LevelDocument* doc = m_openLevels.value(path);
     const bool dirty = doc && doc->isDirty();
@@ -786,6 +902,7 @@ void EditorWindow::stopRuntime() {
     if (m_stopBtn) m_stopBtn->setEnabled(false);
 }
 
+
 void EditorWindow::dockBlueprintAsTab() {
     if (m_bpDocked || !m_blueprintEditor || !m_viewStack) return;
     m_bpDocked = true;
@@ -813,7 +930,10 @@ void EditorWindow::dockBlueprintAsTab() {
 
     m_bpPanel->hide();
     m_docTabBar->setCurrentIndex(m_bpTabIndex);
+    positionBPDockedBar();
+    if (m_bpDockedBar) { m_bpDockedBar->show(); m_bpDockedBar->raise(); }
 }
+
 
 void EditorWindow::undockBlueprintFromTab() {
     if (!m_bpDocked || !m_blueprintEditor) return;
@@ -822,14 +942,14 @@ void EditorWindow::undockBlueprintFromTab() {
     // 将蓝图编辑器移回 bpPanel 布局
     auto* bpLay = qobject_cast<QVBoxLayout*>(m_bpPanel->layout());
     if (bpLay) bpLay->addWidget(m_blueprintEditor, 1);
+    m_blueprintEditor->show(); // 抵消 QStackedLayout::takeAt() 的隐式 hide()
 
     // viewStack 切回视口
     if (m_viewStack && m_viewport)
         m_viewStack->setCurrentWidget(m_viewport);
 
-    // 显示浮动面板
-    m_bpPanel->show();
-    m_bpPanel->raise();
+    m_bpPanel->hide(); // 关闭 tab = 关闭蓝图，不重新浮出
+    if (m_bpDockedBar) m_bpDockedBar->hide();
     m_bpTabIndex = -1;
 }
 

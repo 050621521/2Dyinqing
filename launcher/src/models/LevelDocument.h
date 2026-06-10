@@ -64,6 +64,7 @@ public:
     bool isDirty() const { return m_dirty; }
 
     const QList<ActorData>& actors() const { return m_actors; }
+    const QList<ActorData>& sortedActors() const { return m_sortedActors; }
     void addActor(const ActorData& actor);
     void removeActor(const QString& id);
     void updateActor(const ActorData& actor);
@@ -81,9 +82,12 @@ public:
     QString filePath() const { return m_filePath; }
 
 private:
+    void rebuildSortedActors();
+
     QString          m_filePath;
     QString          m_name;
     QList<ActorData> m_actors;
+    QList<ActorData> m_sortedActors;
     bool             m_dirty = false;
 
     QList<BPNode>       m_bpNodes;

@@ -1,4 +1,5 @@
 #include "Viewport2D.h"
+#include "models/ActorTypeUtils.h"
 #include <QPainter>
 #include <QPaintEvent>
 #include <QWheelEvent>
@@ -9,31 +10,6 @@
 #include <QUuid>
 #include <cmath>
 
-static const QStringList kActorTypes = {"Camera", "Sprite", "Light", "Trigger", "Empty"};
-
-static int sortingLayerPriority(const QString& layer) {
-    if (layer == "背景") return 0;
-    if (layer == "前景") return 2;
-    if (layer == "界面") return 3;
-    if (layer == "物理") return 4;
-    return 1; // 默认
-}
-
-static QStringList defaultComponents(const QString& type) {
-    if (type == "Camera")  return {"变换", "摄像机组件"};
-    if (type == "Sprite")  return {"变换", "精灵渲染器"};
-    if (type == "Light")   return {"变换", "点光源"};
-    if (type == "Trigger") return {"变换", "碰撞盒"};
-    return {"变换"};
-}
-
-static QString typeLabel(const QString& type) {
-    if (type == "Camera")  return "摄像机";
-    if (type == "Sprite")  return "精灵";
-    if (type == "Light")   return "光源";
-    if (type == "Trigger") return "触发区域";
-    return "空对象";
-}
 
 Viewport2D::Viewport2D(QWidget* parent) : QWidget(parent) {
     setObjectName("viewport2D");
@@ -149,10 +125,12 @@ void Viewport2D::drawGrid(QPainter& p) {
     p.setPen(QPen(QColor(40, 40, 40), 1));
 
     float startX = std::fmod(origin.x(), step);
+    if (startX < 0) startX += step;
     for (float x = startX; x < width(); x += step)
         p.drawLine(QPointF(x, 0), QPointF(x, height()));
 
     float startY = std::fmod(origin.y(), step);
+    if (startY < 0) startY += step;
     for (float y = startY; y < height(); y += step)
         p.drawLine(QPointF(0, y), QPointF(width(), y));
 }
@@ -175,12 +153,7 @@ void Viewport2D::drawOriginMark(QPainter& p) {
 void Viewport2D::drawActors(QPainter& p) {
     if (!m_doc && !m_runtimeMode) return;
 
-    QList<ActorData> sorted = m_runtimeMode ? m_runtimeActors : m_doc->actors();
-    std::stable_sort(sorted.begin(), sorted.end(), [](const ActorData& a, const ActorData& b) {
-        int la = sortingLayerPriority(a.sortingLayer);
-        int lb = sortingLayerPriority(b.sortingLayer);
-        return la != lb ? la < lb : a.orderInLayer < b.orderInLayer;
-    });
+    const QList<ActorData>& sorted = m_runtimeMode ? m_runtimeActors : m_doc->sortedActors();
 
     for (const ActorData& a : sorted) {
         QPointF pos = worldToScreen({a.x, a.y});
@@ -191,12 +164,7 @@ void Viewport2D::drawActors(QPainter& p) {
         QRectF rect(pos.x() - szW / 2, pos.y() - szH / 2, szW, szH);
         const bool selected = (a.id == m_selectedId);
 
-        QColor fill;
-        if      (a.type == "Camera")  fill = QColor(80,  160, 240);
-        else if (a.type == "Sprite")  fill = QColor(80,  200, 100);
-        else if (a.type == "Light")   fill = QColor(255, 220,  50);
-        else if (a.type == "Trigger") fill = QColor(220, 130,  50);
-        else                          fill = QColor(160, 160, 160);
+        QColor fill = actorTypeColor(a.type);
 
         QPen outline(selected ? QColor(255, 255, 255) : fill.darker(160),
                      selected ? 2.5 : 1.0);

@@ -1,4 +1,5 @@
 #include "SceneOutliner.h"
+#include "models/ActorTypeUtils.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QWidget>
@@ -12,24 +13,6 @@
 #include <QFont>
 #include <QFrame>
 #include <QMap>
-
-static const QStringList kActorTypes = {"Camera", "Sprite", "Light", "Trigger", "Empty"};
-
-static QStringList defaultComponents(const QString& type) {
-    if (type == "Camera")  return {"变换", "摄像机组件"};
-    if (type == "Sprite")  return {"变换", "精灵渲染器"};
-    if (type == "Light")   return {"变换", "点光源"};
-    if (type == "Trigger") return {"变换", "碰撞盒"};
-    return {"变换"};
-}
-
-static QString typeLabel(const QString& type) {
-    if (type == "Camera")  return "摄像机";
-    if (type == "Sprite")  return "精灵";
-    if (type == "Light")   return "光源";
-    if (type == "Trigger") return "触发区域";
-    return "空对象";
-}
 
 SceneOutliner::SceneOutliner(QWidget* parent) : QWidget(parent) {
     setObjectName("sceneOutliner");
@@ -100,14 +83,6 @@ void SceneOutliner::rebuild() {
         item->setData(0, Qt::UserRole, a.id);
         m_tree->addTopLevelItem(item);
     }
-}
-
-QTreeWidgetItem* SceneOutliner::groupItem(const QString& type) const {
-    for (int i = 0; i < m_tree->topLevelItemCount(); ++i) {
-        QTreeWidgetItem* g = m_tree->topLevelItem(i);
-        if (g->text(0).startsWith(type)) return g;
-    }
-    return nullptr;
 }
 
 // ── 点击 Actor ────────────────────────────────────────────────────────

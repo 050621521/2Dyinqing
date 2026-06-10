@@ -3,6 +3,7 @@
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QUuid>
+#include <QSaveFile>
 
 // ── ActorData ─────────────────────────────────────────────────────────
 
@@ -112,6 +113,24 @@ BPConnection BPConnection::fromJson(const QJsonObject& obj) {
 
 // ── LevelDocument ─────────────────────────────────────────────────────
 
+static int sortingLayerPriority(const QString& layer) {
+    if (layer == "背景") return 0;
+    if (layer == "前景") return 2;
+    if (layer == "界面") return 3;
+    if (layer == "物理") return 4;
+    return 1;
+}
+
+void LevelDocument::rebuildSortedActors() {
+    m_sortedActors = m_actors;
+    std::stable_sort(m_sortedActors.begin(), m_sortedActors.end(),
+                     [](const ActorData& a, const ActorData& b) {
+        int la = sortingLayerPriority(a.sortingLayer);
+        int lb = sortingLayerPriority(b.sortingLayer);
+        return la != lb ? la < lb : a.orderInLayer < b.orderInLayer;
+    });
+}
+
 bool LevelDocument::load(const QString& filePath) {
     m_filePath = filePath;
     m_actors.clear();
@@ -127,6 +146,8 @@ bool LevelDocument::load(const QString& filePath) {
 
     for (const QJsonValue& v : root["objects"].toArray())
         m_actors.append(ActorData::fromJson(v.toObject()));
+
+    rebuildSortedActors();
 
     m_bpNodes.clear();
     m_bpConnections.clear();
@@ -158,9 +179,10 @@ bool LevelDocument::save() {
     root["objects"]   = arr;
     root["blueprint"] = bp;
 
-    QFile f(m_filePath);
+    QSaveFile f(m_filePath);
     if (!f.open(QIODevice::WriteOnly)) return false;
     f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+    if (!f.commit()) return false;
     m_dirty = false;
     return true;
 }
@@ -170,21 +192,30 @@ void LevelDocument::addActor(const ActorData& actor) {
     if (a.id.isEmpty())
         a.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
     m_actors.append(a);
+    rebuildSortedActors();
     m_dirty = true;
 }
 
 void LevelDocument::removeActor(const QString& id) {
     for (int i = 0; i < m_actors.size(); ++i) {
-        if (m_actors[i].id == id) { m_actors.removeAt(i); break; }
+        if (m_actors[i].id == id) {
+            m_actors.removeAt(i);
+            rebuildSortedActors();
+            m_dirty = true;
+            break;
+        }
     }
-    m_dirty = true;
 }
 
 void LevelDocument::updateActor(const ActorData& actor) {
     for (ActorData& a : m_actors) {
-        if (a.id == actor.id) { a = actor; break; }
+        if (a.id == actor.id) {
+            a = actor;
+            rebuildSortedActors();
+            m_dirty = true;
+            break;
+        }
     }
-    m_dirty = true;
 }
 
 // ── Blueprint 增删改 ──────────────────────────────────────────────────
@@ -196,16 +227,22 @@ void LevelDocument::addBPNode(const BPNode& node) {
 
 void LevelDocument::removeBPNode(const QString& id) {
     for (int i = 0; i < m_bpNodes.size(); ++i) {
-        if (m_bpNodes[i].id == id) { m_bpNodes.removeAt(i); break; }
+        if (m_bpNodes[i].id == id) {
+            m_bpNodes.removeAt(i);
+            m_dirty = true;
+            break;
+        }
     }
-    m_dirty = true;
 }
 
 void LevelDocument::updateBPNode(const BPNode& node) {
     for (BPNode& n : m_bpNodes) {
-        if (n.id == node.id) { n = node; break; }
+        if (n.id == node.id) {
+            n = node;
+            m_dirty = true;
+            break;
+        }
     }
-    m_dirty = true;
 }
 
 void LevelDocument::addBPConnection(const BPConnection& conn) {
@@ -215,7 +252,10 @@ void LevelDocument::addBPConnection(const BPConnection& conn) {
 
 void LevelDocument::removeBPConnection(const QString& id) {
     for (int i = 0; i < m_bpConnections.size(); ++i) {
-        if (m_bpConnections[i].id == id) { m_bpConnections.removeAt(i); break; }
+        if (m_bpConnections[i].id == id) {
+            m_bpConnections.removeAt(i);
+            m_dirty = true;
+            break;
+        }
     }
-    m_dirty = true;
 }

@@ -25,7 +25,6 @@ private slots:
 
 private:
     void rebuild();
-    QTreeWidgetItem* groupItem(const QString& type) const;
 
     LevelDocument* m_doc = nullptr;
     QTreeWidget*   m_tree  = nullptr;

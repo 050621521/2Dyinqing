@@ -7,6 +7,7 @@
 
 class QTabBar;
 class QStackedWidget;
+class QDockWidget;
 class SceneOutliner;
 class DetailsPanel;
 class Viewport2D;
@@ -35,6 +36,7 @@ private:
     void setupCentralArea();
     void setupBottomBar();
     void positionCBPanel();
+    void positionBPDockedBar();
     void dockBlueprintAsTab();
     void undockBlueprintFromTab();
 
@@ -70,11 +72,14 @@ private:
     BPRuntime*       m_runtime          = nullptr;
     QWidget*         m_bpPanel          = nullptr;
     QWidget*         m_bpTitleBar       = nullptr;
+    QWidget*         m_bpDockedBar      = nullptr;
     bool             m_bpDragging       = false;
     QPoint           m_bpDragOffset;
     bool             m_bpDocked         = false;
     int              m_bpTabIndex       = -1;
     int              m_bpGhostTabIndex  = -1;
+    QDockWidget* m_outlineDock  = nullptr;
+    QDockWidget* m_detailsDock  = nullptr;
     QMap<QString, LevelDocument*> m_openLevels;
     QList<QMetaObject::Connection> m_tabConnections;
 };

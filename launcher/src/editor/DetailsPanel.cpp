@@ -1,4 +1,5 @@
 #include "DetailsPanel.h"
+#include "models/ActorTypeUtils.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
@@ -24,24 +25,8 @@
 #include <QDataStream>
 #include <QMimeData>
 
-// ── 默认组件（与 Viewport2D / SceneOutliner 保持同步） ───────────────
-
-static QStringList defaultComponents(const QString& type) {
-    if (type == "Camera")  return {"变换", "摄像机组件"};
-    if (type == "Sprite")  return {"变换", "精灵渲染器"};
-    if (type == "Light")   return {"变换", "点光源"};
-    if (type == "Trigger") return {"变换", "碰撞盒"};
-    return {"变换"};
-}
-
-// ── 类型颜色（与 Viewport2D 一致） ────────────────────────────────────
-
 QColor DetailsPanel::typeColor(const QString& type) {
-    if (type == "Camera")  return QColor(80,  160, 240);
-    if (type == "Sprite")  return QColor(80,  200, 100);
-    if (type == "Light")   return QColor(255, 220,  50);
-    if (type == "Trigger") return QColor(220, 130,  50);
-    return                        QColor(160, 160, 160);
+    return actorTypeColor(type);
 }
 
 // ── 构造 ──────────────────────────────────────────────────────────────
