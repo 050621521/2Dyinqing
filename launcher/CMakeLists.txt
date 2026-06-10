@@ -41,6 +41,7 @@ set(SOURCES
     src/editor/LayoutManager.cpp
     src/editor/DocTabBar.cpp
     src/editor/BlueprintFloatWindow.cpp
+    src/editor/GameViewport.cpp
 )
 
 set(HEADERS
@@ -64,6 +65,7 @@ set(HEADERS
     src/editor/LayoutManager.h
     src/editor/DocTabBar.h
     src/editor/BlueprintFloatWindow.h
+    src/editor/GameViewport.h
 )
 
 qt_add_executable(launcher ${SOURCES} ${HEADERS} resources/resources.qrc)
