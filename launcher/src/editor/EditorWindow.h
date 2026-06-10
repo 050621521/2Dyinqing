@@ -80,7 +80,9 @@ private:
     QStackedWidget* m_centralStack    = nullptr;
     QWidget*        m_viewportPage    = nullptr;
     QWidget*        m_bpWrapper       = nullptr;
-    ads::CDockWidget* m_bpDockW       = nullptr;
+    ads::CDockWidget* m_bpDockW          = nullptr;
+    QTimer*           m_bpDropCheckTimer = nullptr;
+    bool              m_bpDropFirstDone  = false;
     QString           m_activeLevelPath;
 
     LayoutManager* m_layoutManager = nullptr;

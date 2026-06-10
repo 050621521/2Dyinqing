@@ -12,6 +12,8 @@
 #include <DockManager.h>
 #include <DockWidget.h>
 #include <DockAreaWidget.h>
+#include <FloatingDockContainer.h>
+#include <QGuiApplication>
 #include <QMetaObject>
 #include <QMenuBar>
 #include <QMenu>
@@ -249,6 +251,51 @@ void EditorWindow::setupCentralArea() {
             this, [this](bool isTopLevel) {
         if (!isTopLevel && m_bpDockW->widget() == m_bpWrapper)
             QTimer::singleShot(0, this, &EditorWindow::embedBlueprint);
+    });
+
+    // ── 拖回 Tab 栏检测定时器 ─────────────────────────────────────────
+    m_bpDropCheckTimer = new QTimer(this);
+    m_bpDropCheckTimer->setInterval(50);
+    connect(m_bpDropCheckTimer, &QTimer::timeout, this, [this]() {
+        if (!m_bpDockW || !m_bpDockW->isFloating()) {
+            m_bpDropCheckTimer->stop();
+            return;
+        }
+        auto* container = m_bpDockW->floatingDockContainer();
+        if (!container) return;
+
+        // 等待 floatBlueprint 触发的那次初始鼠标释放，避免立即误嵌
+        if (!m_bpDropFirstDone) {
+            if (QGuiApplication::mouseButtons() == Qt::NoButton)
+                m_bpDropFirstDone = true;
+            return;
+        }
+
+        auto* tb = findChild<QToolBar*>("docTabToolBar");
+        if (!tb) return;
+
+        const QRect tbGlobal(tb->mapToGlobal(QPoint(0, 0)), tb->size());
+        const QRect cRect = container->frameGeometry();
+        // 给 Tab 栏上下各留 20px 容差
+        const bool nearTabBar = cRect.intersects(tbGlobal.adjusted(0, -20, 0, 20));
+
+        // 高亮反馈
+        if (tb->property("bpDropHighlight").toBool() != nearTabBar) {
+            tb->setProperty("bpDropHighlight", nearTabBar);
+            tb->style()->unpolish(tb);
+            tb->style()->polish(tb);
+            tb->update();
+        }
+
+        // 鼠标已松开且覆盖 Tab 栏 → 嵌回
+        if (nearTabBar && QGuiApplication::mouseButtons() == Qt::NoButton) {
+            m_bpDropCheckTimer->stop();
+            tb->setProperty("bpDropHighlight", false);
+            tb->style()->unpolish(tb);
+            tb->style()->polish(tb);
+            tb->update();
+            QTimer::singleShot(0, this, &EditorWindow::embedBlueprint);
+        }
     });
 
     // ── 布局管理器 ────────────────────────────────────────────────────
@@ -737,12 +784,26 @@ void EditorWindow::floatBlueprint(QPoint globalPos) {
     // 加载关卡数据（修复浮起后蓝图为空的问题）
     LevelDocument* doc = m_openLevels.value(m_activeLevelPath, nullptr);
     if (m_blueprintEditor) m_blueprintEditor->loadLevel(doc);
+
+    // 启动拖回 Tab 栏检测
+    m_bpDropFirstDone = false;
+    if (m_bpDropCheckTimer) m_bpDropCheckTimer->start();
 }
 
 void EditorWindow::embedBlueprint() {
     if (!m_bpDockW || !m_bpWrapper) return;
-    // 仅当 wrapper 确实在 Dock 中时才执行（防止初始 closeDockWidget 触发的误调用）
     if (m_bpDockW->widget() != m_bpWrapper) return;
+
+    // 停止拖回检测，清除高亮
+    if (m_bpDropCheckTimer) m_bpDropCheckTimer->stop();
+    if (auto* tb = findChild<QToolBar*>("docTabToolBar")) {
+        if (tb->property("bpDropHighlight").toBool()) {
+            tb->setProperty("bpDropHighlight", false);
+            tb->style()->unpolish(tb);
+            tb->style()->polish(tb);
+            tb->update();
+        }
+    }
 
     // 先给 ADS 一个占位符，再把 wrapper 接回 stack
     // （避免 ADS 持有悬空指针）
