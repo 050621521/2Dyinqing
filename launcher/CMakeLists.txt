@@ -38,6 +38,7 @@ set(SOURCES
     src/editor/ProjectSettingsDialog.cpp
     src/editor/BlueprintEditor.cpp
     src/editor/BPRuntime.cpp
+    src/editor/LayoutManager.cpp
 )
 
 set(HEADERS
@@ -58,6 +59,7 @@ set(HEADERS
     src/editor/ProjectSettingsDialog.h
     src/editor/BlueprintEditor.h
     src/editor/BPRuntime.h
+    src/editor/LayoutManager.h
 )
 
 qt_add_executable(launcher ${SOURCES} ${HEADERS} resources/resources.qrc)
