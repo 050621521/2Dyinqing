@@ -134,12 +134,15 @@ void EditorWindow::setupMainToolBar() {
     dropBtn("选择模式  ▾");
     tb->addSeparator();
     m_runBtn  = tbBtn("▶",  "运行");
-    tbBtn("⏸", "暂停");
+    m_pauseBtn = tbBtn("⏸", "暂停");
+    m_pauseBtn->setCheckable(true);
     m_stopBtn = tbBtn("⏹",  "停止");
     tbBtn("⏭",  "跳帧");
     tb->addSeparator();
-    connect(m_runBtn,  &QToolButton::clicked, this, &EditorWindow::startRuntime);
-    connect(m_stopBtn, &QToolButton::clicked, this, &EditorWindow::stopRuntime);
+    connect(m_runBtn,   &QToolButton::clicked, this, &EditorWindow::startRuntime);
+    connect(m_pauseBtn, &QToolButton::clicked, this, &EditorWindow::togglePauseRuntime);
+    connect(m_stopBtn,  &QToolButton::clicked, this, &EditorWindow::stopRuntime);
+    m_pauseBtn->setEnabled(false);
     m_stopBtn->setEnabled(false);
     dropBtn("平台  ▾");
     tb->addSeparator();
@@ -801,7 +804,9 @@ void EditorWindow::startRuntime() {
     if (m_runtime) return;
     const int index = m_docTabBar->currentIndex();
     if (index < 0) return;
-    const QString path = m_docTabBar->tabData(index).toString();
+    const QString tabPath = m_docTabBar->tabData(index).toString();
+    // 若当前是游戏视图 Tab，用最近激活的关卡
+    const QString path = (tabPath == DocTabBar::kGameViewTabData) ? m_activeLevelPath : tabPath;
     LevelDocument* doc = m_openLevels.value(path);
     if (!doc || !m_viewport) return;
 
@@ -813,7 +818,11 @@ void EditorWindow::startRuntime() {
         if (m_gameViewport)
             m_gameViewport->setRuntimeActors(m_runtime->actors());
     });
-    connect(m_viewport, &Viewport2D::keyPressed, m_runtime, &BPRuntime::triggerKeyDown);
+    // 暂停时屏蔽按键事件
+    connect(m_viewport, &Viewport2D::keyPressed, this, [this](const QString& key) {
+        if (m_runtime && m_pauseBtn && !m_pauseBtn->isChecked())
+            m_runtime->triggerKeyDown(key);
+    });
 
     m_viewport->setRuntimeMode(true, m_runtime->actors());
     m_runtime->triggerBeginPlay();
@@ -833,14 +842,20 @@ void EditorWindow::startRuntime() {
         }
     }
 
-    if (m_runBtn)  m_runBtn->setEnabled(false);
-    if (m_stopBtn) m_stopBtn->setEnabled(true);
+    if (m_runBtn)   m_runBtn->setEnabled(false);
+    if (m_pauseBtn) m_pauseBtn->setEnabled(true);
+    if (m_stopBtn)  m_stopBtn->setEnabled(true);
+}
+
+void EditorWindow::togglePauseRuntime() {
+    if (!m_pauseBtn) return;
+    // m_pauseBtn->isChecked() 已由 Qt 自动切换；按键拦截在 keyPressed lambda 中处理
 }
 
 void EditorWindow::stopRuntime() {
     if (!m_runtime) return;
     disconnect(m_runtime, nullptr, this, nullptr);
-    if (m_viewport) disconnect(m_viewport, &Viewport2D::keyPressed, m_runtime, nullptr);
+    if (m_viewport) disconnect(m_viewport, &Viewport2D::keyPressed, this, nullptr);
     delete m_runtime;
     m_runtime = nullptr;
 
@@ -850,8 +865,9 @@ void EditorWindow::stopRuntime() {
     }
     if (m_gameViewport)
         m_gameViewport->setRuntimeMode(false);
-    if (m_runBtn)  m_runBtn->setEnabled(true);
-    if (m_stopBtn) m_stopBtn->setEnabled(false);
+    if (m_runBtn)   m_runBtn->setEnabled(true);
+    if (m_pauseBtn) { m_pauseBtn->setChecked(false); m_pauseBtn->setEnabled(false); }
+    if (m_stopBtn)  m_stopBtn->setEnabled(false);
 }
 
 void EditorWindow::openBlueprintTab() {

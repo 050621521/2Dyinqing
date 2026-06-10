@@ -63,6 +63,7 @@ private slots:
     void onProjectSettings();
     void startRuntime();
     void stopRuntime();
+    void togglePauseRuntime();
 
 private:
     ProjectInfo  m_project;
@@ -98,6 +99,7 @@ private:
 
     QButtonGroup* m_toolBtnGroup = nullptr;
     QToolButton*  m_runBtn       = nullptr;
+    QToolButton*  m_pauseBtn     = nullptr;
     QToolButton*  m_stopBtn      = nullptr;
     QLabel*       m_saveLabel    = nullptr;
 
