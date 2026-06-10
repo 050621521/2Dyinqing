@@ -155,6 +155,7 @@ void EditorWindow::setupCentralArea() {
     ads::CDockManager::setConfigFlag(ads::CDockManager::OpaqueSplitterResize, true);
     ads::CDockManager::setConfigFlag(ads::CDockManager::XmlAutoFormattingEnabled, true);
     m_dockManager = new ads::CDockManager(this);
+    m_dockManager->setStyleSheet("");  // 清除 ADS 内置浅色主题，让 qApp 深色样式表生效
 
     // ── 视口（中央固定，不可关闭/浮动/移动）─────────────────────────
     auto* leftWrap = new QWidget();

@@ -660,3 +660,68 @@ QDockWidget#detailsDock::float-button:hover {
     color: #888888; font-size: 13px;
 }
 #bpPanelClose:hover { color: #ffffff; background: #c0392b; border-radius: 3px; }
+
+/* ── ADS Docking System ───────────────────────────────────────────── */
+
+ads--CDockAreaTitleBar {
+    background-color: #252525;
+    border-bottom: 1px solid #2a2a2a;
+    padding: 0 4px;
+    min-height: 24px;
+}
+
+ads--CDockWidgetTab {
+    background-color: #252525;
+    border: none;
+    padding: 0 10px;
+    min-width: 60px;
+    min-height: 24px;
+    color: #888;
+}
+ads--CDockWidgetTab[activeTab="true"] {
+    background-color: #1a1a1a;
+    color: #ddd;
+    border-top: 2px solid #0078d7;
+}
+ads--CDockWidgetTab:hover {
+    background-color: #2a2a2a;
+    color: #ccc;
+}
+
+ads--CDockWidgetTab > QAbstractButton {
+    background: transparent;
+    border: none;
+    color: #666;
+    padding: 0 2px;
+}
+ads--CDockWidgetTab > QAbstractButton:hover {
+    color: #ccc;
+}
+
+ads--CDockAreaWidget {
+    background-color: #1a1a1a;
+    border: none;
+}
+
+ads--CDockSplitter::handle {
+    background-color: #2a2a2a;
+}
+ads--CDockSplitter::handle:horizontal {
+    width: 3px;
+}
+ads--CDockSplitter::handle:vertical {
+    height: 3px;
+}
+
+ads--CFloatingDockContainer {
+    background-color: #1a1a1a;
+    border: 1px solid #3a3a3a;
+}
+
+ads--CDockOverlay {
+    background-color: rgba(0, 120, 215, 0.15);
+    border: 2px solid #0078d7;
+}
+ads--CDockOverlayCross > * {
+    background-color: #0078d7;
+}
