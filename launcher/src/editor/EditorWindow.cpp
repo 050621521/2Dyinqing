@@ -215,7 +215,7 @@ void EditorWindow::setupCentralArea() {
     m_dockManager->addDockWidget(ads::BottomDockWidgetArea, m_cbDockW);
     m_cbDockW->closeDockWidget();
 
-    // ── 关卡蓝图（与视口同区域 Tab，默认隐藏）──────────────────────
+    // ── 关卡蓝图（浮动窗口，默认隐藏）──────────────────────
     m_blueprintEditor = new BlueprintEditor();
     connect(m_blueprintEditor, &BlueprintEditor::documentModified, this, [this]() {
         updateTabTitle(m_docTabBar->currentIndex());
@@ -223,8 +223,7 @@ void EditorWindow::setupCentralArea() {
     });
     m_bpDockW = new ads::CDockWidget("关卡蓝图");
     m_bpDockW->setWidget(m_blueprintEditor);
-    m_dockManager->addDockWidget(
-        ads::CenterDockWidgetArea, m_bpDockW, centralArea);
+    m_dockManager->addDockWidgetFloating(m_bpDockW);
     m_bpDockW->closeDockWidget();
 
     connect(m_bpDockW, &ads::CDockWidget::viewToggled,
@@ -350,7 +349,14 @@ QWidget* EditorWindow::buildViewportToolBar(QWidget* parent) {
     sep();
     auto* bpBtn = vBtn("关卡蓝图", "打开关卡蓝图（可视化脚本）");
     connect(bpBtn, &QToolButton::clicked, this, [this]() {
-        if (m_bpDockW) m_bpDockW->toggleView();
+        if (!m_bpDockW) return;
+        if (m_bpDockW->isClosed()) {
+            m_bpDockW->toggleView(true);
+            if (!m_bpDockW->isFloating())
+                m_bpDockW->setFloating();
+        } else {
+            m_bpDockW->toggleView(false);
+        }
     });
     hl->addStretch();
     auto* zl = new QLabel("1×", bar); zl->setObjectName("vpZoomLabel");
