@@ -562,16 +562,15 @@ bool ContentBrowser::createLevelFile(const QString& filePath) {
     cameraActor["confinerMinY"] = -500;
     cameraActor["confinerMaxY"] = 500;
 
-    // 蓝图（空节点和连接）
-    QJsonObject blueprint;
-    blueprint["nodes"] = QJsonArray();
-    blueprint["connections"] = QJsonArray();
-    cameraActor["blueprint"] = blueprint;
-
     // 将摄像机 Actor 加入 objects 数组
     QJsonArray objects;
     objects.append(cameraActor);
     obj["objects"] = objects;
+
+    QJsonObject blueprint;
+    blueprint["nodes"] = QJsonArray();
+    blueprint["connections"] = QJsonArray();
+    obj["blueprint"] = blueprint;
 
     QFile f(filePath);
     if (!f.open(QIODevice::WriteOnly)) return false;
