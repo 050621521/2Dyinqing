@@ -210,6 +210,16 @@ void Viewport2D::drawActors(QPainter& p) {
             }
         }
 
+        // 摄像机视口矩形（在旋转变换内，与摄像机同向）
+        if (a.type == "Camera" && !m_runtimeMode) {
+            const float halfH = a.cameraSize * m_zoom;
+            const float halfW = halfH * (a.cameraResH > 0 ? (float)a.cameraResW / a.cameraResH : 1.7778f);
+            QRectF frustum(pos.x() - halfW, pos.y() - halfH, halfW * 2, halfH * 2);
+            p.setPen(QPen(QColor(80, 160, 240, selected ? 200 : 70), 1.5f, Qt::DashLine));
+            p.setBrush(Qt::NoBrush);
+            p.drawRect(frustum);
+        }
+
         // 无贴图时按类型绘制占位图形
         if (!drewPixmap) {
             if (a.type == "Empty") {
@@ -271,6 +281,17 @@ void Viewport2D::drawActors(QPainter& p) {
         }
 
         p.restore(); // 结束旋转变换
+
+        // 边界限制框（世界空间绝对坐标，不随摄像机旋转）
+        if (a.type == "Camera" && !m_runtimeMode
+                && a.components.contains("边界限制组件") && a.confinerEnabled) {
+            QPointF tl = worldToScreen({a.confinerMinX, a.confinerMinY});
+            float bW = (a.confinerMaxX - a.confinerMinX) * m_zoom;
+            float bH = (a.confinerMaxY - a.confinerMinY) * m_zoom;
+            p.setPen(QPen(QColor(220, 130, 50, 180), 1.5f, Qt::DashDotLine));
+            p.setBrush(Qt::NoBrush);
+            p.drawRect(QRectF(tl.x(), tl.y(), bW, bH));
+        }
 
         // Gizmo 在屏幕坐标绘制（不受旋转影响）
         if (selected) drawGizmo(p, a, rect, pos);

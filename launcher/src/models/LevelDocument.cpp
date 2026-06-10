@@ -31,6 +31,21 @@ QJsonObject ActorData::toJson() const {
     obj["flipX"]       = flipX;
     obj["flipY"]       = flipY;
     obj["drawMode"]    = drawMode;
+    obj["cameraSize"]         = cameraSize;
+    obj["cameraIsMain"]       = cameraIsMain;
+    obj["cameraResW"]         = cameraResW;
+    obj["cameraResH"]         = cameraResH;
+    obj["cameraOrthographic"] = cameraOrthographic;
+    obj["cameraBackground"]   = cameraBackground.name(QColor::HexArgb);
+    obj["followTarget"]       = followTarget;
+    obj["followLerpSpeed"]    = followLerpSpeed;
+    obj["followOffsetX"]      = followOffsetX;
+    obj["followOffsetY"]      = followOffsetY;
+    obj["confinerEnabled"]    = confinerEnabled;
+    obj["confinerMinX"]       = confinerMinX;
+    obj["confinerMaxX"]       = confinerMaxX;
+    obj["confinerMinY"]       = confinerMinY;
+    obj["confinerMaxY"]       = confinerMaxY;
     return obj;
 }
 
@@ -59,6 +74,21 @@ ActorData ActorData::fromJson(const QJsonObject& obj) {
     a.flipX        = obj["flipX"].toBool(false);
     a.flipY        = obj["flipY"].toBool(false);
     a.drawMode     = obj["drawMode"].toString("简单");
+    a.cameraSize         = (float)obj["cameraSize"].toDouble(5.0);
+    a.cameraIsMain = obj["cameraIsMain"].toBool(false);
+    a.cameraResW   = obj["cameraResW"].toInt(1920);
+    a.cameraResH   = obj["cameraResH"].toInt(1080);
+    a.cameraOrthographic = obj["cameraOrthographic"].toBool(true);
+    a.cameraBackground   = QColor(obj["cameraBackground"].toString("#ff1e1e1e"));
+    a.followTarget       = obj["followTarget"].toString();
+    a.followLerpSpeed    = (float)obj["followLerpSpeed"].toDouble(5.0);
+    a.followOffsetX      = (float)obj["followOffsetX"].toDouble(0.0);
+    a.followOffsetY      = (float)obj["followOffsetY"].toDouble(0.0);
+    a.confinerEnabled    = obj["confinerEnabled"].toBool(false);
+    a.confinerMinX       = (float)obj["confinerMinX"].toDouble(-500.0);
+    a.confinerMaxX       = (float)obj["confinerMaxX"].toDouble(500.0);
+    a.confinerMinY       = (float)obj["confinerMinY"].toDouble(-500.0);
+    a.confinerMaxY       = (float)obj["confinerMaxY"].toDouble(500.0);
     return a;
 }
 

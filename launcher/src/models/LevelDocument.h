@@ -29,6 +29,27 @@ struct ActorData {
     bool    flipY        = false;
     QString drawMode     = "简单";
 
+    // 摄像机组件属性
+    float   cameraSize         = 5.0f;
+    bool    cameraIsMain       = false;
+    int     cameraResW         = 1920;
+    int     cameraResH         = 1080;
+    bool    cameraOrthographic = true;
+    QColor  cameraBackground   = QColor(30, 30, 30, 255);
+
+    // 跟随控制组件属性
+    QString followTarget;
+    float   followLerpSpeed    = 5.0f;
+    float   followOffsetX      = 0.0f;
+    float   followOffsetY      = 0.0f;
+
+    // 边界限制组件属性
+    bool    confinerEnabled    = false;
+    float   confinerMinX       = -500.0f;
+    float   confinerMaxX       =  500.0f;
+    float   confinerMinY       = -500.0f;
+    float   confinerMaxY       =  500.0f;
+
     QJsonObject toJson() const;
     static ActorData fromJson(const QJsonObject& obj);
 };
