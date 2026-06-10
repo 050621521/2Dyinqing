@@ -39,8 +39,12 @@ private:
     void buildComponents(QVBoxLayout* root);
     void buildTransform(QVBoxLayout* root);
     void buildSpriteRenderer(QVBoxLayout* root);
+    void buildCameraComponent(QVBoxLayout* root);
+    void buildFollowControl(QVBoxLayout* root);
+    void buildConfiner(QVBoxLayout* root);
     void refreshComponentList();
     void refreshSpriteSection();
+    void refreshCameraSections();
     void onAddComponent(const QString& compName);
 
     static QColor typeColor(const QString& type);
@@ -70,6 +74,30 @@ private:
     QComboBox*   m_sortLayerCombo  = nullptr;
     QSpinBox*    m_orderSpin       = nullptr;
     QComboBox*   m_drawModeCombo   = nullptr;
+
+    // 摄像机组件区块
+    QWidget*        m_cameraBox          = nullptr;
+    QCheckBox*      m_cameraOrthoCheck   = nullptr;
+    QDoubleSpinBox* m_cameraSizeSpin     = nullptr;
+    QCheckBox*      m_cameraIsMainCheck  = nullptr;
+    QSpinBox*       m_cameraResWSpin     = nullptr;
+    QSpinBox*       m_cameraResHSpin     = nullptr;
+    QPushButton*    m_cameraBgBtn        = nullptr;
+
+    // 跟随控制组件区块
+    QWidget*        m_followBox          = nullptr;
+    QLineEdit*      m_followTargetEdit   = nullptr;
+    QDoubleSpinBox* m_followLerpSpin     = nullptr;
+    QDoubleSpinBox* m_followOffsetXSpin  = nullptr;
+    QDoubleSpinBox* m_followOffsetYSpin  = nullptr;
+
+    // 边界限制组件区块
+    QWidget*        m_confinerBox        = nullptr;
+    QCheckBox*      m_confinerEnabledChk = nullptr;
+    QDoubleSpinBox* m_confinerMinXSpin   = nullptr;
+    QDoubleSpinBox* m_confinerMaxXSpin   = nullptr;
+    QDoubleSpinBox* m_confinerMinYSpin   = nullptr;
+    QDoubleSpinBox* m_confinerMaxYSpin   = nullptr;
 
     ActorData       m_currentActor;
     QStackedWidget* m_stack = nullptr;

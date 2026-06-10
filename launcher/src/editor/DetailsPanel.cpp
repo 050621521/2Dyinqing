@@ -61,6 +61,9 @@ DetailsPanel::DetailsPanel(QWidget* parent) : QWidget(parent) {
     buildComponents(root);
     buildTransform(root);
     buildSpriteRenderer(root);
+    buildCameraComponent(root);
+    buildFollowControl(root);
+    buildConfiner(root);
     root->addStretch();
 
     scroll->setWidget(content);
@@ -109,8 +112,8 @@ void DetailsPanel::buildHeader(QVBoxLayout* root) {
     connect(m_addComponentBtn, &QPushButton::clicked, this, [this]() {
         if (m_currentActor.id.isEmpty()) return;
         QMenu menu(this);
-        const QStringList all = {"变换", "精灵渲染器", "摄像机组件", "点光源",
-                                  "碰撞盒", "刚体", "音频源", "动画控制器"};
+        const QStringList all = {"变换", "精灵渲染器", "摄像机组件", "跟随控制组件",
+                                  "边界限制组件", "点光源", "碰撞盒", "刚体", "音频源", "动画控制器"};
         for (const QString& comp : all) {
             if (!m_currentActor.components.contains(comp))
                 menu.addAction(comp, [this, comp]() { onAddComponent(comp); });
@@ -233,6 +236,7 @@ void DetailsPanel::refreshComponentList() {
     m_componentTree->setFixedHeight(rows * 22 + 6);
 
     refreshSpriteSection();
+    refreshCameraSections();
 }
 
 void DetailsPanel::onAddComponent(const QString& compName) {
@@ -328,7 +332,13 @@ void DetailsPanel::showActor(const ActorData& actor) {
                    b6(m_posX),  b7(m_posY), b8(m_rotation),
                    b9(m_scaleX), b10(m_scaleY),
                    b11(*m_flipXCheck), b12(*m_flipYCheck),
-                   b13(*m_sortLayerCombo), b14(*m_orderSpin), b15(*m_drawModeCombo);
+                   b13(*m_sortLayerCombo), b14(*m_orderSpin), b15(*m_drawModeCombo),
+                   b16(m_cameraOrthoCheck), b17(m_cameraSizeSpin),
+                   b18(*m_cameraIsMainCheck), b18b(*m_cameraResWSpin), b18c(*m_cameraResHSpin),
+                   b19(m_followTargetEdit), b20(m_followLerpSpin),
+                   b21(m_followOffsetXSpin), b22(m_followOffsetYSpin),
+                   b23(m_confinerEnabledChk), b24(m_confinerMinXSpin), b25(m_confinerMaxXSpin),
+                   b26(m_confinerMinYSpin), b27(m_confinerMaxYSpin);
 
     m_currentActor = actor;
     // 迁移：旧 Actor JSON 中 components 为空时补入默认组件并立即保存
@@ -373,6 +383,29 @@ void DetailsPanel::showActor(const ActorData& actor) {
         int di = m_drawModeCombo->findText(actor.drawMode);
         m_drawModeCombo->setCurrentIndex(di >= 0 ? di : 0);
     }
+
+    // 摄像机组件字段
+    m_cameraIsMainCheck->setChecked(actor.cameraIsMain);
+    m_cameraOrthoCheck->setChecked(actor.cameraOrthographic);
+    m_cameraSizeSpin->setValue(actor.cameraSize);
+    m_cameraResWSpin->setValue(actor.cameraResW);
+    m_cameraResHSpin->setValue(actor.cameraResH);
+    m_cameraBgBtn->setStyleSheet(
+        QString("background:%1; border:1px solid #555;")
+        .arg(actor.cameraBackground.name(QColor::HexArgb)));
+
+    // 跟随控制组件字段
+    m_followTargetEdit->setText(actor.followTarget);
+    m_followLerpSpin->setValue(actor.followLerpSpeed);
+    m_followOffsetXSpin->setValue(actor.followOffsetX);
+    m_followOffsetYSpin->setValue(actor.followOffsetY);
+
+    // 边界限制组件字段
+    m_confinerEnabledChk->setChecked(actor.confinerEnabled);
+    m_confinerMinXSpin->setValue(actor.confinerMinX);
+    m_confinerMaxXSpin->setValue(actor.confinerMaxX);
+    m_confinerMinYSpin->setValue(actor.confinerMinY);
+    m_confinerMaxYSpin->setValue(actor.confinerMaxY);
 
     refreshComponentList();
     m_stack->setCurrentIndex(1);  // 显示 Inspector 内容
@@ -421,6 +454,246 @@ void DetailsPanel::assignSpritePath(const QString& path) {
 void DetailsPanel::refreshSpriteSection() {
     if (m_spriteBox)
         m_spriteBox->setVisible(m_currentActor.components.contains("精灵渲染器"));
+}
+
+void DetailsPanel::refreshCameraSections() {
+    if (m_cameraBox)
+        m_cameraBox->setVisible(m_currentActor.components.contains("摄像机组件"));
+    if (m_followBox)
+        m_followBox->setVisible(m_currentActor.components.contains("跟随控制组件"));
+    if (m_confinerBox)
+        m_confinerBox->setVisible(m_currentActor.components.contains("边界限制组件"));
+}
+
+// ── 辅助宏：构建折叠区块标题行 ────────────────────────────────────────
+static std::tuple<QWidget*, QWidget*> makeSectionBox(QWidget* parent,
+                                                      QVBoxLayout** boxLayout,
+                                                      const QString& title) {
+    auto* box = new QGroupBox(parent);
+    box->setObjectName("detailGroup");
+    auto* bl = new QVBoxLayout(box);
+    bl->setSpacing(0);
+    bl->setContentsMargins(0, 0, 0, 0);
+    *boxLayout = bl;
+
+    auto* titleBar = new QWidget(box);
+    titleBar->setObjectName("detailTitleBar");
+    auto* titleRow = new QHBoxLayout(titleBar);
+    titleRow->setContentsMargins(8, 6, 8, 6);
+
+    auto* triBtn = new QToolButton(box);
+    triBtn->setText("▼"); triBtn->setCheckable(true); triBtn->setChecked(true);
+    triBtn->setObjectName("detailTriangle"); triBtn->setAutoRaise(true);
+
+    auto* titleLbl = new QLabel(title, box);
+    titleLbl->setObjectName("detailGroupTitle");
+    QFont f = titleLbl->font(); f.setBold(true); titleLbl->setFont(f);
+    titleRow->addWidget(triBtn);
+    titleRow->addWidget(titleLbl);
+    titleRow->addStretch();
+    bl->addWidget(titleBar);
+
+    auto* content = new QWidget(box);
+    bl->addWidget(content);
+
+    QObject::connect(triBtn, &QToolButton::toggled, content, [content, triBtn](bool expanded) {
+        content->setVisible(expanded);
+        triBtn->setText(expanded ? "▼" : "▶");
+    });
+
+    return {box, content};
+}
+
+// ── 摄像机组件 ─────────────────────────────────────────────────────────
+
+void DetailsPanel::buildCameraComponent(QVBoxLayout* root) {
+    QVBoxLayout* bl = nullptr;
+    auto [box_sb, content_sb] = makeSectionBox(this, &bl, "摄像机组件");
+    QWidget* box = box_sb; QWidget* content = content_sb;
+
+    auto* grid = new QGridLayout(content);
+    grid->setSpacing(4);
+    grid->setContentsMargins(8, 4, 8, 10);
+    grid->setColumnMinimumWidth(0, 60);
+
+    auto mkDSpin = [&](double lo, double hi, double val, double step = 0.1) -> QDoubleSpinBox* {
+        auto* s = new QDoubleSpinBox(content);
+        s->setRange(lo, hi); s->setValue(val); s->setSingleStep(step);
+        s->setDecimals(3); s->setObjectName("detailSpin");
+        connect(s, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+                this, &DetailsPanel::onAnyFieldChanged);
+        return s;
+    };
+
+    // 行0：主摄像机
+    grid->addWidget(new QLabel("主摄像机", content), 0, 0);
+    m_cameraIsMainCheck = new QCheckBox(content);
+    m_cameraIsMainCheck->setObjectName("detailCheck");
+    connect(m_cameraIsMainCheck, &QCheckBox::toggled, this, &DetailsPanel::onAnyFieldChanged);
+    grid->addWidget(m_cameraIsMainCheck, 0, 1, 1, 2);
+
+    // 行1：投影模式
+    grid->addWidget(new QLabel("投影模式", content), 1, 0);
+    m_cameraOrthoCheck = new QCheckBox("正交", content);
+    m_cameraOrthoCheck->setObjectName("detailCheck");
+    m_cameraOrthoCheck->setChecked(true);
+    connect(m_cameraOrthoCheck, &QCheckBox::toggled, this, &DetailsPanel::onAnyFieldChanged);
+    grid->addWidget(m_cameraOrthoCheck, 1, 1, 1, 2);
+
+    // 行2：大小
+    grid->addWidget(new QLabel("大小", content), 2, 0);
+    m_cameraSizeSpin = mkDSpin(0.1, 9999, 5.0, 0.5);
+    grid->addWidget(m_cameraSizeSpin, 2, 1, 1, 2);
+
+    // 行3：分辨率
+    grid->addWidget(new QLabel("分辨率", content), 3, 0);
+    auto* resRow = new QHBoxLayout;
+    m_cameraResWSpin = new QSpinBox(content);
+    m_cameraResWSpin->setObjectName("detailSpin");
+    m_cameraResWSpin->setRange(1, 7680);
+    m_cameraResWSpin->setValue(1920);
+    connect(m_cameraResWSpin, QOverload<int>::of(&QSpinBox::valueChanged),
+            this, &DetailsPanel::onAnyFieldChanged);
+    auto* resX = new QLabel("×", content);
+    resX->setObjectName("detailSmallLabel");
+    m_cameraResHSpin = new QSpinBox(content);
+    m_cameraResHSpin->setObjectName("detailSpin");
+    m_cameraResHSpin->setRange(1, 4320);
+    m_cameraResHSpin->setValue(1080);
+    connect(m_cameraResHSpin, QOverload<int>::of(&QSpinBox::valueChanged),
+            this, &DetailsPanel::onAnyFieldChanged);
+    resRow->addWidget(m_cameraResWSpin, 1);
+    resRow->addWidget(resX);
+    resRow->addWidget(m_cameraResHSpin, 1);
+    grid->addLayout(resRow, 3, 1, 1, 2);
+
+    // 行4：背景色
+    grid->addWidget(new QLabel("背景色", content), 4, 0);
+    m_cameraBgBtn = new QPushButton(content);
+    m_cameraBgBtn->setObjectName("spriteColorBtn");
+    m_cameraBgBtn->setFixedWidth(70);
+    m_cameraBgBtn->setFixedHeight(22);
+    m_cameraBgBtn->setStyleSheet("background:#ff1e1e1e; border:1px solid #555;");
+    grid->addWidget(m_cameraBgBtn, 4, 1, 1, 2);
+
+    connect(m_cameraBgBtn, &QPushButton::clicked, this, [this]() {
+        QColor c = QColorDialog::getColor(m_currentActor.cameraBackground, this,
+            "摄像机背景色", QColorDialog::ShowAlphaChannel);
+        if (!c.isValid()) return;
+        m_currentActor.cameraBackground = c;
+        m_cameraBgBtn->setStyleSheet(
+            QString("background:%1; border:1px solid #555;").arg(c.name(QColor::HexArgb)));
+        emit actorModified(m_currentActor);
+    });
+
+    m_cameraBox = box;
+    root->addWidget(box);
+    box->hide();
+}
+
+// ── 跟随控制组件 ───────────────────────────────────────────────────────
+
+void DetailsPanel::buildFollowControl(QVBoxLayout* root) {
+    QVBoxLayout* bl = nullptr;
+    auto [box_sb, content_sb] = makeSectionBox(this, &bl, "跟随控制组件");
+    QWidget* box = box_sb; QWidget* content = content_sb;
+
+    auto* grid = new QGridLayout(content);
+    grid->setSpacing(4);
+    grid->setContentsMargins(8, 4, 8, 10);
+    grid->setColumnMinimumWidth(0, 60);
+
+    auto mkDSpin = [&](double lo, double hi, double val, double step = 0.1) -> QDoubleSpinBox* {
+        auto* s = new QDoubleSpinBox(content);
+        s->setRange(lo, hi); s->setValue(val); s->setSingleStep(step);
+        s->setDecimals(2); s->setObjectName("detailSpin");
+        connect(s, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+                this, &DetailsPanel::onAnyFieldChanged);
+        return s;
+    };
+
+    // 行0：目标 Actor
+    grid->addWidget(new QLabel("目标", content), 0, 0);
+    m_followTargetEdit = new QLineEdit(content);
+    m_followTargetEdit->setObjectName("actorNameEdit");
+    m_followTargetEdit->setPlaceholderText("Actor 名称");
+    connect(m_followTargetEdit, &QLineEdit::textEdited, this, &DetailsPanel::onAnyFieldChanged);
+    grid->addWidget(m_followTargetEdit, 0, 1, 1, 2);
+
+    // 行1：平滑速度
+    grid->addWidget(new QLabel("平滑速度", content), 1, 0);
+    m_followLerpSpin = mkDSpin(0.0, 50.0, 5.0, 0.5);
+    grid->addWidget(m_followLerpSpin, 1, 1, 1, 2);
+
+    // 行2：偏移 X/Y
+    grid->addWidget(new QLabel("偏移", content), 2, 0);
+    auto* offsetRow = new QHBoxLayout;
+    auto* lx = new QLabel("X", content); lx->setObjectName("axisLabel");
+    m_followOffsetXSpin = mkDSpin(-9999, 9999, 0.0, 1.0);
+    auto* ly = new QLabel("Y", content); ly->setObjectName("axisLabel");
+    m_followOffsetYSpin = mkDSpin(-9999, 9999, 0.0, 1.0);
+    offsetRow->addWidget(lx); offsetRow->addWidget(m_followOffsetXSpin, 1);
+    offsetRow->addWidget(ly); offsetRow->addWidget(m_followOffsetYSpin, 1);
+    grid->addLayout(offsetRow, 2, 1, 1, 2);
+
+    m_followBox = box;
+    root->addWidget(box);
+    box->hide();
+}
+
+// ── 边界限制组件 ───────────────────────────────────────────────────────
+
+void DetailsPanel::buildConfiner(QVBoxLayout* root) {
+    QVBoxLayout* bl = nullptr;
+    auto [box_sb, content_sb] = makeSectionBox(this, &bl, "边界限制组件");
+    QWidget* box = box_sb; QWidget* content = content_sb;
+
+    auto* grid = new QGridLayout(content);
+    grid->setSpacing(4);
+    grid->setContentsMargins(8, 4, 8, 10);
+    grid->setColumnMinimumWidth(0, 60);
+
+    auto mkDSpin = [&](double lo, double hi, double val) -> QDoubleSpinBox* {
+        auto* s = new QDoubleSpinBox(content);
+        s->setRange(lo, hi); s->setValue(val); s->setSingleStep(10.0);
+        s->setDecimals(1); s->setObjectName("detailSpin");
+        connect(s, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+                this, &DetailsPanel::onAnyFieldChanged);
+        return s;
+    };
+
+    // 行0：启用
+    grid->addWidget(new QLabel("启用", content), 0, 0);
+    m_confinerEnabledChk = new QCheckBox(content);
+    m_confinerEnabledChk->setObjectName("detailCheck");
+    connect(m_confinerEnabledChk, &QCheckBox::toggled, this, &DetailsPanel::onAnyFieldChanged);
+    grid->addWidget(m_confinerEnabledChk, 0, 1, 1, 2);
+
+    // 行1：X 范围
+    grid->addWidget(new QLabel("X 范围", content), 1, 0);
+    auto* xRow = new QHBoxLayout;
+    auto* lmin = new QLabel("最小", content); lmin->setObjectName("detailSmallLabel");
+    m_confinerMinXSpin = mkDSpin(-99999, 99999, -500.0);
+    auto* lmax = new QLabel("最大", content); lmax->setObjectName("detailSmallLabel");
+    m_confinerMaxXSpin = mkDSpin(-99999, 99999, 500.0);
+    xRow->addWidget(lmin); xRow->addWidget(m_confinerMinXSpin, 1);
+    xRow->addWidget(lmax); xRow->addWidget(m_confinerMaxXSpin, 1);
+    grid->addLayout(xRow, 1, 1, 1, 2);
+
+    // 行2：Y 范围
+    grid->addWidget(new QLabel("Y 范围", content), 2, 0);
+    auto* yRow = new QHBoxLayout;
+    auto* lymin = new QLabel("最小", content); lymin->setObjectName("detailSmallLabel");
+    m_confinerMinYSpin = mkDSpin(-99999, 99999, -500.0);
+    auto* lymax = new QLabel("最大", content); lymax->setObjectName("detailSmallLabel");
+    m_confinerMaxYSpin = mkDSpin(-99999, 99999, 500.0);
+    yRow->addWidget(lymin); yRow->addWidget(m_confinerMinYSpin, 1);
+    yRow->addWidget(lymax); yRow->addWidget(m_confinerMaxYSpin, 1);
+    grid->addLayout(yRow, 2, 1, 1, 2);
+
+    m_confinerBox = box;
+    root->addWidget(box);
+    box->hide();
 }
 
 void DetailsPanel::buildSpriteRenderer(QVBoxLayout* root) {
@@ -622,6 +895,27 @@ void DetailsPanel::onAnyFieldChanged() {
         a.sortingLayer = m_sortLayerCombo->currentText();
         a.orderInLayer = m_orderSpin->value();
         a.drawMode     = m_drawModeCombo->currentText();
+    }
+    if (m_cameraBox && m_cameraBox->isVisible()) {
+        a.cameraIsMain       = m_cameraIsMainCheck->isChecked();
+        a.cameraOrthographic = m_cameraOrthoCheck->isChecked();
+        a.cameraSize         = (float)m_cameraSizeSpin->value();
+        a.cameraResW         = m_cameraResWSpin->value();
+        a.cameraResH         = m_cameraResHSpin->value();
+        a.cameraBackground   = m_currentActor.cameraBackground;
+    }
+    if (m_followBox && m_followBox->isVisible()) {
+        a.followTarget    = m_followTargetEdit->text().trimmed();
+        a.followLerpSpeed = (float)m_followLerpSpin->value();
+        a.followOffsetX   = (float)m_followOffsetXSpin->value();
+        a.followOffsetY   = (float)m_followOffsetYSpin->value();
+    }
+    if (m_confinerBox && m_confinerBox->isVisible()) {
+        a.confinerEnabled = m_confinerEnabledChk->isChecked();
+        a.confinerMinX    = (float)m_confinerMinXSpin->value();
+        a.confinerMaxX    = (float)m_confinerMaxXSpin->value();
+        a.confinerMinY    = (float)m_confinerMinYSpin->value();
+        a.confinerMaxY    = (float)m_confinerMaxYSpin->value();
     }
     m_currentActor = a;
     emit actorModified(a);
