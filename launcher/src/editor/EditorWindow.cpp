@@ -810,6 +810,8 @@ void EditorWindow::startRuntime() {
         if (!m_runtime || !m_viewport) return;
         m_viewport->updateRuntimeActors(m_runtime->actors());
         m_viewport->syncPrintLog(m_runtime->printLog());
+        if (m_gameViewport)
+            m_gameViewport->setRuntimeActors(m_runtime->actors());
     });
     connect(m_viewport, &Viewport2D::keyPressed, m_runtime, &BPRuntime::triggerKeyDown);
 
@@ -817,6 +819,19 @@ void EditorWindow::startRuntime() {
     m_runtime->triggerBeginPlay();
     m_viewport->updateRuntimeActors(m_runtime->actors());
     m_viewport->syncPrintLog(m_runtime->printLog());
+
+    // 游戏视图运行时模式
+    if (m_gameViewport) {
+        m_gameViewport->setRuntimeMode(true);
+        m_gameViewport->setRuntimeActors(m_runtime->actors());
+    }
+    // 自动跳转到游戏视图 Tab
+    for (int i = 0; i < m_docTabBar->count(); ++i) {
+        if (m_docTabBar->tabData(i).toString() == DocTabBar::kGameViewTabData) {
+            m_docTabBar->setCurrentIndex(i);
+            break;
+        }
+    }
 
     if (m_runBtn)  m_runBtn->setEnabled(false);
     if (m_stopBtn) m_stopBtn->setEnabled(true);
@@ -833,6 +848,8 @@ void EditorWindow::stopRuntime() {
         m_viewport->setRuntimeMode(false);
         m_viewport->clearPrintLog();
     }
+    if (m_gameViewport)
+        m_gameViewport->setRuntimeMode(false);
     if (m_runBtn)  m_runBtn->setEnabled(true);
     if (m_stopBtn) m_stopBtn->setEnabled(false);
 }
