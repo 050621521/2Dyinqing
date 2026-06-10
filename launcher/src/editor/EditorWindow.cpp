@@ -244,6 +244,12 @@ void EditorWindow::setupCentralArea() {
             this, [this](bool open) {
         if (!open) QTimer::singleShot(0, this, &EditorWindow::embedBlueprint);
     });
+    // 拖入 ADS 区域（停止浮动）时也回嵌到 Tab 栏
+    connect(m_bpDockW, &ads::CDockWidget::topLevelChanged,
+            this, [this](bool isTopLevel) {
+        if (!isTopLevel && m_bpDockW->widget() == m_bpWrapper)
+            QTimer::singleShot(0, this, &EditorWindow::embedBlueprint);
+    });
 
     // ── 布局管理器 ────────────────────────────────────────────────────
     m_layoutManager = new LayoutManager(m_dockManager, m_project.path, this);
@@ -741,6 +747,10 @@ void EditorWindow::embedBlueprint() {
     // 先给 ADS 一个占位符，再把 wrapper 接回 stack
     // （避免 ADS 持有悬空指针）
     m_bpDockW->setWidget(new QWidget());
+    // 若是拖入 ADS 区域触发（topLevelChanged），需主动关闭 dock；
+    // 若是关闭浮动窗口触发（viewToggled），dock 已在关闭中，closeDockWidget 为 no-op。
+    // 下一轮 viewToggled(false) 会再次触发 embedBlueprint，但 widget != m_bpWrapper 的守卫会拦截。
+    m_bpDockW->closeDockWidget();
     m_centralStack->addWidget(m_bpWrapper);  // reparent 到 stack
 
     int idx;

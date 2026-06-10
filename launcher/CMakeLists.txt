@@ -39,6 +39,8 @@ set(SOURCES
     src/editor/BlueprintEditor.cpp
     src/editor/BPRuntime.cpp
     src/editor/LayoutManager.cpp
+    src/editor/DocTabBar.cpp
+    src/editor/BlueprintFloatWindow.cpp
 )
 
 set(HEADERS
@@ -60,6 +62,8 @@ set(HEADERS
     src/editor/BlueprintEditor.h
     src/editor/BPRuntime.h
     src/editor/LayoutManager.h
+    src/editor/DocTabBar.h
+    src/editor/BlueprintFloatWindow.h
 )
 
 qt_add_executable(launcher ${SOURCES} ${HEADERS} resources/resources.qrc)
