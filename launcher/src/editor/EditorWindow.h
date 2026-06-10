@@ -18,7 +18,6 @@ class BlueprintEditor;
 class BPRuntime;
 class LayoutManager;
 class DocTabBar;
-class BlueprintFloatWindow;
 
 namespace ads {
     class CDockManager;
@@ -78,10 +77,11 @@ private:
     ads::CDockWidget*  m_detailsDockW = nullptr;
     ads::CDockWidget*  m_cbDockW      = nullptr;
 
-    QStackedWidget*       m_centralStack = nullptr;
-    QWidget*              m_viewportPage = nullptr;
-    BlueprintFloatWindow* m_bpFloatWin   = nullptr;
-    QString               m_activeLevelPath;
+    QStackedWidget* m_centralStack    = nullptr;
+    QWidget*        m_viewportPage    = nullptr;
+    QWidget*        m_bpWrapper       = nullptr;
+    ads::CDockWidget* m_bpDockW       = nullptr;
+    QString           m_activeLevelPath;
 
     LayoutManager* m_layoutManager = nullptr;
     QMenu*         m_windowMenu    = nullptr;

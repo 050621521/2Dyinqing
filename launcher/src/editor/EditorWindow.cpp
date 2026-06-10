@@ -7,7 +7,6 @@
 #include "ContentBrowser.h"
 #include "LayoutManager.h"
 #include "DocTabBar.h"
-#include "BlueprintFloatWindow.h"
 #include "ProjectSettingsDialog.h"
 #include "models/LevelDocument.h"
 #include <DockManager.h>
@@ -178,9 +177,15 @@ void EditorWindow::setupCentralArea() {
         updateSaveLabel();
     });
 
+    m_bpWrapper = new QWidget();
+    auto* bpLay = new QVBoxLayout(m_bpWrapper);
+    bpLay->setContentsMargins(0, 0, 0, 0);
+    bpLay->setSpacing(0);
+    bpLay->addWidget(m_blueprintEditor);
+
     m_centralStack = new QStackedWidget();
-    m_centralStack->addWidget(m_viewportPage);     // index 0
-    m_centralStack->addWidget(m_blueprintEditor);  // index 1
+    m_centralStack->addWidget(m_viewportPage);  // index 0
+    m_centralStack->addWidget(m_bpWrapper);     // index 1
 
     m_viewportDock = new ads::CDockWidget("视口");
     m_viewportDock->setWidget(m_centralStack);
@@ -230,10 +235,15 @@ void EditorWindow::setupCentralArea() {
     m_dockManager->addDockWidget(ads::BottomDockWidgetArea, m_cbDockW);
     m_cbDockW->closeDockWidget();
 
-    // ── 蓝图浮动窗口 ──────────────────────────────────────────────────
-    m_bpFloatWin = new BlueprintFloatWindow(this);
-    connect(m_bpFloatWin, &BlueprintFloatWindow::closed,
-            this, &EditorWindow::embedBlueprint);
+    // ── 关卡蓝图（ADS 浮动 Dock，默认隐藏）──────────────────────────
+    m_bpDockW = new ads::CDockWidget("关卡蓝图");
+    m_bpDockW->setWidget(new QWidget());  // 占位符，浮起时换成 m_bpWrapper
+    m_dockManager->addDockWidgetFloating(m_bpDockW);
+    m_bpDockW->closeDockWidget();
+    connect(m_bpDockW, &ads::CDockWidget::viewToggled,
+            this, [this](bool open) {
+        if (!open) QTimer::singleShot(0, this, &EditorWindow::embedBlueprint);
+    });
 
     // ── 布局管理器 ────────────────────────────────────────────────────
     m_layoutManager = new LayoutManager(m_dockManager, m_project.path, this);
@@ -425,9 +435,9 @@ void EditorWindow::onTabChanged(int index) {
 
     // 蓝图 Tab
     if (path == DocTabBar::kBlueprintTabData) {
-        if (m_centralStack->indexOf(m_blueprintEditor) < 0)
-            m_centralStack->addWidget(m_blueprintEditor);
-        m_centralStack->setCurrentWidget(m_blueprintEditor);
+        if (m_centralStack->indexOf(m_bpWrapper) < 0)
+            m_centralStack->addWidget(m_bpWrapper);
+        m_centralStack->setCurrentWidget(m_bpWrapper);
         LevelDocument* doc = m_openLevels.value(m_activeLevelPath, nullptr);
         if (m_blueprintEditor) m_blueprintEditor->loadLevel(doc);
         return;
@@ -454,7 +464,7 @@ void EditorWindow::onTabChanged(int index) {
     m_sceneOutliner->loadLevel(doc);
     if (m_viewport) m_viewport->loadLevel(doc);
 
-    if (m_bpFloatWin && m_bpFloatWin->isVisible() && m_blueprintEditor)
+    if (m_bpDockW && !m_bpDockW->isClosed() && m_blueprintEditor)
         m_blueprintEditor->loadLevel(doc);
 
     m_detailsPanel->clearActor();
@@ -680,14 +690,13 @@ void EditorWindow::openBlueprintTab() {
         }
     }
     // 已浮动：置顶浮动窗口
-    if (m_bpFloatWin && m_bpFloatWin->isVisible()) {
-        m_bpFloatWin->raise();
-        m_bpFloatWin->activateWindow();
+    if (m_bpDockW && !m_bpDockW->isClosed()) {
+        m_bpDockW->raise();
         return;
     }
-    // 首次打开：确保蓝图编辑器在 stack 中
-    if (m_centralStack->indexOf(m_blueprintEditor) < 0)
-        m_centralStack->addWidget(m_blueprintEditor);
+    // 首次打开：确保 wrapper 在 stack 中
+    if (m_centralStack->indexOf(m_bpWrapper) < 0)
+        m_centralStack->addWidget(m_bpWrapper);
 
     int idx;
     {
@@ -712,21 +721,27 @@ void EditorWindow::floatBlueprint(QPoint globalPos) {
     }
     // 切换到视口
     m_centralStack->setCurrentWidget(m_viewportPage);
-    // 将蓝图编辑器从 stack 移入浮动窗口
-    m_centralStack->removeWidget(m_blueprintEditor);
-    m_bpFloatWin->setCentralWidget(m_blueprintEditor);
-    m_bpFloatWin->move(globalPos - QPoint(50, 10));
-    m_bpFloatWin->show();
-    m_bpFloatWin->raise();
+    // 将 wrapper 从 stack 移入 ADS 浮动 Dock
+    m_centralStack->removeWidget(m_bpWrapper);   // 从 stack 注销（会 hide）
+    m_bpDockW->setWidget(m_bpWrapper);           // ADS 接管（reparent）
+    m_bpWrapper->show();                         // 抵消 removeWidget 的 hide
+    m_bpDockW->toggleView(true);
+    if (!m_bpDockW->isFloating())
+        m_bpDockW->setFloating();
+    // 加载关卡数据（修复浮起后蓝图为空的问题）
+    LevelDocument* doc = m_openLevels.value(m_activeLevelPath, nullptr);
+    if (m_blueprintEditor) m_blueprintEditor->loadLevel(doc);
 }
 
 void EditorWindow::embedBlueprint() {
-    // 从浮动窗口取回蓝图编辑器（reparent 到 nullptr）
-    QWidget* bpWidget = m_bpFloatWin->takeCentralWidget();
-    if (!bpWidget) bpWidget = m_blueprintEditor;
+    if (!m_bpDockW || !m_bpWrapper) return;
+    // 仅当 wrapper 确实在 Dock 中时才执行（防止初始 closeDockWidget 触发的误调用）
+    if (m_bpDockW->widget() != m_bpWrapper) return;
 
-    // 加回 stack
-    m_centralStack->addWidget(bpWidget);
+    // 先给 ADS 一个占位符，再把 wrapper 接回 stack
+    // （避免 ADS 持有悬空指针）
+    m_bpDockW->setWidget(new QWidget());
+    m_centralStack->addWidget(m_bpWrapper);  // reparent 到 stack
 
     int idx;
     {
