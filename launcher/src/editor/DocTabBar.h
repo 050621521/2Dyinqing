@@ -7,6 +7,7 @@ public:
     explicit DocTabBar(QWidget* parent = nullptr);
 
     static const QString kBlueprintTabData;  // 值为 "::blueprint::"
+    static const QString kGameViewTabData;
 
 signals:
     void blueprintDraggedOut(QPoint globalPos);

@@ -2,6 +2,7 @@
 #include <QMouseEvent>
 
 const QString DocTabBar::kBlueprintTabData = QStringLiteral("::blueprint::");
+const QString DocTabBar::kGameViewTabData = QStringLiteral("::gameview::");
 
 DocTabBar::DocTabBar(QWidget* parent) : QTabBar(parent) {}
 
