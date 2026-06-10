@@ -24,6 +24,7 @@
 #include <QPixmap>
 #include <QIcon>
 #include <QFileDialog>
+#include <QUuid>
 
 ContentBrowser::ContentBrowser(const QString& projectRoot, QWidget* parent)
     : QWidget(parent), m_projectRoot(projectRoot), m_currentPath(projectRoot)
@@ -500,7 +501,77 @@ bool ContentBrowser::createLevelFile(const QString& filePath) {
     QJsonObject obj;
     obj["name"]    = QFileInfo(filePath).baseName();
     obj["version"] = "0.1";
-    obj["objects"] = QJsonArray();
+
+    // 创建默认主摄像机 Actor
+    QJsonObject cameraActor;
+    cameraActor["id"] = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    cameraActor["name"] = "主摄像机";
+    cameraActor["type"] = "Camera";
+
+    // 位置和旋转
+    QJsonObject pos;
+    pos["x"] = 0;
+    pos["y"] = 0;
+    cameraActor["position"] = pos;
+    cameraActor["rotation"] = 0;
+
+    // 缩放
+    QJsonObject scale;
+    scale["x"] = 1;
+    scale["y"] = 1;
+    cameraActor["scale"] = scale;
+
+    // 基本属性
+    cameraActor["active"] = true;
+    cameraActor["static"] = false;
+    cameraActor["tag"] = "未标记";
+    cameraActor["layer"] = "默认";
+
+    // 组件
+    QJsonArray components;
+    components.append("摄像机组件");
+    cameraActor["components"] = components;
+
+    // 精灵渲染相关
+    cameraActor["spritePath"] = "";
+    cameraActor["spriteColor"] = "#ffffffff";
+    cameraActor["sortingLayer"] = "默认";
+    cameraActor["orderInLayer"] = 0;
+    cameraActor["flipX"] = false;
+    cameraActor["flipY"] = false;
+    cameraActor["drawMode"] = "简单";
+
+    // 摄像机特定属性
+    cameraActor["cameraSize"] = 5.0;
+    cameraActor["cameraIsMain"] = true;
+    cameraActor["cameraResW"] = 1920;
+    cameraActor["cameraResH"] = 1080;
+    cameraActor["cameraOrthographic"] = true;
+    cameraActor["cameraBackground"] = "#ff1e1e1e";
+
+    // 跟随属性
+    cameraActor["followTarget"] = "";
+    cameraActor["followLerpSpeed"] = 5.0;
+    cameraActor["followOffsetX"] = 0;
+    cameraActor["followOffsetY"] = 0;
+
+    // 约束属性
+    cameraActor["confinerEnabled"] = false;
+    cameraActor["confinerMinX"] = -500;
+    cameraActor["confinerMaxX"] = 500;
+    cameraActor["confinerMinY"] = -500;
+    cameraActor["confinerMaxY"] = 500;
+
+    // 蓝图（空节点和连接）
+    QJsonObject blueprint;
+    blueprint["nodes"] = QJsonArray();
+    blueprint["connections"] = QJsonArray();
+    cameraActor["blueprint"] = blueprint;
+
+    // 将摄像机 Actor 加入 objects 数组
+    QJsonArray objects;
+    objects.append(cameraActor);
+    obj["objects"] = objects;
 
     QFile f(filePath);
     if (!f.open(QIODevice::WriteOnly)) return false;
