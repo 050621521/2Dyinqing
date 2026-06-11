@@ -1,5 +1,7 @@
 #include "BPRuntime.h"
 #include <QSet>
+#include <algorithm>
+#include <cmath>
 
 BPRuntime::BPRuntime(const LevelDocument* doc, QObject* parent)
     : QObject(parent)
@@ -8,6 +10,53 @@ BPRuntime::BPRuntime(const LevelDocument* doc, QObject* parent)
     m_nodes       = doc->bpNodes();
     m_connections = doc->bpConnections();
     m_actors      = doc->actors();
+    m_tickTimer = new QTimer(this);
+    m_tickTimer->setInterval(16);
+    connect(m_tickTimer, &QTimer::timeout, this, &BPRuntime::tick);
+    m_tickTimer->start();
+    m_elapsedTimer.start();
+}
+
+void BPRuntime::tick() {
+    const float dt = m_elapsedTimer.restart() / 1000.0f;
+    tickComponents(dt);
+    triggerTick(dt);
+    emit stateChanged();
+}
+
+void BPRuntime::tickComponents(float dt) {
+    // Pass 1：跟随控制组件 — 摄像机向目标插值
+    for (ActorData& a : m_actors) {
+        if (!a.components.contains("跟随控制组件")) continue;
+        if (a.followTarget.isEmpty()) continue;
+        const ActorData* target = findActorByName(a.followTarget);
+        if (!target) continue;
+
+        const float destX = target->x + a.followOffsetX;
+        const float destY = target->y + a.followOffsetY;
+        const float t     = 1.0f - std::exp(-a.followLerpSpeed * dt);
+        a.x += (destX - a.x) * t;
+        a.y += (destY - a.y) * t;
+    }
+
+    // Pass 2：边界限制组件 — clamp 摄像机位置
+    for (ActorData& a : m_actors) {
+        if (!a.components.contains("边界限制组件")) continue;
+        if (!a.confinerEnabled) continue;
+
+        a.x = std::clamp(a.x, a.confinerMinX, a.confinerMaxX);
+        a.y = std::clamp(a.y, a.confinerMinY, a.confinerMaxY);
+    }
+}
+
+void BPRuntime::triggerTick(float dt) {
+    m_deltaTick = dt;
+    for (const BPNode& node : m_nodes) {
+        if (node.type == "Event.Tick") {
+            QSet<QString> visited;
+            executeChain(node.id, "exec_out", &visited);
+        }
+    }
 }
 
 void BPRuntime::triggerBeginPlay() {
@@ -118,11 +167,20 @@ QString BPRuntime::resolveOutputPin(const QString& nodeId, const QString& pinKey
         }
     }
 
+    if (node->type == "Event.Tick")
+        return (pinKey == "delta_time") ? QString::number(m_deltaTick) : QString();
+
     return {};
 }
 
 const BPNode* BPRuntime::findNode(const QString& id) const {
     for (const BPNode& n : m_nodes)
         if (n.id == id) return &n;
+    return nullptr;
+}
+
+const ActorData* BPRuntime::findActorByName(const QString& name) const {
+    for (const ActorData& a : m_actors)
+        if (a.name == name) return &a;
     return nullptr;
 }
