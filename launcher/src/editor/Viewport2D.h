@@ -19,6 +19,7 @@ public:
     void updateRuntimeActors(const QList<ActorData>& actors);
     void syncPrintLog(const QStringList& log);
     void clearPrintLog();
+    void setPixelsPerUnit(float ppu);
 
 signals:
     void actorSelected(const ActorData& actor);
@@ -36,6 +37,7 @@ protected:
     void keyPressEvent(QKeyEvent* e) override;
 
 private:
+    float   m_ppu    = 100.0f;
     float   m_zoom   = 1.0f;
     QPointF m_offset = {0, 0};
     QPoint  m_lastMouse;

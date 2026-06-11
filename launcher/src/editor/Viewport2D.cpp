@@ -37,6 +37,11 @@ void Viewport2D::setToolMode(ToolMode mode) {
     update();
 }
 
+void Viewport2D::setPixelsPerUnit(float ppu) {
+    m_ppu = qMax(1.0f, ppu);
+    update();
+}
+
 void Viewport2D::setRuntimeMode(bool on, const QList<ActorData>& actors) {
     m_runtimeMode = on;
     if (on) {
@@ -157,9 +162,19 @@ void Viewport2D::drawActors(QPainter& p) {
 
     for (const ActorData& a : sorted) {
         QPointF pos = worldToScreen({a.x, a.y});
+
+        // 预加载贴图，以实际像素尺寸决定 Actor 的世界空间大小（与 GameViewport 一致）
+        if (!a.spritePath.isEmpty() && !m_pixmapCache.contains(a.spritePath))
+            m_pixmapCache[a.spritePath] = QPixmap(a.spritePath);
+        const bool hasPx = !a.spritePath.isEmpty() && !m_pixmapCache[a.spritePath].isNull();
+
         const float szBase = qMax(24.0f, 40.0f * m_zoom);
-        const float szW = szBase * qMax(0.05f, qAbs(a.scaleX));
-        const float szH = szBase * qMax(0.05f, qAbs(a.scaleY));
+        const float szW = hasPx
+            ? m_pixmapCache[a.spritePath].width()  / m_ppu * m_zoom * qMax(0.05f, qAbs(a.scaleX))
+            : szBase * qMax(0.05f, qAbs(a.scaleX));
+        const float szH = hasPx
+            ? m_pixmapCache[a.spritePath].height() / m_ppu * m_zoom * qMax(0.05f, qAbs(a.scaleY))
+            : szBase * qMax(0.05f, qAbs(a.scaleY));
         const float sz  = (szW + szH) * 0.5f;
         QRectF rect(pos.x() - szW / 2, pos.y() - szH / 2, szW, szH);
         const bool selected = (a.id == m_selectedId);
@@ -211,11 +226,15 @@ void Viewport2D::drawActors(QPainter& p) {
         }
 
         // 摄像机视口矩形（在旋转变换内，与摄像机同向）
-        if (a.type == "Camera" && !m_runtimeMode) {
+        const bool hasCamera = (a.type == "Camera" || a.components.contains("摄像机组件"));
+        if (hasCamera && !m_runtimeMode) {
             const float halfH = a.cameraSize * m_zoom;
             const float halfW = halfH * (a.cameraResH > 0 ? (float)a.cameraResW / a.cameraResH : 1.7778f);
             QRectF frustum(pos.x() - halfW, pos.y() - halfH, halfW * 2, halfH * 2);
-            p.setPen(QPen(QColor(80, 160, 240, selected ? 200 : 70), 1.5f, Qt::DashLine));
+            if (a.cameraIsMain)
+                p.setPen(QPen(QColor(255, 255, 255, 220), 1.5f, Qt::SolidLine));
+            else
+                p.setPen(QPen(QColor(80, 160, 240, selected ? 200 : 70), 1.5f, Qt::DashLine));
             p.setBrush(Qt::NoBrush);
             p.drawRect(frustum);
         }
@@ -283,7 +302,7 @@ void Viewport2D::drawActors(QPainter& p) {
         p.restore(); // 结束旋转变换
 
         // 边界限制框（世界空间绝对坐标，不随摄像机旋转）
-        if (a.type == "Camera" && !m_runtimeMode
+        if (hasCamera && !m_runtimeMode
                 && a.components.contains("边界限制组件") && a.confinerEnabled) {
             QPointF tl = worldToScreen({a.confinerMinX, a.confinerMinY});
             float bW = (a.confinerMaxX - a.confinerMinX) * m_zoom;
@@ -483,11 +502,18 @@ void Viewport2D::mousePressEvent(QMouseEvent* e) {
                 }
             }
 
-            const float szBase = qMax(24.0f, 40.0f * m_zoom);
             for (const ActorData& a : m_doc->actors()) {
                 QPointF pos = worldToScreen({a.x, a.y});
-                const float szW = szBase * qMax(0.05f, qAbs(a.scaleX));
-                const float szH = szBase * qMax(0.05f, qAbs(a.scaleY));
+                if (!a.spritePath.isEmpty() && !m_pixmapCache.contains(a.spritePath))
+                    m_pixmapCache[a.spritePath] = QPixmap(a.spritePath);
+                const bool hasPxH = !a.spritePath.isEmpty() && !m_pixmapCache[a.spritePath].isNull();
+                const float szBaseH = qMax(24.0f, 40.0f * m_zoom);
+                const float szW = hasPxH
+                    ? m_pixmapCache[a.spritePath].width()  / m_ppu * m_zoom * qMax(0.05f, qAbs(a.scaleX))
+                    : szBaseH * qMax(0.05f, qAbs(a.scaleX));
+                const float szH = hasPxH
+                    ? m_pixmapCache[a.spritePath].height() / m_ppu * m_zoom * qMax(0.05f, qAbs(a.scaleY))
+                    : szBaseH * qMax(0.05f, qAbs(a.scaleY));
                 QRectF hit(pos.x() - szW / 2, pos.y() - szH / 2, szW, szH);
                 if (hit.contains(e->pos())) {
                     m_selectedId  = a.id;
@@ -519,11 +545,18 @@ void Viewport2D::mousePressEvent(QMouseEvent* e) {
         if (!m_doc) return;
 
         // 判断是否点在某个 Actor 上
-        const float szBase2 = qMax(24.0f, 40.0f * m_zoom);
         for (const ActorData& a : m_doc->actors()) {
             QPointF pos = worldToScreen({a.x, a.y});
-            const float szW2 = szBase2 * qMax(0.05f, qAbs(a.scaleX));
-            const float szH2 = szBase2 * qMax(0.05f, qAbs(a.scaleY));
+            if (!a.spritePath.isEmpty() && !m_pixmapCache.contains(a.spritePath))
+                m_pixmapCache[a.spritePath] = QPixmap(a.spritePath);
+            const bool hasPxR = !a.spritePath.isEmpty() && !m_pixmapCache[a.spritePath].isNull();
+            const float szBaseR = qMax(24.0f, 40.0f * m_zoom);
+            const float szW2 = hasPxR
+                ? m_pixmapCache[a.spritePath].width()  / m_ppu * m_zoom * qMax(0.05f, qAbs(a.scaleX))
+                : szBaseR * qMax(0.05f, qAbs(a.scaleX));
+            const float szH2 = hasPxR
+                ? m_pixmapCache[a.spritePath].height() / m_ppu * m_zoom * qMax(0.05f, qAbs(a.scaleY))
+                : szBaseR * qMax(0.05f, qAbs(a.scaleY));
             QRectF hit(pos.x() - szW2 / 2, pos.y() - szH2 / 2, szW2, szH2);
             if (hit.contains(e->pos())) {
                 // 点在 Actor 上：平移模式
