@@ -55,6 +55,12 @@ EditorWindow::EditorWindow(const ProjectInfo& project, QWidget* parent)
     setupBottomBar();
     setupWindowMenu();
 
+    {
+        float ppu = ProjectSettingsDialog::readPixelsPerUnit(m_project.path);
+        m_viewport->setPixelsPerUnit(ppu);
+        m_gameViewport->setPixelsPerUnit(ppu);
+    }
+
     auto* saveShortcut = new QShortcut(QKeySequence::Save, this);
     connect(saveShortcut, &QShortcut::activated, this, &EditorWindow::saveCurrentLevel);
 
@@ -796,7 +802,11 @@ void EditorWindow::updateSaveLabel() {
 
 void EditorWindow::onProjectSettings() {
     auto* dlg = new ProjectSettingsDialog(m_project, this);
-    dlg->exec();
+    if (dlg->exec() == QDialog::Accepted) {
+        float ppu = ProjectSettingsDialog::readPixelsPerUnit(m_project.path);
+        m_viewport->setPixelsPerUnit(ppu);
+        m_gameViewport->setPixelsPerUnit(ppu);
+    }
     dlg->deleteLater();
 }
 
