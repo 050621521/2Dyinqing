@@ -12,6 +12,7 @@ public:
     void loadLevel(LevelDocument* doc);
     void setRuntimeActors(const QList<ActorData>& actors);
     void setRuntimeMode(bool on);
+    void setPixelsPerUnit(float ppu);
 
 protected:
     void paintEvent(QPaintEvent*) override;
@@ -23,6 +24,7 @@ private:
     void    drawScene(QPainter& p, const QList<ActorData>& actors,
                       const ActorData& cam, const QRectF& camRect);
 
+    float            m_ppu         = 100.0f;
     LevelDocument*   m_doc         = nullptr;
     QList<ActorData> m_runtimeActors;
     bool             m_runtimeMode = false;

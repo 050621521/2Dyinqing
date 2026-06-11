@@ -26,6 +26,11 @@ void GameViewport::setRuntimeMode(bool on) {
     update();
 }
 
+void GameViewport::setPixelsPerUnit(float ppu) {
+    m_ppu = qMax(1.0f, ppu);
+    update();
+}
+
 void GameViewport::paintEvent(QPaintEvent*) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
@@ -41,7 +46,7 @@ void GameViewport::paintEvent(QPaintEvent*) {
 
     const ActorData* cam = nullptr;
     for (const ActorData& a : *actorsList) {
-        if (a.type == "Camera" && a.cameraIsMain) {
+        if (a.cameraIsMain && (a.type == "Camera" || a.components.contains("摄像机组件"))) {
             cam = &a;
             break;
         }
@@ -105,13 +110,9 @@ void GameViewport::drawScene(QPainter& p, const QList<ActorData>& actors,
     p.setClipRect(camRect);
 
     for (const ActorData& a : actors) {
-        if (a.type == "Camera") continue;
+        if (a.components.contains("摄像机组件")) continue;
 
         QPointF pos = cameraWorldToScreen({a.x, a.y}, camRect, cam);
-        const float szBase = qMax(24.0f, 40.0f * scale);
-        const float szW    = szBase * qMax(0.05f, qAbs(a.scaleX));
-        const float szH    = szBase * qMax(0.05f, qAbs(a.scaleY));
-        QRectF aRect(pos.x() - szW / 2.0f, pos.y() - szH / 2.0f, szW, szH);
 
         p.save();
         if (a.rotation != 0.0f) {
@@ -126,6 +127,9 @@ void GameViewport::drawScene(QPainter& p, const QList<ActorData>& actors,
                 m_pixmapCache[a.spritePath] = QPixmap(a.spritePath);
             const QPixmap& px = m_pixmapCache[a.spritePath];
             if (!px.isNull()) {
+                const float szW = px.width()  / m_ppu * scale * qMax(0.05f, qAbs(a.scaleX));
+                const float szH = px.height() / m_ppu * scale * qMax(0.05f, qAbs(a.scaleY));
+                QRectF aRect(pos.x() - szW / 2.0f, pos.y() - szH / 2.0f, szW, szH);
                 p.save();
                 if (a.flipX || a.flipY) {
                     QTransform t;
@@ -153,6 +157,10 @@ void GameViewport::drawScene(QPainter& p, const QList<ActorData>& actors,
         }
 
         if (!drewPixmap) {
+            const float szBase = qMax(24.0f, 40.0f * scale);
+            const float szW = szBase * qMax(0.05f, qAbs(a.scaleX));
+            const float szH = szBase * qMax(0.05f, qAbs(a.scaleY));
+            QRectF aRect(pos.x() - szW / 2.0f, pos.y() - szH / 2.0f, szW, szH);
             const QColor fill = actorTypeColor(a.type);
             p.setPen(QPen(fill.darker(160), 1.0));
             p.setBrush(fill);
