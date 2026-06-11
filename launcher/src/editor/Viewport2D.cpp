@@ -163,7 +163,7 @@ void Viewport2D::drawActors(QPainter& p) {
     for (const ActorData& a : sorted) {
         QPointF pos = worldToScreen({a.x, a.y});
 
-        // 预加载贴图，以实际像素尺寸决定 Actor 的世界空间大小（与 GameViewport 一致）
+        // 预加载贴图；精灵显示尺寸 = 像素尺寸 / m_ppu × zoom × scale
         if (!a.spritePath.isEmpty() && !m_pixmapCache.contains(a.spritePath))
             m_pixmapCache[a.spritePath] = QPixmap(a.spritePath);
         const bool hasPx = !a.spritePath.isEmpty() && !m_pixmapCache[a.spritePath].isNull();
