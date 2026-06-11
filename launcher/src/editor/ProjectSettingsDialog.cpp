@@ -5,6 +5,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QComboBox>
+#include <QSpinBox>
 #include <QPushButton>
 #include <QDir>
 #include <QFileInfo>
@@ -23,12 +24,19 @@ QString ProjectSettingsDialog::readDefaultLevel(const QString& projectPath) {
     return obj.value("defaultLevel").toString();
 }
 
+float ProjectSettingsDialog::readPixelsPerUnit(const QString& projectPath) {
+    QFile f(projectJsonPath(projectPath));
+    if (!f.open(QIODevice::ReadOnly)) return 100.0f;
+    QJsonObject obj = QJsonDocument::fromJson(f.readAll()).object();
+    return (float)obj.value("pixelsPerUnit").toDouble(100.0);
+}
+
 ProjectSettingsDialog::ProjectSettingsDialog(const ProjectInfo& project, QWidget* parent)
     : QDialog(parent), m_project(project)
 {
     setWindowTitle("项目设置");
     setModal(true);
-    setFixedSize(520, 260);
+    setFixedSize(520, 300);
     setObjectName("projectSettingsDialog");
 
     auto* root = new QVBoxLayout(this);
@@ -91,6 +99,15 @@ ProjectSettingsDialog::ProjectSettingsDialog(const ProjectInfo& project, QWidget
     grid->addWidget(makeLabel("默认关卡"), 3, 0);
     grid->addWidget(m_defaultLevelCombo, 3, 1);
 
+    // 像素/单位
+    m_ppuSpinBox = new QSpinBox(this);
+    m_ppuSpinBox->setObjectName("psInput");
+    m_ppuSpinBox->setRange(1, 10000);
+    m_ppuSpinBox->setSuffix(" px/unit");
+    m_ppuSpinBox->setValue((int)readPixelsPerUnit(m_project.path));
+    grid->addWidget(makeLabel("像素/单位"), 4, 0);
+    grid->addWidget(m_ppuSpinBox, 4, 1);
+
     root->addLayout(grid);
     root->addStretch();
 
@@ -114,10 +131,15 @@ ProjectSettingsDialog::ProjectSettingsDialog(const ProjectInfo& project, QWidget
 }
 
 void ProjectSettingsDialog::saveSettings() {
+    QFile rf(projectJsonPath(m_project.path));
     QJsonObject obj;
-    obj["defaultLevel"] = m_defaultLevelCombo->currentData().toString();
+    if (rf.open(QIODevice::ReadOnly))
+        obj = QJsonDocument::fromJson(rf.readAll()).object();
 
-    QFile f(projectJsonPath(m_project.path));
-    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))
-        f.write(QJsonDocument(obj).toJson());
+    obj["defaultLevel"] = m_defaultLevelCombo->currentData().toString();
+    obj["pixelsPerUnit"] = m_ppuSpinBox->value();
+
+    QFile wf(projectJsonPath(m_project.path));
+    if (wf.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        wf.write(QJsonDocument(obj).toJson());
 }
