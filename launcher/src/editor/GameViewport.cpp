@@ -110,7 +110,7 @@ void GameViewport::drawScene(QPainter& p, const QList<ActorData>& actors,
     p.setClipRect(camRect);
 
     for (const ActorData& a : actors) {
-        if (a.components.contains("摄像机组件")) continue;
+        if (a.type == "Camera" || a.components.contains("摄像机组件")) continue;
 
         QPointF pos = cameraWorldToScreen({a.x, a.y}, camRect, cam);
 
