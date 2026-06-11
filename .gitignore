@@ -17,3 +17,4 @@ launcher/build/
 .idea/
 *.swp
 *.swo
+.obsidian/

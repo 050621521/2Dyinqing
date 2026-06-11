@@ -542,7 +542,7 @@ void DetailsPanel::buildCameraComponent(QVBoxLayout* root) {
 
     // 行2：大小
     grid->addWidget(new QLabel("大小", content), 2, 0);
-    m_cameraSizeSpin = mkDSpin(0.1, 9999, 5.0, 0.5);
+    m_cameraSizeSpin = mkDSpin(0.1, 9999, 540.0, 5.0);
     grid->addWidget(m_cameraSizeSpin, 2, 1, 1, 2);
 
     // 行3：分辨率

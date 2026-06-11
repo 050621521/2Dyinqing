@@ -30,7 +30,7 @@ struct ActorData {
     QString drawMode     = "简单";
 
     // 摄像机组件属性
-    float   cameraSize         = 5.0f;
+    float   cameraSize         = 540.0f;
     bool    cameraIsMain       = false;
     int     cameraResW         = 1920;
     int     cameraResH         = 1080;
