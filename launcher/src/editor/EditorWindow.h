@@ -17,6 +17,8 @@ class Viewport2D;
 class GameViewport;
 class BlueprintEditor;
 class BPRuntime;
+#include "ActorBPRuntime.h"
+#include "models/BPClass.h"
 class LayoutManager;
 class DocTabBar;
 
@@ -56,6 +58,7 @@ private:
     void openBlueprintTab();
     void floatBlueprint(QPoint globalPos);
     void embedBlueprint();
+    void openBpClassTab(const QString& bpClassPath);
 
 private slots:
     void onTabChanged(int index);
@@ -104,6 +107,8 @@ private:
     QLabel*       m_saveLabel    = nullptr;
 
     BPRuntime* m_runtime = nullptr;
+    QList<ActorBPRuntime*>   m_actorRuntimes;
+    QMap<QString, BPClass*>  m_openBpClasses;
 
     QMap<QString, LevelDocument*> m_openLevels;
     QList<QMetaObject::Connection> m_tabConnections;

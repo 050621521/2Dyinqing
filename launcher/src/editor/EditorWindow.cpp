@@ -823,6 +823,10 @@ void EditorWindow::startRuntime() {
     m_runtime = new BPRuntime(doc, this);
     connect(m_runtime, &BPRuntime::stateChanged, this, [this]() {
         if (!m_runtime || !m_viewport) return;
+        // 触发本帧 Actor Tick
+        const float dt = m_runtime->lastDt();
+        for (ActorBPRuntime* ar : m_actorRuntimes)
+            ar->triggerTick(dt);
         m_viewport->updateRuntimeActors(m_runtime->actors());
         m_viewport->syncPrintLog(m_runtime->printLog());
         if (m_gameViewport)
@@ -830,12 +834,39 @@ void EditorWindow::startRuntime() {
     });
     // 暂停时屏蔽按键事件
     connect(m_viewport, &Viewport2D::keyPressed, this, [this](const QString& key) {
-        if (m_runtime && m_pauseBtn && !m_pauseBtn->isChecked())
-            m_runtime->triggerKeyDown(key);
+        if (!m_runtime || (m_pauseBtn && m_pauseBtn->isChecked())) return;
+        m_runtime->triggerKeyDown(key);
+        for (ActorBPRuntime* ar : m_actorRuntimes)
+            ar->triggerKeyDown(key);
     });
 
     m_viewport->setRuntimeMode(true, m_runtime->actors());
     m_runtime->triggerBeginPlay();
+
+    // 为每个有节点的 Actor 创建 ActorBPRuntime
+    for (const ActorData& actor : doc->actors()) {
+        const BPClass* bc = nullptr;
+        if (actor.bpClass.startsWith("builtin/")) {
+            bc = BPClass::findBuiltin(actor.bpClass);
+        } else if (!actor.bpClass.isEmpty()) {
+            bc = m_openBpClasses.value(actor.bpClass, nullptr);
+            if (!bc) {
+                auto* loaded = new BPClass(BPClass::load(
+                    m_project.path + "/" + actor.bpClass));
+                m_openBpClasses[actor.bpClass] = loaded;
+                bc = loaded;
+            }
+        }
+        if (bc && bc->hasNodes()) {
+            auto* ar = new ActorBPRuntime(bc, actor.id,
+                                          &m_runtime->mutableActors(), this);
+            m_actorRuntimes.append(ar);
+        }
+    }
+    // 触发各 Actor 蓝图 BeginPlay
+    for (ActorBPRuntime* ar : m_actorRuntimes)
+        ar->triggerBeginPlay();
+
     m_viewport->updateRuntimeActors(m_runtime->actors());
     m_viewport->syncPrintLog(m_runtime->printLog());
 
@@ -866,6 +897,8 @@ void EditorWindow::stopRuntime() {
     if (!m_runtime) return;
     disconnect(m_runtime, nullptr, this, nullptr);
     if (m_viewport) disconnect(m_viewport, &Viewport2D::keyPressed, this, nullptr);
+    qDeleteAll(m_actorRuntimes);
+    m_actorRuntimes.clear();
     delete m_runtime;
     m_runtime = nullptr;
 
@@ -934,6 +967,11 @@ void EditorWindow::floatBlueprint(QPoint globalPos) {
     // 启动拖回 Tab 栏检测
     m_bpDropFirstDone = false;
     if (m_bpDropCheckTimer) m_bpDropCheckTimer->start();
+}
+
+void EditorWindow::openBpClassTab(const QString& bpFilePath) {
+    Q_UNUSED(bpFilePath)
+    // fully implemented in Task 7
 }
 
 void EditorWindow::embedBlueprint() {
