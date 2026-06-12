@@ -40,7 +40,7 @@ struct UIWidget {
 class UIDocument {
 public:
     bool load(const QString& filePath);
-    bool save() const;
+    bool save();
 
     bool    isDirty()   const { return m_dirty; }
     void    setDirty(bool v)  { m_dirty = v; }

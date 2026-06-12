@@ -68,6 +68,7 @@ bool UIDocument::load(const QString& filePath) {
     QFile f(filePath);
     if (!f.open(QIODevice::ReadOnly)) return false;
     const QJsonObject root = QJsonDocument::fromJson(f.readAll()).object();
+    f.close();
     m_filePath = filePath;
     m_name     = root["name"].toString(QFileInfo(filePath).baseName());
     m_widgets.clear();
@@ -77,7 +78,7 @@ bool UIDocument::load(const QString& filePath) {
     return true;
 }
 
-bool UIDocument::save() const {
+bool UIDocument::save() {
     QJsonArray arr;
     for (const UIWidget& w : m_widgets)
         arr << w.toJson();
@@ -88,6 +89,8 @@ bool UIDocument::save() const {
     QFile f(m_filePath);
     if (!f.open(QIODevice::WriteOnly)) return false;
     f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+    f.close();
+    m_dirty = false;
     return true;
 }
 
