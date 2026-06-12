@@ -38,6 +38,7 @@ set(SOURCES
     src/editor/ProjectSettingsDialog.cpp
     src/editor/BlueprintEditor.cpp
     src/editor/BPRuntime.cpp
+    src/editor/ActorBPRuntime.cpp
     src/editor/LayoutManager.cpp
     src/editor/DocTabBar.cpp
     src/editor/BlueprintFloatWindow.cpp
@@ -63,6 +64,7 @@ set(HEADERS
     src/editor/ProjectSettingsDialog.h
     src/editor/BlueprintEditor.h
     src/editor/BPRuntime.h
+    src/editor/ActorBPRuntime.h
     src/editor/LayoutManager.h
     src/editor/DocTabBar.h
     src/editor/BlueprintFloatWindow.h

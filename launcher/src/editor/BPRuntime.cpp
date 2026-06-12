@@ -18,7 +18,8 @@ BPRuntime::BPRuntime(const LevelDocument* doc, QObject* parent)
 }
 
 void BPRuntime::tick() {
-    const float dt = m_elapsedTimer.restart() / 1000.0f;
+    m_lastDt = m_elapsedTimer.restart() / 1000.0f;
+    const float dt = m_lastDt;
     tickComponents(dt);
     triggerTick(dt);
     emit stateChanged();

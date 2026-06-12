@@ -14,6 +14,8 @@ public:
     void triggerKeyDown(const QString& key);
 
     const QList<ActorData>& actors()   const { return m_actors; }
+    QList<ActorData>&       mutableActors()  { return m_actors; }
+    float                   lastDt()   const { return m_lastDt; }
     const QStringList&      printLog() const { return m_printLog; }
 
 signals:
@@ -41,4 +43,5 @@ private:
     QTimer*       m_tickTimer  = nullptr;
     QElapsedTimer m_elapsedTimer;
     float         m_deltaTick  = 0.0f;
+    float         m_lastDt     = 0.016f;
 };
