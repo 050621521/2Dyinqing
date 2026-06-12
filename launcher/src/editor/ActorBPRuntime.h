@@ -3,6 +3,9 @@
 #include "models/BPClass.h"
 #include <QObject>
 #include <QSet>
+#include <QMap>
+
+class UIRuntime;
 
 class ActorBPRuntime : public QObject {
     Q_OBJECT
@@ -16,6 +19,9 @@ public:
     void triggerBeginPlay();
     void triggerKeyDown(const QString& key);
     void triggerTick(float dt);
+    void setUIRuntime(UIRuntime* ui) { m_uiRuntime = ui; }
+    void triggerButtonClick(const QString& instanceId, const QString& widgetName);
+    void triggerDropdownChanged(const QString& instanceId, const QString& widgetName, int index);
 
 private:
     void    triggerEvent(const QString& eventType, const QString& eventParam = {});
@@ -31,4 +37,7 @@ private:
     QString           m_actorId;
     QList<ActorData>* m_actors;
     float             m_deltaTick = 0.0f;
+    UIRuntime*             m_uiRuntime    = nullptr;
+    QMap<QString, QString> m_uiRefs;        // nodeId(UI.Create) → instanceId
+    QMap<QString, int>     m_dropdownIndex; // nodeId → 最新选中索引
 };

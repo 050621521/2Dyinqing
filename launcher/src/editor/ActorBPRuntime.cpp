@@ -1,4 +1,5 @@
 #include "ActorBPRuntime.h"
+#include "UIRuntime.h"
 
 ActorBPRuntime::ActorBPRuntime(const BPClass* bpClass,
                                 const QString& actorId,
@@ -126,6 +127,57 @@ QString ActorBPRuntime::executeNode(const QString& nodeId) {
         return "exec_out";
     }
 
+    // ── UI 节点 ──────────────────────────────────────────────────────────
+    if (node->type == "UI.Create") {
+        if (m_uiRuntime) {
+            const QString uiName = resolveDataPin(nodeId, "uiName");
+            const QString instanceId = m_uiRuntime->createInstance(uiName);
+            m_uiRefs[nodeId] = instanceId;
+        }
+        return "exec_out";
+    }
+    if (node->type == "UI.Show") {
+        if (m_uiRuntime) m_uiRuntime->showInstance(resolveDataPin(nodeId, "instanceId"));
+        return "exec_out";
+    }
+    if (node->type == "UI.Hide") {
+        if (m_uiRuntime) m_uiRuntime->hideInstance(resolveDataPin(nodeId, "instanceId"));
+        return "exec_out";
+    }
+    if (node->type == "UI.Destroy") {
+        if (m_uiRuntime) m_uiRuntime->destroyInstance(resolveDataPin(nodeId, "instanceId"));
+        return "exec_out";
+    }
+    if (node->type == "UI.SetText") {
+        if (m_uiRuntime)
+            m_uiRuntime->setText(resolveDataPin(nodeId, "instanceId"),
+                                 resolveDataPin(nodeId, "widgetName"),
+                                 resolveDataPin(nodeId, "text"));
+        return "exec_out";
+    }
+    if (node->type == "UI.SetValue") {
+        if (m_uiRuntime)
+            m_uiRuntime->setValue(resolveDataPin(nodeId, "instanceId"),
+                                  resolveDataPin(nodeId, "widgetName"),
+                                  resolveDataPin(nodeId, "value").toFloat());
+        return "exec_out";
+    }
+    if (node->type == "UI.SetPosition") {
+        if (m_uiRuntime)
+            m_uiRuntime->setPosition(resolveDataPin(nodeId, "instanceId"),
+                                     resolveDataPin(nodeId, "x").toFloat(),
+                                     resolveDataPin(nodeId, "y").toFloat());
+        return "exec_out";
+    }
+    if (node->type == "UI.SetVisible") {
+        const QString v = resolveDataPin(nodeId, "visible").toLower();
+        if (m_uiRuntime)
+            m_uiRuntime->setWidgetVisible(resolveDataPin(nodeId, "instanceId"),
+                                          resolveDataPin(nodeId, "widgetName"),
+                                          v == "true" || v == "1");
+        return "exec_out";
+    }
+
     return {};
 }
 
@@ -161,6 +213,14 @@ QString ActorBPRuntime::resolveOutputPin(const QString& nodeId, const QString& p
         if (pinKey == "delta_time") return QString::number(m_deltaTick);
     }
 
+    // UI 输出引脚
+    if (node->type == "UI.Create" && pinKey == "instanceId")
+        return m_uiRefs.value(nodeId);
+    if (node->type == "UI.Ref" && pinKey == "instanceId")
+        return node->params.value("instanceId");
+    if (node->type == "UI.OnDropdownChanged" && pinKey == "index")
+        return QString::number(m_dropdownIndex.value(nodeId, 0));
+
     return {};
 }
 
@@ -174,4 +234,25 @@ ActorData* ActorBPRuntime::findSelf() {
     for (ActorData& a : *m_actors)
         if (a.id == m_actorId) return &a;
     return nullptr;
+}
+
+void ActorBPRuntime::triggerButtonClick(const QString& instanceId, const QString& widgetName) {
+    for (const BPNode& node : m_bpClass->nodes) {
+        if (node.type != "UI.OnButtonClick") continue;
+        if (resolveDataPin(node.id, "instanceId") == instanceId &&
+            resolveDataPin(node.id, "widgetName") == widgetName)
+            executeChain(node.id, "exec_out");
+    }
+}
+
+void ActorBPRuntime::triggerDropdownChanged(const QString& instanceId,
+                                             const QString& widgetName, int index) {
+    for (const BPNode& node : m_bpClass->nodes) {
+        if (node.type != "UI.OnDropdownChanged") continue;
+        if (resolveDataPin(node.id, "instanceId") == instanceId &&
+            resolveDataPin(node.id, "widgetName") == widgetName) {
+            m_dropdownIndex[node.id] = index;
+            executeChain(node.id, "exec_out");
+        }
+    }
 }
