@@ -18,6 +18,8 @@ class GameViewport;
 class BlueprintEditor;
 class BPRuntime;
 class UIRuntime;
+class UIEditor;
+class UIDocument;
 #include "ActorBPRuntime.h"
 #include "models/BPClass.h"
 class ContentBrowser;
@@ -61,6 +63,7 @@ private:
     void floatBlueprint(QPoint globalPos);
     void embedBlueprint();
     void openBpClassTab(const QString& bpClassPath);
+    void openUIDocTab(const QString& uiFilePath);
 
 private slots:
     void onTabChanged(int index);
@@ -111,8 +114,11 @@ private:
 
     BPRuntime* m_runtime = nullptr;
     UIRuntime* m_uiRuntime = nullptr;
+    UIEditor*  m_uiEditor  = nullptr;
     QList<ActorBPRuntime*>   m_actorRuntimes;
     QMap<QString, BPClass*>  m_openBpClasses;
+    QMap<QString, UIDocument*> m_openUIDocs;
+    float m_ppu = 100.0f;
 
     QMap<QString, LevelDocument*> m_openLevels;
     QList<QMetaObject::Connection> m_tabConnections;

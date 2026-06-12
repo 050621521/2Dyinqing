@@ -4,6 +4,8 @@
 #include "BlueprintEditor.h"
 #include "BPRuntime.h"
 #include "UIRuntime.h"
+#include "UIEditor.h"
+#include "models/UIDocument.h"
 #include "SceneOutliner.h"
 #include "DetailsPanel.h"
 #include "ContentBrowser.h"
@@ -57,9 +59,9 @@ EditorWindow::EditorWindow(const ProjectInfo& project, QWidget* parent)
     setupWindowMenu();
 
     {
-        float ppu = ProjectSettingsDialog::readPixelsPerUnit(m_project.path);
-        m_viewport->setPixelsPerUnit(ppu);
-        m_gameViewport->setPixelsPerUnit(ppu);
+        m_ppu = ProjectSettingsDialog::readPixelsPerUnit(m_project.path);
+        m_viewport->setPixelsPerUnit(m_ppu);
+        m_gameViewport->setPixelsPerUnit(m_ppu);
     }
 
     auto* saveShortcut = new QShortcut(QKeySequence::Save, this);
@@ -212,6 +214,20 @@ void EditorWindow::setupCentralArea() {
     m_gameViewPage = gvWrap;
     m_centralStack->addWidget(m_gameViewPage);  // index 2
 
+    m_uiEditor = new UIEditor(this);
+    m_centralStack->addWidget(m_uiEditor);  // index 3
+
+    connect(m_uiEditor, &UIEditor::documentModified, this, [this]() {
+        const int cur = m_docTabBar->currentIndex();
+        if (cur < 0) return;
+        const QString path = m_docTabBar->tabData(cur).toString();
+        if (!m_openUIDocs.contains(path)) return;
+        const bool dirty = m_openUIDocs[path]->isDirty();
+        const QString base = QFileInfo(path).baseName();
+        m_docTabBar->setTabText(cur, dirty ? "● " + base : "  " + base);
+        updateSaveLabel();
+    });
+
     // 在 DocTabBar 末尾固定添加「游戏视图」Tab（不可关闭）
     {
         QSignalBlocker b(m_docTabBar);
@@ -254,6 +270,8 @@ void EditorWindow::setupCentralArea() {
             this, [this](const QString& path) { openLevelTab(path); });
     connect(cb, &ContentBrowser::bpClassOpenRequested,
             this, [this](const QString& path) { openBpClassTab(path); });
+    connect(cb, &ContentBrowser::uiDocOpenRequested,
+            this, [this](const QString& path) { openUIDocTab(path); });
     connect(cb, &ContentBrowser::saveAllRequested,
             this, &EditorWindow::saveAllLevels);
     connect(cb, &ContentBrowser::imageAssignRequested,
@@ -608,6 +626,22 @@ void EditorWindow::onTabChanged(int index) {
         return;
     }
 
+    // .ui 文件
+    if (path.endsWith(".ui")) {
+        UIDocument* doc = m_openUIDocs.value(path, nullptr);
+        if (!doc) return;
+        m_uiEditor->loadDocument(doc);
+        LevelDocument* previewLevel = m_openLevels.value(m_activeLevelPath, nullptr);
+        m_uiEditor->setPreviewLevel(previewLevel, m_ppu);
+        // 填充可用关卡名
+        QStringList levelNames;
+        for (const QString& lp : m_openLevels.keys())
+            levelNames << QFileInfo(lp).baseName();
+        m_uiEditor->setAvailableLevels(levelNames);
+        if (m_centralStack) m_centralStack->setCurrentWidget(m_uiEditor);
+        return;
+    }
+
     // 切换到视口
     if (m_centralStack) m_centralStack->setCurrentWidget(m_viewportPage);
 
@@ -725,6 +759,23 @@ void EditorWindow::onTabClosed(int index) {
         return;
     }
 
+    // .ui 文件
+    if (path.endsWith(".ui")) {
+        UIDocument* doc = m_openUIDocs.value(path, nullptr);
+        if (doc && doc->isDirty()) {
+            const auto ret = QMessageBox::question(this, "保存",
+                QString("UI「%1」有未保存的修改，是否保存？").arg(doc->name()),
+                QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel);
+            if (ret == QMessageBox::Cancel) return;
+            if (ret == QMessageBox::Yes) doc->save();
+        }
+        m_openUIDocs.remove(path);
+        delete doc;
+        m_docTabBar->removeTab(index);
+        updateSaveLabel();
+        return;
+    }
+
     LevelDocument* doc = m_openLevels.value(path);
 
     if (doc && doc->isDirty()) {
@@ -788,6 +839,8 @@ void EditorWindow::closeEvent(QCloseEvent* e) {
     m_openLevels.clear();
     qDeleteAll(m_openBpClasses);
     m_openBpClasses.clear();
+    qDeleteAll(m_openUIDocs);
+    m_openUIDocs.clear();
     emit editorClosed();
     e->accept();
 }
@@ -813,6 +866,10 @@ void EditorWindow::saveAllLevels() {
             updateTabTitle(i);
         }
     }
+    for (auto it = m_openUIDocs.begin(); it != m_openUIDocs.end(); ++it) {
+        if (it.value()->isDirty())
+            it.value()->save();
+    }
     updateSaveLabel();
 }
 
@@ -836,9 +893,9 @@ void EditorWindow::updateSaveLabel() {
 void EditorWindow::onProjectSettings() {
     auto* dlg = new ProjectSettingsDialog(m_project, this);
     if (dlg->exec() == QDialog::Accepted) {
-        float ppu = ProjectSettingsDialog::readPixelsPerUnit(m_project.path);
-        m_viewport->setPixelsPerUnit(ppu);
-        m_gameViewport->setPixelsPerUnit(ppu);
+        m_ppu = ProjectSettingsDialog::readPixelsPerUnit(m_project.path);
+        m_viewport->setPixelsPerUnit(m_ppu);
+        m_gameViewport->setPixelsPerUnit(m_ppu);
     }
     dlg->deleteLater();
 }
@@ -1043,6 +1100,35 @@ void EditorWindow::openBpClassTab(const QString& bpFilePath) {
         QSignalBlocker b(m_docTabBar);
         idx = m_docTabBar->addTab("  " + QFileInfo(bpFilePath).baseName());
         m_docTabBar->setTabData(idx, bpFilePath);
+    }
+    if (m_docTabBar->currentIndex() == idx)
+        onTabChanged(idx);
+    else
+        m_docTabBar->setCurrentIndex(idx);
+}
+
+void EditorWindow::openUIDocTab(const QString& uiFilePath) {
+    // 已有 tab 则切换
+    for (int i = 0; i < m_docTabBar->count(); ++i) {
+        if (m_docTabBar->tabData(i).toString() == uiFilePath) {
+            m_docTabBar->setCurrentIndex(i);
+            return;
+        }
+    }
+
+    // 加载文档
+    UIDocument* doc = m_openUIDocs.value(uiFilePath, nullptr);
+    if (!doc) {
+        doc = new UIDocument;
+        if (!doc->load(uiFilePath)) { delete doc; return; }
+        m_openUIDocs[uiFilePath] = doc;
+    }
+
+    int idx;
+    {
+        QSignalBlocker b(m_docTabBar);
+        idx = m_docTabBar->addTab("  " + QFileInfo(uiFilePath).baseName());
+        m_docTabBar->setTabData(idx, uiFilePath);
     }
     if (m_docTabBar->currentIndex() == idx)
         onTabChanged(idx);
