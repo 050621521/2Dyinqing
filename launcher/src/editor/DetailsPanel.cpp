@@ -344,10 +344,10 @@ void DetailsPanel::showActor(const ActorData& actor) {
     // 迁移：旧 Actor JSON 中 components 为空时补入默认组件并立即保存
     const bool needsMigration = m_currentActor.components.isEmpty();
     if (needsMigration)
-        m_currentActor.components = defaultComponents(m_currentActor.type);
+        m_currentActor.components = defaultComponentsForBpClass(m_currentActor.bpClass);
 
     QPixmap px(18, 18);
-    px.fill(typeColor(actor.type));
+    px.fill(bpClassColor(actor.bpClass));
     m_iconLabel->setPixmap(px);
 
     m_activeCheck->setChecked(actor.active);

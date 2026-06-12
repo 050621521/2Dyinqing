@@ -506,7 +506,7 @@ bool ContentBrowser::createLevelFile(const QString& filePath) {
     QJsonObject cameraActor;
     cameraActor["id"] = QUuid::createUuid().toString(QUuid::WithoutBraces);
     cameraActor["name"] = "主摄像机";
-    cameraActor["type"] = "Camera";
+    cameraActor["bpClass"] = "builtin/Camera";
 
     // 位置和旋转
     QJsonObject pos;

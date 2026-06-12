@@ -13,7 +13,7 @@ QJsonObject ActorData::toJson() const {
     QJsonObject obj;
     obj["id"]          = id;
     obj["name"]        = name;
-    obj["type"]        = type;
+    obj["bpClass"]     = bpClass;
     obj["position"]    = pos;
     obj["rotation"]    = rotation;
     obj["scale"]       = scale;
@@ -53,7 +53,11 @@ ActorData ActorData::fromJson(const QJsonObject& obj) {
     ActorData a;
     a.id       = obj["id"].toString();
     a.name     = obj["name"].toString();
-    a.type     = obj["type"].toString();
+    // 旧格式迁移："type": "Sprite" → bpClass: "builtin/Sprite"
+    if (obj.contains("bpClass"))
+        a.bpClass = obj["bpClass"].toString();
+    else if (obj.contains("type"))
+        a.bpClass = "builtin/" + obj["type"].toString();
     a.rotation = (float)obj["rotation"].toDouble();
     const QJsonObject pos   = obj["position"].toObject();
     const QJsonObject scale = obj["scale"].toObject();

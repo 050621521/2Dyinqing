@@ -46,7 +46,7 @@ void GameViewport::paintEvent(QPaintEvent*) {
 
     const ActorData* cam = nullptr;
     for (const ActorData& a : *actorsList) {
-        if (a.cameraIsMain && (a.type == "Camera" || a.components.contains("摄像机组件"))) {
+        if (a.cameraIsMain && (a.bpClass == "builtin/Camera" || a.components.contains("摄像机组件"))) {
             cam = &a;
             break;
         }
@@ -110,7 +110,7 @@ void GameViewport::drawScene(QPainter& p, const QList<ActorData>& actors,
     p.setClipRect(camRect);
 
     for (const ActorData& a : actors) {
-        if (a.type == "Camera" || a.components.contains("摄像机组件")) continue;
+        if (a.bpClass == "builtin/Camera" || a.components.contains("摄像机组件")) continue;
 
         QPointF pos = cameraWorldToScreen({a.x, a.y}, camRect, cam);
 
@@ -161,7 +161,7 @@ void GameViewport::drawScene(QPainter& p, const QList<ActorData>& actors,
             const float szW = szBase * qMax(0.05f, qAbs(a.scaleX));
             const float szH = szBase * qMax(0.05f, qAbs(a.scaleY));
             QRectF aRect(pos.x() - szW / 2.0f, pos.y() - szH / 2.0f, szW, szH);
-            const QColor fill = actorTypeColor(a.type);
+            const QColor fill = bpClassColor(a.bpClass);
             p.setPen(QPen(fill.darker(160), 1.0));
             p.setBrush(fill);
             p.drawRect(aRect);

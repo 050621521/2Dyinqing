@@ -9,7 +9,7 @@
 struct ActorData {
     QString id;
     QString name;
-    QString type;
+    QString bpClass;   // e.g. "builtin/Sprite", "builtin/Camera", "Blueprints/Player.bp"
     float x = 0, y = 0;
     float rotation = 0;
     float scaleX = 1, scaleY = 1;

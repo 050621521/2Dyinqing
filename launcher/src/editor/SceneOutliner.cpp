@@ -79,7 +79,7 @@ void SceneOutliner::rebuild() {
     for (const ActorData& a : m_doc->actors()) {
         if (!filter.isEmpty() && !a.name.toLower().contains(filter)) continue;
 
-        auto* item = new QTreeWidgetItem(m_tree, QStringList{a.name, typeLabel(a.type)});
+        auto* item = new QTreeWidgetItem(m_tree, QStringList{a.name, bpClassLabel(a.bpClass)});
         item->setData(0, Qt::UserRole, a.id);
         m_tree->addTopLevelItem(item);
     }
@@ -142,7 +142,7 @@ void SceneOutliner::showContextMenu(const QPoint& pos) {
                 ActorData a;
                 a.id         = QUuid::createUuid().toString(QUuid::WithoutBraces);
                 a.name       = typeLabel(type);
-                a.type       = type;
+                a.bpClass    = "builtin/" + type;
                 a.components = defaultComponents(type);
                 m_doc->addActor(a);
                 rebuild();

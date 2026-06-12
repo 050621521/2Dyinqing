@@ -2,6 +2,7 @@
 #include <QString>
 #include <QStringList>
 #include <QColor>
+#include <QFileInfo>
 
 // 所有文件共享的 Actor 类型工具函数，避免重复定义
 
@@ -29,4 +30,24 @@ inline QColor actorTypeColor(const QString& type) {
     if (type == "Light")   return QColor(255, 220,  50);
     if (type == "Trigger") return QColor(220, 130,  50);
     return                        QColor(160, 160, 160);
+}
+
+// ── bpClass 版工具函数 ────────────────────────────────────────────────
+
+inline QString bpClassToTypeName(const QString& bpClass) {
+    // "builtin/Sprite" → "Sprite"，自定义类返回空
+    return bpClass.startsWith("builtin/") ? bpClass.mid(8) : QString();
+}
+
+inline QStringList defaultComponentsForBpClass(const QString& bpClass) {
+    return defaultComponents(bpClassToTypeName(bpClass));
+}
+
+inline QString bpClassLabel(const QString& bpClass) {
+    if (!bpClass.startsWith("builtin/")) return QFileInfo(bpClass).baseName();
+    return typeLabel(bpClassToTypeName(bpClass));
+}
+
+inline QColor bpClassColor(const QString& bpClass) {
+    return actorTypeColor(bpClassToTypeName(bpClass));
 }

@@ -179,7 +179,7 @@ void Viewport2D::drawActors(QPainter& p) {
         QRectF rect(pos.x() - szW / 2, pos.y() - szH / 2, szW, szH);
         const bool selected = (a.id == m_selectedId);
 
-        QColor fill = actorTypeColor(a.type);
+        QColor fill = bpClassColor(a.bpClass);
 
         QPen outline(selected ? QColor(255, 255, 255) : fill.darker(160),
                      selected ? 2.5 : 1.0);
@@ -226,7 +226,7 @@ void Viewport2D::drawActors(QPainter& p) {
         }
 
         // 摄像机视口矩形（在旋转变换内，与摄像机同向）
-        const bool hasCamera = (a.type == "Camera" || a.components.contains("摄像机组件"));
+        const bool hasCamera = (a.bpClass == "builtin/Camera" || a.components.contains("摄像机组件"));
         if (hasCamera && !m_runtimeMode) {
             const float halfH = a.cameraSize * m_zoom;
             const float halfW = halfH * (a.cameraResH > 0 ? (float)a.cameraResW / a.cameraResH : 1.7778f);
@@ -241,19 +241,19 @@ void Viewport2D::drawActors(QPainter& p) {
 
         // 无贴图时按类型绘制占位图形
         if (!drewPixmap) {
-            if (a.type == "Empty") {
+            if (a.bpClass == "builtin/Empty") {
                 const float cs = sz * 0.28f;
                 p.setPen(QPen(fill, selected ? 2.0f : 1.5f));
                 p.setBrush(Qt::NoBrush);
                 p.drawLine(QPointF(pos.x() - cs, pos.y()), QPointF(pos.x() + cs, pos.y()));
                 p.drawLine(QPointF(pos.x(), pos.y() - cs), QPointF(pos.x(), pos.y() + cs));
                 p.drawEllipse(pos, cs * 0.4, cs * 0.4);
-            } else if (a.type == "Trigger") {
+            } else if (a.bpClass == "builtin/Trigger") {
                 QPen dp = outline; dp.setStyle(Qt::DashLine);
                 p.setPen(dp);
                 p.setBrush(QColor(fill.red(), fill.green(), fill.blue(), 55));
                 p.drawRect(rect);
-            } else if (a.type == "Light") {
+            } else if (a.bpClass == "builtin/Light") {
                 p.setPen(outline);
                 p.setBrush(fill);
                 p.drawEllipse(rect);
@@ -269,7 +269,7 @@ void Viewport2D::drawActors(QPainter& p) {
                 p.setPen(outline);
                 p.setBrush(fill);
                 p.drawRect(rect);
-                if (a.type == "Camera") {
+                if (a.bpClass == "builtin/Camera") {
                     p.setBrush(Qt::white); p.setPen(Qt::NoPen);
                     QPolygonF tri;
                     tri << QPointF(pos.x() + sz * 0.28f, pos.y())
@@ -281,7 +281,7 @@ void Viewport2D::drawActors(QPainter& p) {
         }
 
         // 禁用状态蒙版
-        if (!a.active && (drewPixmap || a.type != "Empty")) {
+        if (!a.active && (drewPixmap || a.bpClass != "builtin/Empty")) {
             p.setBrush(QColor(0, 0, 0, 130));
             p.setPen(Qt::NoPen);
             p.drawRect(rect);
@@ -291,7 +291,7 @@ void Viewport2D::drawActors(QPainter& p) {
         if (selected) {
             p.setPen(QPen(QColor(255, 200, 50), 1.5, Qt::SolidLine));
             p.setBrush(Qt::NoBrush);
-            if (a.type == "Empty" && !drewPixmap) {
+            if (a.bpClass == "builtin/Empty" && !drewPixmap) {
                 const float cs = sz * 0.28f;
                 p.drawEllipse(pos, cs * 0.7, cs * 0.7);
             } else {
@@ -577,7 +577,7 @@ void Viewport2D::mousePressEvent(QMouseEvent* e) {
                 ActorData a;
                 a.id         = QUuid::createUuid().toString(QUuid::WithoutBraces);
                 a.name       = typeLabel(type);
-                a.type       = type;
+                a.bpClass    = "builtin/" + type;
                 a.components = defaultComponents(type);
                 a.x    = (float)worldPos.x();
                 a.y    = (float)worldPos.y();
