@@ -629,7 +629,10 @@ void EditorWindow::onTabChanged(int index) {
     // .ui 文件
     if (path.endsWith(".ui")) {
         UIDocument* doc = m_openUIDocs.value(path, nullptr);
-        if (!doc) return;
+        if (!doc) {
+            if (m_centralStack) m_centralStack->setCurrentWidget(m_viewportPage);
+            return;
+        }
         m_uiEditor->loadDocument(doc);
         LevelDocument* previewLevel = m_openLevels.value(m_activeLevelPath, nullptr);
         m_uiEditor->setPreviewLevel(previewLevel, m_ppu);
@@ -772,6 +775,7 @@ void EditorWindow::onTabClosed(int index) {
         m_openUIDocs.remove(path);
         delete doc;
         m_docTabBar->removeTab(index);
+        if (m_centralStack) m_centralStack->setCurrentWidget(m_viewportPage);
         updateSaveLabel();
         return;
     }
@@ -887,6 +891,8 @@ void EditorWindow::updateSaveLabel() {
     int dirtyCount = 0;
     for (LevelDocument* doc : m_openLevels)
         if (doc->isDirty()) ++dirtyCount;
+    for (UIDocument* ud : m_openUIDocs)
+        if (ud->isDirty()) ++dirtyCount;
     m_saveLabel->setText(dirtyCount == 0 ? "已保存" : QString("%1 未保存").arg(dirtyCount));
 }
 
