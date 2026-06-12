@@ -398,7 +398,7 @@ void ContentBrowser::onGridItemDoubleClicked(QListWidgetItem* item) {
 void ContentBrowser::onNewLevel() {
     bool ok = false;
     QString name = QInputDialog::getText(this, "新建关卡", "关卡名称：",
-                                         QLineEdit::Normal, "NewLevel", &ok);
+                                         QLineEdit::Normal, "新关卡", &ok);
     if (!ok || name.trimmed().isEmpty()) return;
 
     name = name.trimmed();
@@ -417,7 +417,7 @@ void ContentBrowser::onNewLevel() {
 void ContentBrowser::onNewFolder() {
     bool ok = false;
     QString name = QInputDialog::getText(this, "新建文件夹", "文件夹名称：",
-                                         QLineEdit::Normal, "NewFolder", &ok);
+                                         QLineEdit::Normal, "新文件夹", &ok);
     if (!ok || name.trimmed().isEmpty()) return;
 
     name = name.trimmed();
@@ -549,7 +549,7 @@ void ContentBrowser::showGridContextMenu(const QPoint& pos) {
         menu.addAction("新建蓝图类", this, [this]() {
             bool ok;
             const QString name = QInputDialog::getText(this, "新建蓝图类", "蓝图类名称：",
-                                                        QLineEdit::Normal, "NewBlueprint", &ok);
+                                                        QLineEdit::Normal, "新蓝图", &ok);
             if (!ok || name.trimmed().isEmpty()) return;
             const QString dir = m_projectRoot + "/Blueprints";
             QDir().mkpath(dir);
@@ -563,7 +563,7 @@ void ContentBrowser::showGridContextMenu(const QPoint& pos) {
         menu.addAction("新建UI", this, [this]() {
             bool ok;
             const QString name = QInputDialog::getText(this, "新建UI", "UI名称：",
-                                                        QLineEdit::Normal, "NewUI", &ok);
+                                                        QLineEdit::Normal, "新UI", &ok);
             if (!ok || name.trimmed().isEmpty()) return;
             const QString dir = m_projectRoot + "/UI";
             QDir().mkpath(dir);
