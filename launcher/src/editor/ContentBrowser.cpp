@@ -236,6 +236,24 @@ QIcon ContentBrowser::makeBpClassIcon() {
     return icon;
 }
 
+QIcon ContentBrowser::makeUIDocIcon() {
+    static QIcon icon;
+    if (!icon.isNull()) return icon;
+    QPixmap px(64, 64);
+    px.fill(Qt::transparent);
+    QPainter p(&px);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setBrush(QColor(30, 80, 140));
+    p.setPen(Qt::NoPen);
+    p.drawRoundedRect(8, 8, 48, 48, 8, 8);
+    p.setBrush(QColor(60, 120, 200));
+    p.drawRoundedRect(14, 14, 36, 10, 3, 3);
+    p.setBrush(QColor(50, 100, 160));
+    p.drawRect(14, 28, 36, 20);
+    icon = QIcon(px);
+    return icon;
+}
+
 // ── 目录树 ────────────────────────────────────────────────────────────
 
 void ContentBrowser::buildFolderTree() {
@@ -294,6 +312,13 @@ void ContentBrowser::populateFolder(const QString& absPath) {
         m_currentTypes   << "bp";
     }
 
+    // .ui UI 文档文件
+    const QStringList uiFiles = dir.entryList({"*.ui"}, QDir::Files, QDir::Name);
+    for (const QString& ui : uiFiles) {
+        m_currentEntries << ui;
+        m_currentTypes   << "ui";
+    }
+
     // 图片文件
     const QStringList imgExts = {"*.png", "*.jpg", "*.jpeg", "*.bmp", "*.svg", "*.webp"};
     const QStringList images = dir.entryList(imgExts, QDir::Files, QDir::Name);
@@ -318,7 +343,7 @@ void ContentBrowser::onSearchChanged(const QString& text) {
             continue;
 
         const QString absPath = m_currentPath + "/" + name;
-        const QString label   = (type == "level" || type == "bp")
+        const QString label   = (type == "level" || type == "bp" || type == "ui")
             ? QFileInfo(name).baseName()
             : name;
 
@@ -326,6 +351,7 @@ void ContentBrowser::onSearchChanged(const QString& text) {
         if      (type == "dir")   item->setIcon(makeFolderIcon());
         else if (type == "level") item->setIcon(makeLevelIcon());
         else if (type == "bp")    item->setIcon(makeBpClassIcon());
+        else if (type == "ui")    item->setIcon(makeUIDocIcon());
         else if (type == "image") item->setIcon(makeImageIcon(absPath));
         item->setData(Qt::UserRole,     type);
         item->setData(Qt::UserRole + 1, absPath);
@@ -362,6 +388,8 @@ void ContentBrowser::onGridItemDoubleClicked(QListWidgetItem* item) {
         emit levelOpenRequested(path);
     } else if (type == "bp") {
         emit bpClassOpenRequested(path);
+    } else if (type == "ui") {
+        emit uiDocOpenRequested(path);
     } else if (type == "image") {
         emit imageAssignRequested(path);
     }
@@ -530,6 +558,23 @@ void ContentBrowser::showGridContextMenu(const QPoint& pos) {
             bc.name     = name.trimmed();
             bc.filePath = path;
             bc.save();
+            populateFolder(m_currentPath);
+        });
+        menu.addAction("新建UI", this, [this]() {
+            bool ok;
+            const QString name = QInputDialog::getText(this, "新建UI", "UI名称：",
+                                                        QLineEdit::Normal, "NewUI", &ok);
+            if (!ok || name.trimmed().isEmpty()) return;
+            const QString dir = m_projectRoot + "/UI";
+            QDir().mkpath(dir);
+            const QString path = dir + "/" + name.trimmed() + ".ui";
+            QJsonObject root;
+            root["name"]    = name.trimmed();
+            root["version"] = "0.1";
+            root["widgets"] = QJsonArray();
+            QFile f(path);
+            if (f.open(QIODevice::WriteOnly))
+                f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
             populateFolder(m_currentPath);
         });
         menu.addAction("新建文件夹", this, &ContentBrowser::onNewFolder);

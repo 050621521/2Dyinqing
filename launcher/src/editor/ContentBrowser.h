@@ -21,6 +21,7 @@ signals:
     void saveAllRequested();
     void imageAssignRequested(const QString& imagePath);
     void bpClassOpenRequested(const QString& bpFilePath);
+    void uiDocOpenRequested(const QString& path);
 
 private slots:
     void onFolderSelected(QTreeWidgetItem* item, int col);
@@ -39,6 +40,7 @@ private:
     static QIcon makeFolderIcon();
     static QIcon makeLevelIcon();
     static QIcon makeBpClassIcon();
+    static QIcon makeUIDocIcon();
     QIcon makeImageIcon(const QString& path);
 
     QString      m_projectRoot;
