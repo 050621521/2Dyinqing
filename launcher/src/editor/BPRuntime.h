@@ -14,6 +14,7 @@ public:
     void triggerKeyDown(const QString& key);
 
     const QList<ActorData>& actors()   const { return m_actors; }
+    // mutableActors() 只在运行时由 ActorBPRuntime 持有指针，运行期间不允许增删 Actor，列表不会重分配
     QList<ActorData>&       mutableActors()  { return m_actors; }
     float                   lastDt()   const { return m_lastDt; }
     const QStringList&      printLog() const { return m_printLog; }
