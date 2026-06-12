@@ -66,7 +66,7 @@ void GameViewport::paintEvent(QPaintEvent*) {
     const QRectF camRect = computeCameraRect(aspect);
     p.fillRect(camRect, cam->cameraBackground);
     drawScene(p, *actorsList, *cam, camRect);
-    renderUI(p);
+    renderUI(p, camRect);
 }
 
 QRectF GameViewport::computeCameraRect(float aspect) const {
@@ -293,15 +293,14 @@ void GameViewport::renderChildren(QPainter& p, const QString& parentId,
         renderWidget(p, child, parentRect, doc);
 }
 
-void GameViewport::renderUI(QPainter& p) const {
+void GameViewport::renderUI(QPainter& p, const QRectF& camRect) const {
     if (!m_uiRuntime) return;
-    const QRectF screen(0, 0, width(), height());
     for (const UIInstance* inst : m_uiRuntime->shownInstances()) {
         p.save();
         p.translate(inst->screenX, inst->screenY);
         const UIDocument& doc = inst->docCopy;
         for (const UIWidget& root : doc.rootWidgets())
-            renderWidget(p, root, screen, doc);
+            renderWidget(p, root, camRect, doc);
         p.restore();
     }
 }

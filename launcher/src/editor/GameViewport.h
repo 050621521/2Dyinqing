@@ -26,7 +26,7 @@ private:
                                 const ActorData& cam) const;
     void    drawScene(QPainter& p, const QList<ActorData>& actors,
                       const ActorData& cam, const QRectF& camRect);
-    void    renderUI(QPainter& p) const;
+    void    renderUI(QPainter& p, const QRectF& camRect) const;
     QRectF  widgetScreenRect(const UIWidget& w, const QRectF& parentRect) const;
     void    renderWidget(QPainter& p, const UIWidget& w,
                          const QRectF& parentRect, const UIDocument& doc) const;

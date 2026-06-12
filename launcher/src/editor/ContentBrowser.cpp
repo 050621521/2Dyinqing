@@ -159,6 +159,62 @@ ContentBrowser::ContentBrowser(const QString& projectRoot, QWidget* parent)
         populateFolder(m_currentPath);
     });
 
+    // F2 内联重命名
+    m_assetGrid->setEditTriggers(QAbstractItemView::EditKeyPressed);
+    m_folderTree->setEditTriggers(QAbstractItemView::EditKeyPressed);
+
+    connect(m_assetGrid, &QListWidget::itemChanged, this, [this](QListWidgetItem* item) {
+        const QString type    = item->data(Qt::UserRole).toString();
+        const QString oldPath = item->data(Qt::UserRole + 1).toString();
+        const QString newBase = item->text().trimmed();
+
+        auto restoreName = [&]() {
+            QSignalBlocker b(m_assetGrid);
+            item->setText(type == "dir" ? QDir(oldPath).dirName() : QFileInfo(oldPath).baseName());
+        };
+        if (newBase.isEmpty()) { restoreName(); return; }
+
+        QString newFileName = newBase;
+        if      (type == "level") newFileName += ".level";
+        else if (type == "bp")    newFileName += ".bp";
+        else if (type == "ui")    newFileName += ".ui";
+        else if (type == "image") newFileName += "." + QFileInfo(oldPath).suffix();
+
+        const QString newPath = QFileInfo(oldPath).dir().filePath(newFileName);
+        if (newPath == oldPath) return;
+        if (!QFile::rename(oldPath, newPath)) { restoreName(); return; }
+
+        QSignalBlocker b(m_assetGrid);
+        item->setData(Qt::UserRole + 1, newPath);
+        if (type == "dir") {
+            buildFolderTree();
+            if (m_currentPath.startsWith(oldPath))
+                m_currentPath = newPath + m_currentPath.mid(oldPath.length());
+        }
+    });
+
+    connect(m_folderTree, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem* item, int) {
+        const QString oldPath = item->data(0, Qt::UserRole).toString();
+        if (oldPath.isEmpty() || oldPath == m_projectRoot) {
+            QSignalBlocker b(m_folderTree); item->setText(0, "内容"); return;
+        }
+        const QString newName = item->text(0).trimmed();
+        const QString oldName = QDir(oldPath).dirName();
+        if (newName == oldName) return;
+        if (newName.isEmpty()) {
+            QSignalBlocker b(m_folderTree); item->setText(0, oldName); return;
+        }
+        const QString newPath = QFileInfo(oldPath).dir().filePath(newName);
+        if (!QFile::rename(oldPath, newPath)) {
+            QSignalBlocker b(m_folderTree); item->setText(0, oldName); return;
+        }
+        QSignalBlocker b(m_folderTree);
+        item->setData(0, Qt::UserRole, newPath);
+        populateFolder(m_currentPath.startsWith(oldPath)
+            ? newPath + m_currentPath.mid(oldPath.length())
+            : m_currentPath);
+    });
+
     buildFolderTree();
     populateFolder(m_projectRoot);
 }
@@ -257,6 +313,7 @@ QIcon ContentBrowser::makeUIDocIcon() {
 // ── 目录树 ────────────────────────────────────────────────────────────
 
 void ContentBrowser::buildFolderTree() {
+    QSignalBlocker blocker(m_folderTree);
     m_folderTree->clear();
 
     auto* rootItem = new QTreeWidgetItem(m_folderTree, QStringList{"内容"});
@@ -278,6 +335,7 @@ void ContentBrowser::addDirToTree(QTreeWidgetItem* parent, const QString& absPat
         auto* child = new QTreeWidgetItem(parent, QStringList{name});
         child->setData(0, Qt::UserRole, childPath);
         child->setIcon(0, makeFolderIcon());
+        child->setFlags(child->flags() | Qt::ItemIsEditable);
         addDirToTree(child, childPath, depth + 1);
     }
 }
@@ -347,6 +405,7 @@ void ContentBrowser::onSearchChanged(const QString& text) {
             ? QFileInfo(name).baseName()
             : name;
 
+        QSignalBlocker gridBlocker(m_assetGrid);
         auto* item = new QListWidgetItem(label, m_assetGrid);
         if      (type == "dir")   item->setIcon(makeFolderIcon());
         else if (type == "level") item->setIcon(makeLevelIcon());
@@ -357,6 +416,7 @@ void ContentBrowser::onSearchChanged(const QString& text) {
         item->setData(Qt::UserRole + 1, absPath);
         item->setSizeHint({88, 88});
         item->setTextAlignment(Qt::AlignHCenter | Qt::AlignBottom);
+        item->setFlags(item->flags() | Qt::ItemIsEditable);
     }
 }
 
@@ -442,16 +502,8 @@ void ContentBrowser::showGridContextMenu(const QPoint& pos) {
                 emit levelOpenRequested(path);
             });
             menu.addSeparator();
-            menu.addAction("重命名", [this, path]() {
-                bool ok = false;
-                const QString oldName = QFileInfo(path).baseName();
-                QString newName = QInputDialog::getText(this, "重命名", "新名称：",
-                                                        QLineEdit::Normal, oldName, &ok);
-                if (!ok || newName.trimmed().isEmpty()) return;
-                newName = newName.trimmed();
-                if (!newName.endsWith(".level")) newName += ".level";
-                QFile::rename(path, QFileInfo(path).dir().filePath(newName));
-                populateFolder(m_currentPath);
+            menu.addAction("重命名", [this, item]() {
+                m_assetGrid->editItem(item);
             });
             menu.addAction("删除", [this, path]() {
                 const QString name = QFileInfo(path).fileName();
@@ -474,20 +526,8 @@ void ContentBrowser::showGridContextMenu(const QPoint& pos) {
                 }
             });
             menu.addSeparator();
-            menu.addAction("重命名", [this, path]() {
-                bool ok = false;
-                const QString oldName = QDir(path).dirName();
-                QString newName = QInputDialog::getText(this, "重命名文件夹", "新名称：",
-                                                        QLineEdit::Normal, oldName, &ok);
-                if (!ok || newName.trimmed().isEmpty() || newName.trimmed() == oldName) return;
-                newName = newName.trimmed();
-                const QString newPath = QFileInfo(path).dir().filePath(newName);
-                if (QFile::rename(path, newPath)) {
-                    buildFolderTree();
-                    populateFolder(m_currentPath.startsWith(path) ? newPath : m_currentPath);
-                } else {
-                    QMessageBox::warning(this, "重命名文件夹", "重命名失败，请检查名称是否合法。");
-                }
+            menu.addAction("重命名", [this, item]() {
+                m_assetGrid->editItem(item);
             });
             menu.addAction("删除", [this, path]() {
                 const QString name = QDir(path).dirName();
@@ -508,20 +548,8 @@ void ContentBrowser::showGridContextMenu(const QPoint& pos) {
                 emit imageAssignRequested(path);
             });
             menu.addSeparator();
-            menu.addAction("重命名", [this, path]() {
-                bool ok = false;
-                const QString oldBase = QFileInfo(path).completeBaseName();
-                const QString ext     = "." + QFileInfo(path).suffix();
-                QString newName = QInputDialog::getText(this, "重命名图片", "新名称（不含扩展名）：",
-                                                        QLineEdit::Normal, oldBase, &ok);
-                if (!ok || newName.trimmed().isEmpty()) return;
-                const QString newPath = QFileInfo(path).dir().filePath(newName.trimmed() + ext);
-                if (QFile::rename(path, newPath)) {
-                    m_imageIconCache.remove(path);
-                    populateFolder(m_currentPath);
-                } else {
-                    QMessageBox::warning(this, "重命名图片", "重命名失败。");
-                }
+            menu.addAction("重命名", [this, item]() {
+                m_assetGrid->editItem(item);
             });
             menu.addAction("删除", [this, path]() {
                 if (QMessageBox::question(this, "删除图片",

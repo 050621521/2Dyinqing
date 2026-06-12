@@ -18,3 +18,6 @@ launcher/build/
 *.swp
 *.swo
 .obsidian/
+
+# Superpowers brainstorming sessions
+.superpowers/

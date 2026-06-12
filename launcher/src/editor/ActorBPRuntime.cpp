@@ -130,51 +130,54 @@ QString ActorBPRuntime::executeNode(const QString& nodeId) {
     // ── UI 节点 ──────────────────────────────────────────────────────────
     if (node->type == "UI.Create") {
         if (m_uiRuntime) {
-            const QString uiName = resolveDataPin(nodeId, "uiName");
-            const QString instanceId = m_uiRuntime->createInstance(uiName);
-            m_uiRefs[nodeId] = instanceId;
+            const QString uiName = resolveDataPin(nodeId, "uiRef");
+            m_uiRefs[nodeId] = m_uiRuntime->createInstance(uiName);
         }
         return "exec_out";
     }
     if (node->type == "UI.Show") {
-        if (m_uiRuntime) m_uiRuntime->showByName(node->params.value("uiName"));
+        if (m_uiRuntime) m_uiRuntime->showByName(resolveDataPin(nodeId, "uiRef"));
         return "exec_out";
     }
     if (node->type == "UI.Hide") {
-        if (m_uiRuntime) m_uiRuntime->hideByName(node->params.value("uiName"));
+        if (m_uiRuntime) m_uiRuntime->hideByName(resolveDataPin(nodeId, "uiRef"));
         return "exec_out";
     }
     if (node->type == "UI.Destroy") {
-        if (m_uiRuntime) m_uiRuntime->destroyByName(node->params.value("uiName"));
+        if (m_uiRuntime) {
+            m_uiRuntime->destroyByName(resolveDataPin(nodeId, "uiRef"));
+            m_uiRefs.remove(nodeId);
+        }
         return "exec_out";
     }
     if (node->type == "UI.SetText") {
         if (m_uiRuntime)
-            m_uiRuntime->setTextByName(node->params.value("uiName"),
+            m_uiRuntime->setTextByName(resolveDataPin(nodeId, "uiRef"),
                                        resolveDataPin(nodeId, "widgetName"),
                                        resolveDataPin(nodeId, "text"));
         return "exec_out";
     }
     if (node->type == "UI.SetValue") {
         if (m_uiRuntime)
-            m_uiRuntime->setValueByName(node->params.value("uiName"),
+            m_uiRuntime->setValueByName(resolveDataPin(nodeId, "uiRef"),
                                         resolveDataPin(nodeId, "widgetName"),
                                         resolveDataPin(nodeId, "value").toFloat());
         return "exec_out";
     }
     if (node->type == "UI.SetPosition") {
         if (m_uiRuntime)
-            m_uiRuntime->setPositionByName(node->params.value("uiName"),
+            m_uiRuntime->setPositionByName(resolveDataPin(nodeId, "uiRef"),
                                            resolveDataPin(nodeId, "x").toFloat(),
                                            resolveDataPin(nodeId, "y").toFloat());
         return "exec_out";
     }
     if (node->type == "UI.SetVisible") {
-        const QString v = resolveDataPin(nodeId, "visible").toLower();
-        if (m_uiRuntime)
-            m_uiRuntime->setWidgetVisibleByName(node->params.value("uiName"),
+        if (m_uiRuntime) {
+            const QString v = resolveDataPin(nodeId, "visible").toLower();
+            m_uiRuntime->setWidgetVisibleByName(resolveDataPin(nodeId, "uiRef"),
                                                 resolveDataPin(nodeId, "widgetName"),
                                                 v == "true" || v == "1");
+        }
         return "exec_out";
     }
 
@@ -214,10 +217,10 @@ QString ActorBPRuntime::resolveOutputPin(const QString& nodeId, const QString& p
     }
 
     // UI 输出引脚
-    if (node->type == "UI.Create" && pinKey == "instanceId")
+    if (node->type == "UI.Create" && pinKey == "uiRef")
         return m_uiRefs.value(nodeId);
-    if (node->type == "UI.Ref" && pinKey == "instanceId")
-        return node->params.value("instanceId");
+    if (node->type == "UI.Ref" && pinKey == "uiRef")
+        return node->params.value("uiName");
     if (node->type == "UI.OnDropdownChanged" && pinKey == "index")
         return QString::number(m_dropdownIndex.value(nodeId, 0));
 

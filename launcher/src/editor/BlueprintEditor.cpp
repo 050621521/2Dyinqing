@@ -48,11 +48,7 @@ static void removeConnFromActive(BPClass* bc, LevelDocument* doc, const QString&
 // ── 节点类型注册 ──────────────────────────────────────────────────────
 
 static bool nodeHasUIPicker(const QString& type) {
-    static const QSet<QString> kUIPickerTypes = {
-        "UI.Create", "UI.Show", "UI.Hide", "UI.Destroy",
-        "UI.SetText", "UI.SetValue", "UI.SetPosition", "UI.SetVisible"
-    };
-    return kUIPickerTypes.contains(type);
+    return type == "UI.Ref";
 }
 
 const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
@@ -192,73 +188,87 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
         },
         // ── UI 节点 ──────────────────────────────────────────────────────────
         {
+            "UI.Ref", "UI引用", QColor("#4a1a6a"),
+            {
+                {"uiRef", "UI引用", false, true},
+            }
+        },
+        {
             "UI.Create", "创建UI", QColor("#4a1a6a"),
             {
-                {"exec_in",    "exec",   true,  false},
-                {"exec_out",   "exec",   true,  true},
+                {"exec_in",  "exec",   true,  false},
+                {"exec_out", "exec",   true,  true},
+                {"uiRef",    "UI引用", false, false},
             }
         },
         {
             "UI.Show", "显示UI", QColor("#1a4a6a"),
             {
-                {"exec_in",    "exec",   true,  false},
-                {"exec_out",   "exec",   true,  true},
+                {"exec_in",  "exec",   true,  false},
+                {"exec_out", "exec",   true,  true},
+                {"uiRef",    "UI引用", false, false},
             }
         },
         {
             "UI.Hide", "隐藏UI", QColor("#1a4a6a"),
             {
-                {"exec_in",    "exec",   true,  false},
-                {"exec_out",   "exec",   true,  true},
+                {"exec_in",  "exec",   true,  false},
+                {"exec_out", "exec",   true,  true},
+                {"uiRef",    "UI引用", false, false},
             }
         },
         {
             "UI.Destroy", "销毁UI", QColor("#6a1a1a"),
             {
-                {"exec_in",    "exec",   true,  false},
-                {"exec_out",   "exec",   true,  true},
+                {"exec_in",  "exec",   true,  false},
+                {"exec_out", "exec",   true,  true},
+                {"uiRef",    "UI引用", false, false},
             }
         },
         {
             "UI.SetText", "设置文本", QColor("#1a4a6a"),
             {
                 {"exec_in",    "exec",     true,  false},
+                {"exec_out",   "exec",     true,  true},
+                {"uiRef",      "UI引用",   false, false},
                 {"widgetName", "控件名",   false, false},
                 {"text",       "文本内容", false, false},
-                {"exec_out",   "exec",     true,  true},
             }
         },
         {
             "UI.SetValue", "设置进度值", QColor("#1a4a6a"),
             {
                 {"exec_in",    "exec",   true,  false},
+                {"exec_out",   "exec",   true,  true},
+                {"uiRef",      "UI引用", false, false},
                 {"widgetName", "控件名", false, false},
                 {"value",      "数值",   false, false},
-                {"exec_out",   "exec",   true,  true},
             }
         },
         {
             "UI.SetPosition", "设置UI位置", QColor("#1a4a6a"),
             {
-                {"exec_in",    "exec",   true,  false},
-                {"x",          "X",      false, false},
-                {"y",          "Y",      false, false},
-                {"exec_out",   "exec",   true,  true},
+                {"exec_in",  "exec",   true,  false},
+                {"exec_out", "exec",   true,  true},
+                {"uiRef",    "UI引用", false, false},
+                {"x",        "X",      false, false},
+                {"y",        "Y",      false, false},
             }
         },
         {
             "UI.SetVisible", "设置控件可见", QColor("#1a4a6a"),
             {
                 {"exec_in",    "exec",   true,  false},
+                {"exec_out",   "exec",   true,  true},
+                {"uiRef",      "UI引用", false, false},
                 {"widgetName", "控件名", false, false},
                 {"visible",    "可见",   false, false},
-                {"exec_out",   "exec",   true,  true},
             }
         },
         {
             "UI.OnButtonClick", "按钮点击时", QColor("#6a2a8a"),
             {
-                {"instanceId", "UI引用", false, false},
+                {"uiRef",      "UI引用", false, false},
                 {"widgetName", "控件名", false, false},
                 {"exec_out",   "exec",   true,  true},
             }
@@ -266,7 +276,7 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
         {
             "UI.OnDropdownChanged", "下拉选项改变时", QColor("#6a2a8a"),
             {
-                {"instanceId", "UI引用",   false, false},
+                {"uiRef",      "UI引用",   false, false},
                 {"widgetName", "控件名",   false, false},
                 {"exec_out",   "exec",     true,  true},
                 {"index",      "选中索引", false, true},

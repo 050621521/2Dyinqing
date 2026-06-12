@@ -1,6 +1,7 @@
 #include "BPRuntime.h"
 #include "UIRuntime.h"
 #include <QSet>
+#include <QDebug>
 #include <algorithm>
 #include <cmath>
 
@@ -142,56 +143,53 @@ QString BPRuntime::executeNode(const QString& nodeId) {
 
     if (node->type == "UI.Create") {
         if (!m_uiRuntime) return "exec_out";
-        const QString uiName = resolveDataPin(nodeId, "uiName");
+        const QString uiName = resolveDataPin(nodeId, "uiRef");
         const QString instId = m_uiRuntime->createInstance(uiName);
         m_uiRefs[nodeId] = instId;
         return "exec_out";
     }
     if (node->type == "UI.Show") {
-        if (m_uiRuntime) m_uiRuntime->showByName(node->params.value("uiName"));
+        if (m_uiRuntime) m_uiRuntime->showByName(resolveDataPin(nodeId, "uiRef"));
         return "exec_out";
     }
     if (node->type == "UI.Hide") {
-        if (m_uiRuntime) m_uiRuntime->hideByName(node->params.value("uiName"));
+        if (m_uiRuntime) m_uiRuntime->hideByName(resolveDataPin(nodeId, "uiRef"));
         return "exec_out";
     }
     if (node->type == "UI.Destroy") {
         if (m_uiRuntime) {
-            m_uiRuntime->destroyByName(node->params.value("uiName"));
+            m_uiRuntime->destroyByName(resolveDataPin(nodeId, "uiRef"));
             m_uiRefs.remove(nodeId);
         }
         return "exec_out";
     }
     if (node->type == "UI.SetText") {
-        if (m_uiRuntime) {
-            const QString name = resolveDataPin(nodeId, "widgetName");
-            const QString text = resolveDataPin(nodeId, "text");
-            m_uiRuntime->setTextByName(node->params.value("uiName"), name, text);
-        }
+        if (m_uiRuntime)
+            m_uiRuntime->setTextByName(resolveDataPin(nodeId, "uiRef"),
+                                       resolveDataPin(nodeId, "widgetName"),
+                                       resolveDataPin(nodeId, "text"));
         return "exec_out";
     }
     if (node->type == "UI.SetValue") {
-        if (m_uiRuntime) {
-            const QString name = resolveDataPin(nodeId, "widgetName");
-            float val = resolveDataPin(nodeId, "value").toFloat();
-            m_uiRuntime->setValueByName(node->params.value("uiName"), name, val);
-        }
+        if (m_uiRuntime)
+            m_uiRuntime->setValueByName(resolveDataPin(nodeId, "uiRef"),
+                                        resolveDataPin(nodeId, "widgetName"),
+                                        resolveDataPin(nodeId, "value").toFloat());
         return "exec_out";
     }
     if (node->type == "UI.SetPosition") {
-        if (m_uiRuntime) {
-            float x = resolveDataPin(nodeId, "x").toFloat();
-            float y = resolveDataPin(nodeId, "y").toFloat();
-            m_uiRuntime->setPositionByName(node->params.value("uiName"), x, y);
-        }
+        if (m_uiRuntime)
+            m_uiRuntime->setPositionByName(resolveDataPin(nodeId, "uiRef"),
+                                           resolveDataPin(nodeId, "x").toFloat(),
+                                           resolveDataPin(nodeId, "y").toFloat());
         return "exec_out";
     }
     if (node->type == "UI.SetVisible") {
         if (m_uiRuntime) {
-            const QString name = resolveDataPin(nodeId, "widgetName");
-            const QString val  = resolveDataPin(nodeId, "visible").toLower();
-            bool vis = !val.isEmpty() && val != "0" && val != "false";
-            m_uiRuntime->setWidgetVisibleByName(node->params.value("uiName"), name, vis);
+            const QString val = resolveDataPin(nodeId, "visible").toLower();
+            m_uiRuntime->setWidgetVisibleByName(resolveDataPin(nodeId, "uiRef"),
+                                                resolveDataPin(nodeId, "widgetName"),
+                                                !val.isEmpty() && val != "0" && val != "false");
         }
         return "exec_out";
     }
@@ -218,7 +216,7 @@ QString BPRuntime::resolveOutputPin(const QString& nodeId, const QString& pinKey
     if (node->type == "UI.Create")
         return m_uiRefs.value(nodeId);
     if (node->type == "UI.Ref")
-        return node->params.value("instanceId");
+        return node->params.value("uiName");
 
     if (node->type == "Var.GetActorPos") {
         QString actorId = resolveDataPin(nodeId, "actorId");

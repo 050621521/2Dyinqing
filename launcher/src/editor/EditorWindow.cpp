@@ -229,6 +229,16 @@ void EditorWindow::setupCentralArea() {
         updateSaveLabel();
     });
 
+    connect(m_uiEditor, &UIEditor::previewLevelChanged, this, [this](const QString& name) {
+        LevelDocument* doc = nullptr;
+        if (name != "关闭") {
+            for (auto it = m_openLevels.begin(); it != m_openLevels.end(); ++it) {
+                if (QFileInfo(it.key()).baseName() == name) { doc = it.value(); break; }
+            }
+        }
+        m_uiEditor->setPreviewLevel(doc, m_ppu);
+    });
+
     // 在 DocTabBar 末尾固定添加「游戏视图」Tab（不可关闭）
     {
         QSignalBlocker b(m_docTabBar);
@@ -912,8 +922,10 @@ void EditorWindow::startRuntime() {
     const int index = m_docTabBar->currentIndex();
     if (index < 0) return;
     const QString tabPath = m_docTabBar->tabData(index).toString();
-    // 若当前是游戏视图 Tab，用最近激活的关卡
-    const QString path = (tabPath == DocTabBar::kGameViewTabData) ? m_activeLevelPath : tabPath;
+    // 蓝图 tab / 游戏视图 tab 都用最近激活的关卡
+    const bool useActive = (tabPath == DocTabBar::kGameViewTabData
+                         || tabPath == DocTabBar::kBlueprintTabData);
+    const QString path = useActive ? m_activeLevelPath : tabPath;
     LevelDocument* doc = m_openLevels.value(path);
     if (!doc || !m_viewport) return;
 

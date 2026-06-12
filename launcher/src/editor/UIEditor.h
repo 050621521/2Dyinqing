@@ -10,6 +10,25 @@
 #include <QSplitter>
 #include <functional>
 
+// ── AnchorPicker（3×3 锚点选择器）────────────────────────────────────────
+class AnchorPicker : public QWidget {
+    Q_OBJECT
+public:
+    explicit AnchorPicker(QWidget* parent = nullptr);
+    void    setAnchor(const QString& anchor);
+    QString anchor() const { return m_anchor; }
+
+signals:
+    void anchorChanged(const QString& anchor);
+
+protected:
+    void paintEvent(QPaintEvent*) override;
+    void mousePressEvent(QMouseEvent*) override;
+
+private:
+    QString m_anchor = "左上";
+};
+
 // ── UIEditorCanvas（独立类，避免 MOC 嵌套限制）────────────────────────────
 class UIEditorCanvas : public QWidget {
     Q_OBJECT
@@ -45,8 +64,14 @@ private:
     float          m_ppu       = 100.0f;
     QString        m_selectedId;
     bool           m_dragging  = false;
-    QPointF        m_dragOffset;
+    QPointF        m_dragStart;
+    float          m_dragInitX = 0, m_dragInitY = 0;
     mutable QHash<QString, QPixmap> m_pixmapCache;
+
+    QRectF  getViewportRect() const;
+    QRectF  computeCameraRect(float aspect) const;
+    QPointF cameraWorldToScreen(QPointF world, const QRectF& camRect, const ActorData& cam) const;
+    void    drawScenePreview(QPainter& p) const;
 };
 
 // ── UIEditor ──────────────────────────────────────────────────────────────
@@ -63,6 +88,7 @@ public:
 
 signals:
     void documentModified();
+    void previewLevelChanged(const QString& levelName);
 
 public slots:
     void onAddWidget(const QString& type);

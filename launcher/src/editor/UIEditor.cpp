@@ -1,4 +1,5 @@
 #include "UIEditor.h"
+#include "models/ActorTypeUtils.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QSplitter>
@@ -17,6 +18,68 @@
 #include <QMouseEvent>
 #include <QContextMenuEvent>
 #include <QUuid>
+
+// ── AnchorPicker ──────────────────────────────────────────────────────────
+
+static const QStringList& anchorOrder() {
+    static const QStringList s = {
+        "左上","正上","右上",
+        "左中","居中","右中",
+        "左下","正下","右下"
+    };
+    return s;
+}
+
+AnchorPicker::AnchorPicker(QWidget* parent) : QWidget(parent) {
+    setFixedSize(63, 63);
+}
+
+void AnchorPicker::setAnchor(const QString& anchor) {
+    if (m_anchor != anchor) { m_anchor = anchor; update(); }
+}
+
+void AnchorPicker::paintEvent(QPaintEvent*) {
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    const int cell = 21;
+
+    p.fillRect(rect(), QColor(40, 40, 50));
+    p.setPen(QPen(QColor(70, 70, 90), 1));
+    p.drawRect(0, 0, width() - 1, height() - 1);
+    for (int i = 1; i < 3; ++i) {
+        p.drawLine(i * cell, 0, i * cell, height());
+        p.drawLine(0, i * cell, width(), i * cell);
+    }
+
+    const QStringList& order = anchorOrder();
+    for (int r = 0; r < 3; ++r) {
+        for (int c = 0; c < 3; ++c) {
+            const QString& name = order[r * 3 + c];
+            const QPointF center(c * cell + cell * 0.5, r * cell + cell * 0.5);
+            if (name == m_anchor) {
+                p.setPen(Qt::NoPen);
+                p.setBrush(QColor("#38bdf8"));
+                p.drawEllipse(center, 5.0, 5.0);
+            } else {
+                p.setPen(QPen(QColor(100, 100, 130), 1));
+                p.setBrush(QColor(55, 55, 70));
+                p.drawEllipse(center, 3.0, 3.0);
+            }
+        }
+    }
+}
+
+void AnchorPicker::mousePressEvent(QMouseEvent* e) {
+    const int cell = 21;
+    const int c = qBound(0, (int)(e->position().x() / cell), 2);
+    const int r = qBound(0, (int)(e->position().y() / cell), 2);
+    const QString newAnchor = anchorOrder()[r * 3 + c];
+    if (newAnchor != m_anchor) {
+        m_anchor = newAnchor;
+        update();
+        emit anchorChanged(m_anchor);
+    }
+}
 
 // ── UIEditorCanvas ────────────────────────────────────────────────────────
 
@@ -154,11 +217,144 @@ void UIEditorCanvas::paintEvent(QPaintEvent*) {
     for (int x = 0; x < width(); x += gs)  p.drawLine(x, 0, x, height());
     for (int y = 0; y < height(); y += gs)  p.drawLine(0, y, width(), y);
 
+    if (m_level)
+        drawScenePreview(p);
+
     if (m_doc) {
-        const QRectF screen(0, 0, width(), height());
+        const QRectF vp = getViewportRect();
         for (const UIWidget& w : m_doc->rootWidgets())
-            renderWidget(p, w, screen);
+            renderWidget(p, w, vp);
     }
+}
+
+QRectF UIEditorCanvas::getViewportRect() const {
+    float aspect = 1920.0f / 1080.0f;
+    if (m_level) {
+        for (const ActorData& a : m_level->sortedActors()) {
+            if (a.cameraIsMain && (a.bpClass == "builtin/Camera" || a.components.contains("摄像机组件"))) {
+                if (a.cameraResH > 0) aspect = (float)a.cameraResW / a.cameraResH;
+                break;
+            }
+        }
+    }
+    return computeCameraRect(aspect);
+}
+
+QRectF UIEditorCanvas::computeCameraRect(float aspect) const {
+    const float w = (float)width();
+    const float h = (float)height();
+    float camW, camH;
+    if (h > 0.0f && w / h > aspect) {
+        camH = h; camW = h * aspect;
+    } else {
+        camW = w; camH = (aspect > 0.0f) ? w / aspect : h;
+    }
+    return QRectF((w - camW) / 2.0f, (h - camH) / 2.0f, camW, camH);
+}
+
+QPointF UIEditorCanvas::cameraWorldToScreen(QPointF world, const QRectF& camRect, const ActorData& cam) const {
+    const float halfH  = cam.cameraSize;
+    const float aspect = cam.cameraResH > 0
+                         ? (float)cam.cameraResW / cam.cameraResH : 1.7778f;
+    const float halfW  = halfH * aspect;
+    const float scaleX = (float)camRect.width()  / (halfW * 2.0f);
+    const float scaleY = (float)camRect.height() / (halfH * 2.0f);
+    return QPointF(
+        camRect.center().x() + (world.x() - cam.x) * scaleX,
+        camRect.center().y() - (world.y() - cam.y) * scaleY
+    );
+}
+
+void UIEditorCanvas::drawScenePreview(QPainter& p) const {
+    const QList<ActorData>& actors = m_level->sortedActors();
+
+    const ActorData* cam = nullptr;
+    for (const ActorData& a : actors) {
+        if (a.cameraIsMain && (a.bpClass == "builtin/Camera" || a.components.contains("摄像机组件"))) {
+            cam = &a;
+            break;
+        }
+    }
+    if (!cam) return;
+
+    const float aspect = cam->cameraResH > 0
+                         ? (float)cam->cameraResW / cam->cameraResH : 1.7778f;
+    const QRectF camRect = computeCameraRect(aspect);
+    p.fillRect(camRect, cam->cameraBackground);
+
+    const float halfH  = cam->cameraSize;
+    const float halfW  = halfH * aspect;
+    const float scaleX = (float)camRect.width()  / (halfW * 2.0f);
+    const float scaleY = (float)camRect.height() / (halfH * 2.0f);
+    const float scale  = qMin(scaleX, scaleY);
+
+    p.save();
+    p.setClipRect(camRect);
+
+    for (const ActorData& a : actors) {
+        if (!a.active) continue;
+        if (a.bpClass == "builtin/Camera" || a.components.contains("摄像机组件")) continue;
+
+        const QPointF pos = cameraWorldToScreen({a.x, a.y}, camRect, *cam);
+
+        p.save();
+        if (a.rotation != 0.0f) {
+            p.translate(pos.x(), pos.y());
+            p.rotate(a.rotation);
+            p.translate(-pos.x(), -pos.y());
+        }
+
+        bool drewPixmap = false;
+        if (!a.spritePath.isEmpty()) {
+            if (!m_pixmapCache.contains(a.spritePath))
+                m_pixmapCache[a.spritePath] = QPixmap(a.spritePath);
+            const QPixmap& px = m_pixmapCache[a.spritePath];
+            if (!px.isNull()) {
+                const float szW = px.width()  / m_ppu * scale * qMax(0.05f, qAbs(a.scaleX));
+                const float szH = px.height() / m_ppu * scale * qMax(0.05f, qAbs(a.scaleY));
+                QRectF aRect(pos.x() - szW / 2.0f, pos.y() - szH / 2.0f, szW, szH);
+                p.save();
+                if (a.flipX || a.flipY) {
+                    QTransform t;
+                    t.translate(pos.x(), pos.y());
+                    t.scale(a.flipX ? -1.0 : 1.0, a.flipY ? -1.0 : 1.0);
+                    t.translate(-pos.x(), -pos.y());
+                    p.setTransform(t, true);
+                }
+                p.setOpacity(a.spriteColor.alphaF());
+                if (a.drawMode == "平铺")
+                    p.drawTiledPixmap(aRect.toRect(), px);
+                else
+                    p.drawPixmap(aRect.toRect(), px);
+                if (a.spriteColor.red() != 255 || a.spriteColor.green() != 255
+                        || a.spriteColor.blue() != 255) {
+                    p.setCompositionMode(QPainter::CompositionMode_SourceAtop);
+                    QColor tint = a.spriteColor; tint.setAlpha(100);
+                    p.fillRect(aRect, tint);
+                    p.setCompositionMode(QPainter::CompositionMode_SourceOver);
+                }
+                p.setOpacity(1.0);
+                p.restore();
+                drewPixmap = true;
+            }
+        }
+
+        if (!drewPixmap) {
+            const float szBase = qMax(24.0f, 40.0f * scale);
+            const float szW = szBase * qMax(0.05f, qAbs(a.scaleX));
+            const float szH = szBase * qMax(0.05f, qAbs(a.scaleY));
+            QRectF aRect(pos.x() - szW / 2.0f, pos.y() - szH / 2.0f, szW, szH);
+            const QColor fill = bpClassColor(a.bpClass);
+            p.setPen(QPen(fill.darker(160), 1.0));
+            p.setBrush(fill);
+            p.drawRect(aRect);
+        }
+
+        p.restore();
+    }
+
+    p.setClipping(false);
+    p.restore();
 }
 
 QString UIEditorCanvas::hitTest(QPointF pos, const QString& parentId, const QRectF& parentRect) const {
@@ -179,8 +375,8 @@ QString UIEditorCanvas::hitTest(QPointF pos, const QString& parentId, const QRec
 
 void UIEditorCanvas::mousePressEvent(QMouseEvent* e) {
     if (e->button() != Qt::LeftButton) return;
-    const QRectF screen(0, 0, width(), height());
-    const QString hit = hitTest(e->position(), {}, screen);
+    const QRectF vp = getViewportRect();
+    const QString hit = hitTest(e->position(), {}, vp);
     if (hit != m_selectedId) {
         m_selectedId = hit;
         if (onSelectionChanged) onSelectionChanged(hit);
@@ -189,15 +385,20 @@ void UIEditorCanvas::mousePressEvent(QMouseEvent* e) {
     if (!hit.isEmpty() && m_doc) {
         m_dragging = true;
         for (const UIWidget& w : m_doc->widgets()) {
-            if (w.id == hit) { m_dragOffset = e->position() - QPointF(w.x, w.y); break; }
+            if (w.id == hit) {
+                m_dragStart = e->position();
+                m_dragInitX = w.x;
+                m_dragInitY = w.y;
+                break;
+            }
         }
     }
 }
 
 void UIEditorCanvas::mouseMoveEvent(QMouseEvent* e) {
     if (!m_dragging || m_selectedId.isEmpty() || !m_doc) return;
-    const QPointF newPos = e->position() - m_dragOffset;
-    if (onWidgetMoved) onWidgetMoved(m_selectedId, (float)newPos.x(), (float)newPos.y());
+    const QPointF delta = e->position() - m_dragStart;
+    if (onWidgetMoved) onWidgetMoved(m_selectedId, m_dragInitX + (float)delta.x(), m_dragInitY + (float)delta.y());
     update();
 }
 
@@ -293,12 +494,37 @@ UIEditor::UIEditor(QWidget* parent) : QWidget(parent) {
     connect(m_tree, &QTreeWidget::currentItemChanged,
             this, &UIEditor::onTreeSelectionChanged);
 
-    connect(m_bgCombo, &QComboBox::currentTextChanged, this, [this](const QString& name) {
-        if (name == "关闭") {
-            m_canvas->setPreviewLevel(nullptr, m_ppu);
+    m_tree->setEditTriggers(QAbstractItemView::EditKeyPressed);
+    connect(m_tree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int) {
+        if (item) m_tree->editItem(item, 0);
+    });
+    connect(m_tree, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem* item, int) {
+        if (!m_doc) return;
+        const QString id = item->data(0, Qt::UserRole).toString();
+        if (id.isEmpty()) return;
+        const QString newName = item->text(0).trimmed();
+        if (newName.isEmpty()) {
+            for (const UIWidget& w : m_doc->widgets()) {
+                if (w.id == id) { QSignalBlocker b(m_tree); item->setText(0, w.name); break; }
+            }
+            return;
         }
-        // 其他关卡由 EditorWindow 统一处理，这里只刷新
-        m_canvas->update();
+        for (const UIWidget& w : m_doc->widgets()) {
+            if (w.id == id) {
+                if (w.name == newName) break;
+                UIWidget u = w; u.name = newName;
+                m_doc->updateWidget(u);
+                if (id == m_selectedId) rebuildPropsPanel(id);
+                emit documentModified();
+                break;
+            }
+        }
+    });
+
+    connect(m_bgCombo, &QComboBox::currentTextChanged, this, [this](const QString& name) {
+        if (name == "关闭")
+            m_canvas->setPreviewLevel(nullptr, m_ppu);
+        emit previewLevelChanged(name);
     });
 
     // 注册画布回调
@@ -370,6 +596,7 @@ void UIEditor::setAvailableLevels(const QStringList& levelNames) {
 }
 
 void UIEditor::rebuildTree() {
+    QSignalBlocker blocker(m_tree);
     m_tree->clear();
     if (!m_doc) return;
 
@@ -380,6 +607,7 @@ void UIEditor::rebuildTree() {
                 ? new QTreeWidgetItem(parent, {w.name})
                 : new QTreeWidgetItem(m_tree, {w.name});
             item->setData(0, Qt::UserRole, w.id);
+            item->setFlags(item->flags() | Qt::ItemIsEditable);
             addChildren(item, w.id);
         }
     };
@@ -387,6 +615,7 @@ void UIEditor::rebuildTree() {
     for (const UIWidget& w : m_doc->rootWidgets()) {
         auto* item = new QTreeWidgetItem(m_tree, {w.name});
         item->setData(0, Qt::UserRole, w.id);
+        item->setFlags(item->flags() | Qt::ItemIsEditable);
         addChildren(item, w.id);
     }
     m_tree->expandAll();
@@ -469,14 +698,13 @@ void UIEditor::rebuildPropsPanel(const QString& widgetId) {
         }
     });
 
-    auto* anchorCombo = new QComboBox;
-    anchorCombo->addItems({"左上","正上","右上","左中","居中","右中","左下","正下","右下"});
-    anchorCombo->setCurrentText(w.anchor);
-    addRow("锚点", anchorCombo);
-    connect(anchorCombo, &QComboBox::currentTextChanged, this, [this, widgetId](const QString& v) {
+    auto* anchorPicker = new AnchorPicker;
+    anchorPicker->setAnchor(w.anchor);
+    addRow("锚点", anchorPicker);
+    connect(anchorPicker, &AnchorPicker::anchorChanged, this, [this, widgetId](const QString& v) {
         if (!m_doc) return;
         for (const UIWidget& wi : m_doc->widgets()) {
-            if (wi.id == widgetId) { UIWidget u = wi; u.anchor = v; m_doc->updateWidget(u); emit documentModified(); break; }
+            if (wi.id == widgetId) { UIWidget u = wi; u.anchor = v; m_doc->updateWidget(u); m_canvas->update(); emit documentModified(); break; }
         }
     });
 

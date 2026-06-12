@@ -54,6 +54,33 @@ SceneOutliner::SceneOutliner(QWidget* parent) : QWidget(parent) {
     connect(m_search, &QLineEdit::textChanged, this, &SceneOutliner::onSearchChanged);
     connect(m_tree, &QTreeWidget::itemClicked, this, &SceneOutliner::onItemClicked);
     connect(m_tree, &QTreeWidget::customContextMenuRequested, this, &SceneOutliner::showContextMenu);
+
+    m_tree->setEditTriggers(QAbstractItemView::EditKeyPressed);
+    connect(m_tree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int) {
+        if (item && !item->data(0, Qt::UserRole).toString().isEmpty())
+            m_tree->editItem(item, 0);
+    });
+    connect(m_tree, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem* item, int col) {
+        if (col != 0 || !m_doc) return;
+        const QString id = item->data(0, Qt::UserRole).toString();
+        if (id.isEmpty()) return;
+        const QString newName = item->text(0).trimmed();
+        if (newName.isEmpty()) {
+            for (const ActorData& a : m_doc->actors()) {
+                if (a.id == id) { QSignalBlocker b(m_tree); item->setText(0, a.name); break; }
+            }
+            return;
+        }
+        for (ActorData a : m_doc->actors()) {
+            if (a.id == id) {
+                if (a.name == newName) break;
+                a.name = newName;
+                m_doc->updateActor(a);
+                emit levelChanged();
+                break;
+            }
+        }
+    });
 }
 
 // ── 加载 / 清空 ───────────────────────────────────────────────────────
@@ -71,6 +98,7 @@ void SceneOutliner::clear() {
 // ── 重建树 ────────────────────────────────────────────────────────────
 
 void SceneOutliner::rebuild() {
+    QSignalBlocker blocker(m_tree);
     m_tree->clear();
     if (!m_doc) return;
 
@@ -81,6 +109,7 @@ void SceneOutliner::rebuild() {
 
         auto* item = new QTreeWidgetItem(m_tree, QStringList{a.name, bpClassLabel(a.bpClass)});
         item->setData(0, Qt::UserRole, a.id);
+        item->setFlags(item->flags() | Qt::ItemIsEditable);
         m_tree->addTopLevelItem(item);
     }
 }
@@ -115,17 +144,8 @@ void SceneOutliner::showContextMenu(const QPoint& pos) {
     QMenu menu(this);
 
     if (isActor) {
-        menu.addAction("重命名", [this, id, item]() {
-            if (!m_doc) return;
-            bool ok = false;
-            QString newName = QInputDialog::getText(this, "重命名", "新名称：",
-                              QLineEdit::Normal, item->text(0), &ok);
-            if (!ok || newName.trimmed().isEmpty()) return;
-            for (ActorData a : m_doc->actors()) {
-                if (a.id == id) { a.name = newName.trimmed(); m_doc->updateActor(a); break; }
-            }
-            rebuild();
-            emit levelChanged();
+        menu.addAction("重命名", [this, item]() {
+            m_tree->editItem(item, 0);
         });
         menu.addAction("删除", [this, id]() {
             if (!m_doc) return;

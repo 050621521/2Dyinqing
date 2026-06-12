@@ -6,6 +6,49 @@ QWidget {
     font-size: 13px;
 }
 
+QLineEdit, QDoubleSpinBox, QSpinBox {
+    background-color: #2a2a2a;
+    color: #cccccc;
+    border: 1px solid #3a3a3a;
+    border-radius: 2px;
+    padding: 1px 4px;
+    selection-background-color: #0078d7;
+    selection-color: #ffffff;
+}
+QLineEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus {
+    border-color: #0078d7;
+}
+QLineEdit:disabled, QDoubleSpinBox:disabled, QSpinBox:disabled {
+    color: #666;
+    background-color: #222;
+}
+QDoubleSpinBox::up-button, QSpinBox::up-button,
+QDoubleSpinBox::down-button, QSpinBox::down-button {
+    background: #333;
+    border: none;
+    width: 14px;
+}
+QDoubleSpinBox::up-button:hover, QSpinBox::up-button:hover,
+QDoubleSpinBox::down-button:hover, QSpinBox::down-button:hover {
+    background: #444;
+}
+QComboBox {
+    background-color: #2a2a2a;
+    color: #cccccc;
+    border: 1px solid #3a3a3a;
+    border-radius: 2px;
+    padding: 1px 6px;
+}
+QComboBox:focus { border-color: #0078d7; }
+QComboBox::drop-down { border: none; width: 18px; }
+QComboBox QAbstractItemView {
+    background-color: #2a2a2a;
+    color: #cccccc;
+    border: 1px solid #3a3a3a;
+    selection-background-color: #0078d7;
+    selection-color: #ffffff;
+}
+
 QScrollBar:vertical {
     background: #222;
     width: 6px;
