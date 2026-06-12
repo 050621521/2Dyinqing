@@ -19,6 +19,7 @@ class BlueprintEditor;
 class BPRuntime;
 #include "ActorBPRuntime.h"
 #include "models/BPClass.h"
+class ContentBrowser;
 class LayoutManager;
 class DocTabBar;
 
@@ -87,6 +88,7 @@ private:
     ads::CDockWidget*  m_outlineDockW = nullptr;
     ads::CDockWidget*  m_detailsDockW = nullptr;
     ads::CDockWidget*  m_cbDockW      = nullptr;
+    ContentBrowser*    m_contentBrowser = nullptr;
 
     QStackedWidget* m_centralStack    = nullptr;
     QWidget*        m_viewportPage    = nullptr;

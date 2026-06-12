@@ -30,6 +30,7 @@ protected:
 
 signals:
     void actorModified(const ActorData& actor);
+    void editBpClassRequested(const QString& bpClass);
 
 private slots:
     void onAnyFieldChanged();
@@ -49,6 +50,7 @@ private:
 
     static QColor typeColor(const QString& type);
 
+    QPushButton*    m_editBpBtn   = nullptr;
     QLabel*         m_iconLabel   = nullptr;
     QCheckBox*      m_activeCheck = nullptr;
     QLineEdit*      m_nameEdit    = nullptr;

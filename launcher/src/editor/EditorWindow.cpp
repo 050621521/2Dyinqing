@@ -235,6 +235,8 @@ void EditorWindow::setupCentralArea() {
     // ── 细节（右下，与大纲同区域堆叠）──────────────────────────────
     m_detailsPanel = new DetailsPanel();
     m_detailsPanel->setProjectRoot(m_project.path);
+    connect(m_detailsPanel, &DetailsPanel::editBpClassRequested,
+            this, [this](const QString& bpClass) { openBpClassTab(bpClass); });
     m_detailsDockW = new ads::CDockWidget("细节");
     m_detailsDockW->setWidget(m_detailsPanel);
     m_dockManager->addDockWidget(
@@ -245,9 +247,12 @@ void EditorWindow::setupCentralArea() {
     auto* cbLay = new QVBoxLayout(cbContainer);
     cbLay->setContentsMargins(0, 0, 0, 0);
     cbLay->setSpacing(0);
-    auto* cb = new ContentBrowser(m_project.path, cbContainer);
+    m_contentBrowser = new ContentBrowser(m_project.path, cbContainer);
+    auto* cb = m_contentBrowser;
     connect(cb, &ContentBrowser::levelOpenRequested,
             this, [this](const QString& path) { openLevelTab(path); });
+    connect(cb, &ContentBrowser::bpClassOpenRequested,
+            this, [this](const QString& path) { openBpClassTab(path); });
     connect(cb, &ContentBrowser::saveAllRequested,
             this, &EditorWindow::saveAllLevels);
     connect(cb, &ContentBrowser::imageAssignRequested,

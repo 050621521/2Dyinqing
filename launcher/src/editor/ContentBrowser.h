@@ -20,6 +20,7 @@ signals:
     void levelFileDeleted(const QString& levelPath);
     void saveAllRequested();
     void imageAssignRequested(const QString& imagePath);
+    void bpClassOpenRequested(const QString& bpFilePath);
 
 private slots:
     void onFolderSelected(QTreeWidgetItem* item, int col);
@@ -37,6 +38,7 @@ private:
     bool createLevelFile(const QString& filePath);
     static QIcon makeFolderIcon();
     static QIcon makeLevelIcon();
+    static QIcon makeBpClassIcon();
     QIcon makeImageIcon(const QString& path);
 
     QString      m_projectRoot;

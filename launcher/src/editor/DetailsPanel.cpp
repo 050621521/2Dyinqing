@@ -159,6 +159,17 @@ void DetailsPanel::buildHeader(QVBoxLayout* root) {
     row2->addWidget(m_layerCombo, 1);
     vl->addLayout(row2);
 
+    // Row 3: 编辑蓝图按钮（仅在 bpClass 非 builtin 时显示）
+    m_editBpBtn = new QPushButton("编辑蓝图", headerWrap);
+    m_editBpBtn->setObjectName("editBpBtn");
+    m_editBpBtn->setFixedHeight(22);
+    m_editBpBtn->setVisible(false);
+    connect(m_editBpBtn, &QPushButton::clicked, this, [this]() {
+        if (!m_currentActor.bpClass.isEmpty() && !m_currentActor.bpClass.startsWith("builtin/"))
+            emit editBpClassRequested(m_currentActor.bpClass);
+    });
+    vl->addWidget(m_editBpBtn);
+
     root->addWidget(headerWrap);
 
     auto* sep = new QFrame;
@@ -406,6 +417,8 @@ void DetailsPanel::showActor(const ActorData& actor) {
     m_confinerMaxXSpin->setValue(actor.confinerMaxX);
     m_confinerMinYSpin->setValue(actor.confinerMinY);
     m_confinerMaxYSpin->setValue(actor.confinerMaxY);
+
+    m_editBpBtn->setVisible(!actor.bpClass.isEmpty() && !actor.bpClass.startsWith("builtin/"));
 
     refreshComponentList();
     m_stack->setCurrentIndex(1);  // 显示 Inspector 内容

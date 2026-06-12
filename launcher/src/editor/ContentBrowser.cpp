@@ -1,4 +1,5 @@
 #include "ContentBrowser.h"
+#include "models/BPClass.h"
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QTreeWidget>
@@ -216,6 +217,25 @@ QIcon ContentBrowser::makeLevelIcon() {
     return icon;
 }
 
+QIcon ContentBrowser::makeBpClassIcon() {
+    static QIcon icon;
+    if (!icon.isNull()) return icon;
+
+    QPixmap px(64, 64);
+    px.fill(Qt::transparent);
+    QPainter p(&px);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setBrush(QColor(100, 60, 160));
+    p.setPen(Qt::NoPen);
+    p.drawRoundedRect(8, 8, 48, 48, 8, 8);
+    p.setPen(Qt::white);
+    QFont f; f.setPixelSize(18); f.setBold(true);
+    p.setFont(f);
+    p.drawText(px.rect(), Qt::AlignCenter, "BP");
+    icon = QIcon(px);
+    return icon;
+}
+
 // ── 目录树 ────────────────────────────────────────────────────────────
 
 void ContentBrowser::buildFolderTree() {
@@ -267,6 +287,13 @@ void ContentBrowser::populateFolder(const QString& absPath) {
         m_currentTypes   << "level";
     }
 
+    // .bp 蓝图类文件
+    const QStringList bpFiles = dir.entryList({"*.bp"}, QDir::Files, QDir::Name);
+    for (const QString& bp : bpFiles) {
+        m_currentEntries << bp;
+        m_currentTypes   << "bp";
+    }
+
     // 图片文件
     const QStringList imgExts = {"*.png", "*.jpg", "*.jpeg", "*.bmp", "*.svg", "*.webp"};
     const QStringList images = dir.entryList(imgExts, QDir::Files, QDir::Name);
@@ -291,13 +318,14 @@ void ContentBrowser::onSearchChanged(const QString& text) {
             continue;
 
         const QString absPath = m_currentPath + "/" + name;
-        const QString label   = (type == "level")
+        const QString label   = (type == "level" || type == "bp")
             ? QFileInfo(name).baseName()
             : name;
 
         auto* item = new QListWidgetItem(label, m_assetGrid);
         if      (type == "dir")   item->setIcon(makeFolderIcon());
         else if (type == "level") item->setIcon(makeLevelIcon());
+        else if (type == "bp")    item->setIcon(makeBpClassIcon());
         else if (type == "image") item->setIcon(makeImageIcon(absPath));
         item->setData(Qt::UserRole,     type);
         item->setData(Qt::UserRole + 1, absPath);
@@ -332,6 +360,8 @@ void ContentBrowser::onGridItemDoubleClicked(QListWidgetItem* item) {
         }
     } else if (type == "level") {
         emit levelOpenRequested(path);
+    } else if (type == "bp") {
+        emit bpClassOpenRequested(path);
     } else if (type == "image") {
         emit imageAssignRequested(path);
     }
@@ -488,6 +518,20 @@ void ContentBrowser::showGridContextMenu(const QPoint& pos) {
         });
         menu.addSeparator();
         menu.addAction("新建关卡", this, &ContentBrowser::onNewLevel);
+        menu.addAction("新建蓝图类", this, [this]() {
+            bool ok;
+            const QString name = QInputDialog::getText(this, "新建蓝图类", "蓝图类名称：",
+                                                        QLineEdit::Normal, "NewBlueprint", &ok);
+            if (!ok || name.trimmed().isEmpty()) return;
+            const QString dir = m_projectRoot + "/Blueprints";
+            QDir().mkpath(dir);
+            const QString path = dir + "/" + name.trimmed() + ".bp";
+            BPClass bc;
+            bc.name     = name.trimmed();
+            bc.filePath = path;
+            bc.save();
+            populateFolder(m_currentPath);
+        });
         menu.addAction("新建文件夹", this, &ContentBrowser::onNewFolder);
     }
 
