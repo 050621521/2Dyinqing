@@ -142,16 +142,19 @@ private:
 
 ```
 EditorWindow::startRuntime()
-  ├── 创建 LevelBPRuntime（关卡蓝图，不变）
-  └── 遍历所有 Actor：
-        if bpClass.hasNodes() → 创建 ActorBPRuntime(bpClass, &actor, &allActors)
+  ├── 创建 LevelBPRuntime（关卡蓝图，不变，内部有自己的 QTimer）
+  ├── 遍历所有 Actor：
+  │     if bpClass.hasNodes() → 创建 ActorBPRuntime(bpClass, &actor, &allActors)
+  └── 创建共享 QTimer（16ms），连接到 EditorWindow::onRuntimeTick()
 
-每帧（16ms timer）：
-  1. LevelBPRuntime::tick()
-  2. for each ActorBPRuntime: tick(dt)
+EditorWindow::onRuntimeTick()：
+  1. LevelBPRuntime::triggerTick(dt)
+  2. for each ActorBPRuntime: triggerTick(dt)
   3. tickComponents(dt)          ← 跟随控制/边界限制等（不变）
   4. emit stateChanged()
 ```
+
+**指针安全**：`ActorBPRuntime::m_self` 指向运行时 Actor 列表中的元素。运行期间不允许增删 Actor，列表只读，指针始终有效（与现有 `BPRuntime::m_actors` 约束一致）。
 
 ### 没有节点的 Actor
 
