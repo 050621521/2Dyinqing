@@ -596,6 +596,17 @@ void EditorWindow::onTabChanged(int index) {
         return;
     }
 
+    // .bp 蓝图类 Tab
+    if (path.endsWith(".bp")) {
+        if (m_centralStack->indexOf(m_bpWrapper) < 0)
+            m_centralStack->addWidget(m_bpWrapper);
+        m_centralStack->setCurrentWidget(m_bpWrapper);
+        BPClass* bc = m_openBpClasses.value(path, nullptr);
+        if (bc && m_blueprintEditor)
+            m_blueprintEditor->loadBpClass(bc);
+        return;
+    }
+
     // 切换到视口
     if (m_centralStack) m_centralStack->setCurrentWidget(m_viewportPage);
 
@@ -696,6 +707,21 @@ void EditorWindow::onTabClosed(int index) {
     if (path == DocTabBar::kBlueprintTabData) {
         m_docTabBar->removeTab(index);
         if (m_centralStack) m_centralStack->setCurrentWidget(m_viewportPage);
+        return;
+    }
+
+    // .bp 蓝图类 Tab
+    if (path.endsWith(".bp")) {
+        // 保存：若当前显示的正是该 bp，通知编辑器保存
+        if (m_blueprintEditor && m_docTabBar->currentIndex() == index)
+            m_blueprintEditor->saveBpClass();
+        // 释放内存
+        if (m_openBpClasses.contains(path))
+            delete m_openBpClasses.take(path);
+        m_docTabBar->removeTab(index);
+        // 若没有其他 Tab，回到视口
+        if (m_docTabBar->count() == 0 && m_centralStack)
+            m_centralStack->setCurrentWidget(m_viewportPage);
         return;
     }
 
@@ -977,8 +1003,31 @@ void EditorWindow::floatBlueprint(QPoint globalPos) {
 }
 
 void EditorWindow::openBpClassTab(const QString& bpFilePath) {
-    Q_UNUSED(bpFilePath)
-    // fully implemented in Task 7
+    // 已打开 → 激活
+    for (int i = 0; i < m_docTabBar->count(); ++i) {
+        if (m_docTabBar->tabData(i).toString() == bpFilePath) {
+            m_docTabBar->setCurrentIndex(i);
+            return;
+        }
+    }
+
+    // 加载或复用 BPClass
+    if (!m_openBpClasses.contains(bpFilePath)) {
+        auto* bc = new BPClass(BPClass::load(bpFilePath));
+        m_openBpClasses[bpFilePath] = bc;
+    }
+
+    // 添加 Tab（阻断信号，等 tabData 设好再触发 onTabChanged）
+    int idx;
+    {
+        QSignalBlocker b(m_docTabBar);
+        idx = m_docTabBar->addTab("  " + QFileInfo(bpFilePath).baseName());
+        m_docTabBar->setTabData(idx, bpFilePath);
+    }
+    if (m_docTabBar->currentIndex() == idx)
+        onTabChanged(idx);
+    else
+        m_docTabBar->setCurrentIndex(idx);
 }
 
 void EditorWindow::embedBlueprint() {
