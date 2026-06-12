@@ -715,9 +715,8 @@ void EditorWindow::onTabClosed(int index) {
         // 保存：若当前显示的正是该 bp，通知编辑器保存
         if (m_blueprintEditor && m_docTabBar->currentIndex() == index)
             m_blueprintEditor->saveBpClass();
-        // 释放内存
-        if (m_openBpClasses.contains(path))
-            delete m_openBpClasses.take(path);
+        // 不立即释放 m_openBpClasses 中的 BPClass —— ActorBPRuntime 可能仍在引用它。
+        // BPClass 对象在 closeEvent() 中通过 qDeleteAll(m_openBpClasses) 统一释放。
         m_docTabBar->removeTab(index);
         // 若没有其他 Tab，回到视口
         if (m_docTabBar->count() == 0 && m_centralStack)
