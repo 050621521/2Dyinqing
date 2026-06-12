@@ -163,7 +163,9 @@ void UIEditorCanvas::paintEvent(QPaintEvent*) {
 
 QString UIEditorCanvas::hitTest(QPointF pos, const QString& parentId, const QRectF& parentRect) const {
     if (!m_doc) return {};
-    const QList<UIWidget> children = m_doc->childrenOf(parentId);
+    const QList<UIWidget> children = parentId.isEmpty()
+        ? m_doc->rootWidgets()
+        : m_doc->childrenOf(parentId);
     for (int i = children.size() - 1; i >= 0; --i) {
         const UIWidget& w = children[i];
         const QRectF r = widgetScreenRect(w, parentRect);
@@ -458,6 +460,7 @@ void UIEditor::rebuildPropsPanel(const QString& widgetId) {
     auto* nameEdit = new QLineEdit(w.name);
     addRow("名称", nameEdit);
     connect(nameEdit, &QLineEdit::editingFinished, this, [this, widgetId, nameEdit]() {
+        if (!m_doc) return;
         for (const UIWidget& wi : m_doc->widgets()) {
             if (wi.id == widgetId) {
                 UIWidget u = wi; u.name = nameEdit->text();
@@ -471,6 +474,7 @@ void UIEditor::rebuildPropsPanel(const QString& widgetId) {
     anchorCombo->setCurrentText(w.anchor);
     addRow("锚点", anchorCombo);
     connect(anchorCombo, &QComboBox::currentTextChanged, this, [this, widgetId](const QString& v) {
+        if (!m_doc) return;
         for (const UIWidget& wi : m_doc->widgets()) {
             if (wi.id == widgetId) { UIWidget u = wi; u.anchor = v; m_doc->updateWidget(u); emit documentModified(); break; }
         }
@@ -487,6 +491,7 @@ void UIEditor::rebuildPropsPanel(const QString& widgetId) {
     auto* hSb = makeFloat(w.height); addRow("高度", hSb);
 
     auto updateLayout = [this, widgetId, xSb, ySb, wSb, hSb]() {
+        if (!m_doc) return;
         for (const UIWidget& wi : m_doc->widgets()) {
             if (wi.id == widgetId) {
                 UIWidget u = wi;
@@ -505,6 +510,7 @@ void UIEditor::rebuildPropsPanel(const QString& widgetId) {
     visCheck->setChecked(w.visible);
     lay->addWidget(visCheck);
     connect(visCheck, &QCheckBox::toggled, this, [this, widgetId](bool v) {
+        if (!m_doc) return;
         for (const UIWidget& wi : m_doc->widgets()) {
             if (wi.id == widgetId) { UIWidget u = wi; u.visible = v; m_doc->updateWidget(u); m_canvas->update(); emit documentModified(); break; }
         }
@@ -514,6 +520,7 @@ void UIEditor::rebuildPropsPanel(const QString& widgetId) {
         auto* te = new QLineEdit(w.text);
         addRow("文本", te);
         connect(te, &QLineEdit::editingFinished, this, [this, widgetId, te]() {
+            if (!m_doc) return;
             for (const UIWidget& wi : m_doc->widgets()) {
                 if (wi.id == widgetId) { UIWidget u = wi; u.text = te->text(); m_doc->updateWidget(u); m_canvas->update(); emit documentModified(); break; }
             }
@@ -524,6 +531,7 @@ void UIEditor::rebuildPropsPanel(const QString& widgetId) {
         valSb->setRange(0, 1); valSb->setSingleStep(0.05); valSb->setValue(w.value);
         addRow("数值", valSb);
         connect(valSb, &QDoubleSpinBox::editingFinished, this, [this, widgetId, valSb]() {
+            if (!m_doc) return;
             for (const UIWidget& wi : m_doc->widgets()) {
                 if (wi.id == widgetId) { UIWidget u = wi; u.value = (float)valSb->value(); m_doc->updateWidget(u); m_canvas->update(); emit documentModified(); break; }
             }
@@ -533,6 +541,7 @@ void UIEditor::rebuildPropsPanel(const QString& widgetId) {
         auto* colSb = new QSpinBox; colSb->setRange(1, 20); colSb->setValue(w.columns);
         addRow("列数", colSb);
         connect(colSb, &QSpinBox::editingFinished, this, [this, widgetId, colSb]() {
+            if (!m_doc) return;
             for (const UIWidget& wi : m_doc->widgets()) {
                 if (wi.id == widgetId) { UIWidget u = wi; u.columns = colSb->value(); m_doc->updateWidget(u); m_canvas->update(); emit documentModified(); break; }
             }
