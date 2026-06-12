@@ -44,6 +44,7 @@ inline QStringList defaultComponentsForBpClass(const QString& bpClass) {
 }
 
 inline QString bpClassLabel(const QString& bpClass) {
+    if (bpClass.isEmpty()) return "(未知)";
     if (!bpClass.startsWith("builtin/")) return QFileInfo(bpClass).baseName();
     return typeLabel(bpClassToTypeName(bpClass));
 }
