@@ -1,5 +1,6 @@
 #pragma once
 #include "models/LevelDocument.h"
+#include "models/BPClass.h"
 #include <QWidget>
 #include <QColor>
 #include <QPointF>
@@ -16,9 +17,12 @@ class BlueprintEditor : public QWidget {
 public:
     explicit BlueprintEditor(QWidget* parent = nullptr);
     void loadLevel(LevelDocument* doc);
+    void loadBpClass(BPClass* bpClass);
+    void saveBpClass();
 
 signals:
     void documentModified();
+    void bpClassModified();
 
 protected:
     void paintEvent(QPaintEvent* e) override;
@@ -78,7 +82,13 @@ private:
     QString  m_paramEditNodeId;
     QString  m_paramEditPinKey;
 
-    LevelDocument* m_doc = nullptr;
+    LevelDocument* m_doc     = nullptr;
+    BPClass*       m_bpClass = nullptr;
+
+    const QList<BPNode>&       activeNodes() const;
+    const QList<BPConnection>& activeConns() const;
+    void notifyModified();
+    bool isSelfNodeVisible(const QString& typeId) const;
 
     // 几何常量（画布单位）
     static constexpr float kNodeW   = 160.0f;

@@ -18,6 +18,30 @@
 #include <QListWidget>
 #include <QTimer>
 
+// ── bpClass/doc 统一读写辅助 ─────────────────────────────────────────
+
+static void addNodeToActive(BPClass* bc, LevelDocument* doc, const BPNode& node) {
+    if (bc) bc->nodes.append(node);
+    else if (doc) doc->addBPNode(node);
+}
+static void removeNodeFromActive(BPClass* bc, LevelDocument* doc, const QString& id) {
+    if (bc) bc->nodes.removeIf([&](const BPNode& n){ return n.id == id; });
+    else if (doc) doc->removeBPNode(id);
+}
+static void updateNodeInActive(BPClass* bc, LevelDocument* doc, const BPNode& node) {
+    if (bc) {
+        for (BPNode& n : bc->nodes) if (n.id == node.id) { n = node; return; }
+    } else if (doc) doc->updateBPNode(node);
+}
+static void addConnToActive(BPClass* bc, LevelDocument* doc, const BPConnection& conn) {
+    if (bc) bc->connections.append(conn);
+    else if (doc) doc->addBPConnection(conn);
+}
+static void removeConnFromActive(BPClass* bc, LevelDocument* doc, const QString& id) {
+    if (bc) bc->connections.removeIf([&](const BPConnection& c){ return c.id == id; });
+    else if (doc) doc->removeBPConnection(id);
+}
+
 // ── 节点类型注册 ──────────────────────────────────────────────────────
 
 const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
@@ -84,6 +108,76 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
             {
                 {"actorId", "对象ID", false, true}
             }
+        },
+        // ── Self 变换（所有 Actor）──────────────────────────────────────
+        {
+            "Self.GetPosition", "获取自身位置", QColor("#1a4a4a"),
+            {{"x","X",false,true},{"y","Y",false,true}}
+        },
+        {
+            "Self.SetPosition", "设置自身位置", QColor("#1a4a4a"),
+            {{"exec_in","exec",true,false},{"exec_out","exec",true,true},
+             {"x","X",false,false},{"y","Y",false,false}}
+        },
+        {
+            "Self.GetRotation", "获取自身旋转", QColor("#1a4a4a"),
+            {{"angle","角度",false,true}}
+        },
+        {
+            "Self.SetRotation", "设置自身旋转", QColor("#1a4a4a"),
+            {{"exec_in","exec",true,false},{"exec_out","exec",true,true},
+             {"angle","角度",false,false}}
+        },
+        {
+            "Self.IsActive", "获取激活状态", QColor("#1a4a4a"),
+            {{"active","激活",false,true}}
+        },
+        {
+            "Self.SetActive", "设置激活状态", QColor("#1a4a4a"),
+            {{"exec_in","exec",true,false},{"exec_out","exec",true,true},
+             {"active","激活",false,false}}
+        },
+        {
+            "Self.GetName", "获取自身名称", QColor("#1a4a4a"),
+            {{"name","名称",false,true}}
+        },
+        // ── Self 精灵渲染器 ─────────────────────────────────────────────
+        {
+            "Self.Sprite.SetImage", "设置精灵图片", QColor("#2a4a1a"),
+            {{"exec_in","exec",true,false},{"exec_out","exec",true,true},
+             {"path","路径",false,false}}
+        },
+        {
+            "Self.Sprite.SetColor", "设置精灵颜色", QColor("#2a4a1a"),
+            {{"exec_in","exec",true,false},{"exec_out","exec",true,true},
+             {"r","R",false,false},{"g","G",false,false},
+             {"b","B",false,false},{"a","A",false,false}}
+        },
+        {
+            "Self.Sprite.SetFlipX", "水平翻转", QColor("#2a4a1a"),
+            {{"exec_in","exec",true,false},{"exec_out","exec",true,true},
+             {"flip","翻转",false,false}}
+        },
+        {
+            "Self.Sprite.SetFlipY", "垂直翻转", QColor("#2a4a1a"),
+            {{"exec_in","exec",true,false},{"exec_out","exec",true,true},
+             {"flip","翻转",false,false}}
+        },
+        {
+            "Self.Sprite.SetVisible", "设置精灵可见", QColor("#2a4a1a"),
+            {{"exec_in","exec",true,false},{"exec_out","exec",true,true},
+             {"visible","可见",false,false}}
+        },
+        // ── Self 摄像机 ─────────────────────────────────────────────────
+        {
+            "Self.Camera.SetSize", "设置摄像机尺寸", QColor("#1a2a4a"),
+            {{"exec_in","exec",true,false},{"exec_out","exec",true,true},
+             {"size","尺寸",false,false}}
+        },
+        {
+            "Self.Camera.SetBackground", "设置背景色", QColor("#1a2a4a"),
+            {{"exec_in","exec",true,false},{"exec_out","exec",true,true},
+             {"r","R",false,false},{"g","G",false,false},{"b","B",false,false}}
         }
     };
     return defs;
@@ -159,15 +253,13 @@ QPointF BlueprintEditor::pinCenter(const BPNode& node, const QString& pinKey, bo
 // ── 辅助查询 ──────────────────────────────────────────────────────────
 
 const BPNode* BlueprintEditor::findNode(const QString& id) const {
-    if (!m_doc) return nullptr;
-    for (const BPNode& n : m_doc->bpNodes())
+    for (const BPNode& n : activeNodes())
         if (n.id == id) return &n;
     return nullptr;
 }
 
 bool BlueprintEditor::isPinConnected(const QString& nodeId, const QString& pinKey, bool isOutput) const {
-    if (!m_doc) return false;
-    for (const BPConnection& c : m_doc->bpConnections()) {
+    for (const BPConnection& c : activeConns()) {
         if (isOutput  && c.fromNode == nodeId && c.fromPin == pinKey) return true;
         if (!isOutput && c.toNode   == nodeId && c.toPin   == pinKey) return true;
     }
@@ -185,9 +277,9 @@ bool BlueprintEditor::isPinExec(const QString& typeId, const QString& pinKey, bo
 // ── 命中检测 ──────────────────────────────────────────────────────────
 
 BlueprintEditor::Hit BlueprintEditor::hitTest(QPointF screenPos) const {
-    if (!m_doc) return {};
+    if (!m_doc && !m_bpClass) return {};
     // 逆序遍历（后添加的在最上层）
-    const auto& nodes = m_doc->bpNodes();
+    const auto& nodes = activeNodes();
     for (int i = nodes.size() - 1; i >= 0; --i) {
         const BPNode& node = nodes[i];
         const NodeDef* def = findNodeDef(node.type);
@@ -211,8 +303,9 @@ BlueprintEditor::Hit BlueprintEditor::hitTest(QPointF screenPos) const {
         }
     }
     // PinValue 命中：ActorRef 选择器 + 普通数据输入引脚值区域
-    for (int i = nodes.size() - 1; i >= 0; --i) {
-        const BPNode& node = nodes[i];
+    const auto& nodes2 = activeNodes();
+    for (int i = nodes2.size() - 1; i >= 0; --i) {
+        const BPNode& node = nodes2[i];
         const NodeDef* def = findNodeDef(node.type);
         if (!def) continue;
         QPointF tl = canvasToScreen({node.x, node.y});
@@ -319,8 +412,8 @@ void BlueprintEditor::drawBezier(QPainter& p, QPointF from, QPointF to, bool isE
 }
 
 void BlueprintEditor::drawConnections(QPainter& p) {
-    if (!m_doc) return;
-    for (const BPConnection& conn : m_doc->bpConnections()) {
+    if (!m_doc && !m_bpClass) return;
+    for (const BPConnection& conn : activeConns()) {
         const BPNode* fromNode = findNode(conn.fromNode);
         const BPNode* toNode   = findNode(conn.toNode);
         if (!fromNode || !toNode) continue;
@@ -407,7 +500,7 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
         QString actorName = "(点击选择对象)";
         QString actorId = node.params.value("actorId");
         bool hasActor = !actorId.isEmpty();
-        if (hasActor && m_doc) {
+        if (hasActor && m_doc && !m_bpClass) {
             for (const ActorData& a : m_doc->actors())
                 if (a.id == actorId) { actorName = a.name; break; }
         }
@@ -472,8 +565,8 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
 }
 
 void BlueprintEditor::drawNodes(QPainter& p) {
-    if (!m_doc) return;
-    for (const BPNode& node : m_doc->bpNodes())
+    if (!m_doc && !m_bpClass) return;
+    for (const BPNode& node : activeNodes())
         drawNode(p, node);
 }
 
@@ -566,9 +659,9 @@ void BlueprintEditor::mousePressEvent(QMouseEvent* e) {
             m_wireCursorPos     = screenToCanvas(e->position());
         } else {
             // 从输入 pin 开始：若已有连接，断开旧连接并从旧的输出端开始拖拽
-            if (!m_doc) return;
+            if (!m_doc && !m_bpClass) return;
             QString oldConnId, oldFromNode, oldFromPin;
-            for (const BPConnection& c : m_doc->bpConnections()) {
+            for (const BPConnection& c : activeConns()) {
                 if (c.toNode == hit.nodeId && c.toPin == hit.pinName) {
                     oldConnId   = c.id;
                     oldFromNode = c.fromNode;
@@ -577,8 +670,8 @@ void BlueprintEditor::mousePressEvent(QMouseEvent* e) {
                 }
             }
             if (!oldConnId.isEmpty()) {
-                m_doc->removeBPConnection(oldConnId);
-                emit documentModified();
+                removeConnFromActive(m_bpClass, m_doc, oldConnId);
+                notifyModified();
                 m_dragState        = DragState::DraggingWire;
                 m_wireFromNode     = oldFromNode;
                 m_wireFromPin      = oldFromPin;
@@ -620,14 +713,24 @@ void BlueprintEditor::mouseMoveEvent(QMouseEvent* e) {
         update();
         return;
     }
-    if (m_dragState == DragState::DraggingNode && m_doc) {
+    if (m_dragState == DragState::DraggingNode && (m_doc || m_bpClass)) {
         QPointF canvasPos = screenToCanvas(e->position()) - m_dragOffset;
         // 直接修改节点坐标（临时，不标脏）
-        for (BPNode& n : const_cast<QList<BPNode>&>(m_doc->bpNodes())) {
-            if (n.id == m_draggingNodeId) {
-                n.x = (float)canvasPos.x();
-                n.y = (float)canvasPos.y();
-                break;
+        if (m_bpClass) {
+            for (BPNode& n : m_bpClass->nodes) {
+                if (n.id == m_draggingNodeId) {
+                    n.x = (float)canvasPos.x();
+                    n.y = (float)canvasPos.y();
+                    break;
+                }
+            }
+        } else if (m_doc) {
+            for (BPNode& n : const_cast<QList<BPNode>&>(m_doc->bpNodes())) {
+                if (n.id == m_draggingNodeId) {
+                    n.x = (float)canvasPos.x();
+                    n.y = (float)canvasPos.y();
+                    break;
+                }
             }
         }
         update();
@@ -647,12 +750,12 @@ void BlueprintEditor::mouseReleaseEvent(QMouseEvent* e) {
     }
     if (e->button() != Qt::LeftButton) return;
 
-    if (m_dragState == DragState::DraggingNode && m_doc) {
+    if (m_dragState == DragState::DraggingNode && (m_doc || m_bpClass)) {
         // 正式提交节点位置
         const BPNode* n = findNode(m_draggingNodeId);
         if (n) {
-            m_doc->updateBPNode(*n);
-            emit documentModified();
+            updateNodeInActive(m_bpClass, m_doc, *n);
+            notifyModified();
         }
         m_dragState = DragState::None;
         m_draggingNodeId.clear();
@@ -660,7 +763,7 @@ void BlueprintEditor::mouseReleaseEvent(QMouseEvent* e) {
         return;
     }
 
-    if (m_dragState == DragState::DraggingWire && m_doc) {
+    if (m_dragState == DragState::DraggingWire && (m_doc || m_bpClass)) {
         Hit hit = hitTest(e->position());
         if (hit.type == Hit::Pin && hit.nodeId != m_wireFromNode
             && hit.pinIsOutput != m_wireFromIsOutput)
@@ -683,9 +786,9 @@ void BlueprintEditor::mouseReleaseEvent(QMouseEvent* e) {
 
             if (typeOk) {
                 // 若目标输入 pin 已有连接，先删除
-                for (const BPConnection& c : m_doc->bpConnections()) {
+                for (const BPConnection& c : activeConns()) {
                     if (c.toNode == toNode && c.toPin == toPin) {
-                        m_doc->removeBPConnection(c.id);
+                        removeConnFromActive(m_bpClass, m_doc, c.id);
                         break;
                     }
                 }
@@ -695,8 +798,8 @@ void BlueprintEditor::mouseReleaseEvent(QMouseEvent* e) {
                 conn.fromPin  = fromPin;
                 conn.toNode   = toNode;
                 conn.toPin    = toPin;
-                m_doc->addBPConnection(conn);
-                emit documentModified();
+                addConnToActive(m_bpClass, m_doc, conn);
+                notifyModified();
             }
             m_dragState = DragState::None;
             update();
@@ -721,17 +824,17 @@ void BlueprintEditor::mouseReleaseEvent(QMouseEvent* e) {
 
 void BlueprintEditor::keyPressEvent(QKeyEvent* e) {
     if ((e->key() == Qt::Key_Delete || e->key() == Qt::Key_Backspace)
-        && !m_selectedNodeId.isEmpty() && m_doc) {
+        && !m_selectedNodeId.isEmpty() && (m_doc || m_bpClass)) {
         // 先删除所有关联连接
         QStringList toRemove;
-        for (const BPConnection& c : m_doc->bpConnections())
+        for (const BPConnection& c : activeConns())
             if (c.fromNode == m_selectedNodeId || c.toNode == m_selectedNodeId)
                 toRemove.append(c.id);
         for (const QString& id : toRemove)
-            m_doc->removeBPConnection(id);
-        m_doc->removeBPNode(m_selectedNodeId);
+            removeConnFromActive(m_bpClass, m_doc, id);
+        removeNodeFromActive(m_bpClass, m_doc, m_selectedNodeId);
         m_selectedNodeId.clear();
-        emit documentModified();
+        notifyModified();
         update();
     }
 }
@@ -739,7 +842,7 @@ void BlueprintEditor::keyPressEvent(QKeyEvent* e) {
 // ── 右键菜单 ──────────────────────────────────────────────────────────
 
 void BlueprintEditor::contextMenuEvent(QContextMenuEvent* e) {
-    if (!m_doc) return;
+    if (!m_doc && !m_bpClass) return;
     QPointF canvasPos = screenToCanvas(e->pos());
 
     QMenu menu(this);
@@ -747,22 +850,25 @@ void BlueprintEditor::contextMenuEvent(QContextMenuEvent* e) {
     auto* actionMenu = menu.addMenu("动作");
     auto* flowMenu   = menu.addMenu("流程控制");
     auto* varMenu    = menu.addMenu("变量");
+    auto* selfMenu   = menu.addMenu("Self");
 
     for (const NodeDef& def : nodeDefs()) {
+        if (!isSelfNodeVisible(def.typeId)) continue;
         QMenu* target = def.typeId.startsWith("Event.")  ? eventMenu  :
                         def.typeId.startsWith("Action.") ? actionMenu :
-                        def.typeId.startsWith("Flow.")   ? flowMenu   : varMenu;
+                        def.typeId.startsWith("Flow.")   ? flowMenu   :
+                        def.typeId.startsWith("Self.")   ? selfMenu   : varMenu;
         const QString typeId = def.typeId;
         target->addAction(def.displayName, [this, typeId, canvasPos]() {
-            if (!m_doc) return;
+            if (!m_doc && !m_bpClass) return;
             BPNode node;
             node.id   = QUuid::createUuid().toString(QUuid::WithoutBraces);
             node.type = typeId;
             node.x    = (float)canvasPos.x();
             node.y    = (float)canvasPos.y();
-            m_doc->addBPNode(node);
+            addNodeToActive(m_bpClass, m_doc, node);
             m_selectedNodeId = node.id;
-            emit documentModified();
+            notifyModified();
             update();
         });
     }
@@ -886,6 +992,9 @@ void BlueprintEditor::showWireDropPopup(QPoint screenPos) {
     };
 
     for (const NodeDef& def : nodeDefs()) {
+        // 过滤不适用于当前上下文的 Self 节点
+        if (!isSelfNodeVisible(def.typeId)) continue;
+
         QString compatPin;
         for (const PinDef& pd : def.pins) {
             // 兼容条件：pin 方向相对于新节点；类型相同
@@ -899,7 +1008,8 @@ void BlueprintEditor::showWireDropPopup(QPoint screenPos) {
 
         QString catName = def.typeId.startsWith("Event.")  ? "事件"    :
                           def.typeId.startsWith("Action.") ? "动作"    :
-                          def.typeId.startsWith("Flow.")   ? "流程控制" : "变量";
+                          def.typeId.startsWith("Flow.")   ? "流程控制" :
+                          def.typeId.startsWith("Self.")   ? "Self"    : "变量";
         auto* ci  = getCat(catName);
         auto* ni  = new QTreeWidgetItem(ci, {def.displayName});
         ni->setData(0, Qt::UserRole,     def.typeId);
@@ -962,7 +1072,7 @@ void BlueprintEditor::hideWireDropPopup() {
 
 void BlueprintEditor::onWireDropSelected(const QString& typeId, const QString& compatPin) {
     // 防止 itemActivated + itemClicked 在同一次操作中重复触发
-    if (!m_doc || m_wireFromNode.isEmpty()) { hideWireDropPopup(); return; }
+    if ((!m_doc && !m_bpClass) || m_wireFromNode.isEmpty()) { hideWireDropPopup(); return; }
 
     // 立即占住 wire 来源，防止任何重入再次进入此函数
     const QString fromNode        = m_wireFromNode;
@@ -976,7 +1086,7 @@ void BlueprintEditor::onWireDropSelected(const QString& typeId, const QString& c
     node.type = typeId;
     node.x    = (float)m_wireDropCanvasPos.x();
     node.y    = (float)m_wireDropCanvasPos.y();
-    m_doc->addBPNode(node);
+    addNodeToActive(m_bpClass, m_doc, node);
 
     BPConnection conn;
     conn.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -991,10 +1101,10 @@ void BlueprintEditor::onWireDropSelected(const QString& typeId, const QString& c
         conn.toNode   = fromNode;
         conn.toPin    = fromPin;
     }
-    m_doc->addBPConnection(conn);
+    addConnToActive(m_bpClass, m_doc, conn);
 
     m_selectedNodeId = node.id;
-    emit documentModified();
+    notifyModified();
 
     hideWireDropPopup();
     update();
@@ -1004,7 +1114,7 @@ void BlueprintEditor::onWireDropSelected(const QString& typeId, const QString& c
 
 void BlueprintEditor::showInlineEdit(const QString& nodeId, const QString& pinKey) {
     commitInlineEdit();
-    if (!m_doc) return;
+    if (!m_doc && !m_bpClass) return;
 
     const BPNode* node = findNode(nodeId);
     if (!node) return;
@@ -1048,16 +1158,16 @@ void BlueprintEditor::showInlineEdit(const QString& nodeId, const QString& pinKe
 }
 
 void BlueprintEditor::commitInlineEdit() {
-    if (!m_inlineEdit || !m_doc) return;
+    if (!m_inlineEdit || (!m_doc && !m_bpClass)) return;
     QString val = m_inlineEdit->text();
     cancelInlineEdit();     // 先移除控件
     if (m_inlineEditNodeId.isEmpty()) return;
-    // 写回 doc
-    for (BPNode node : m_doc->bpNodes()) {   // 拷贝查找，再 updateBPNode
+    // 写回
+    for (BPNode node : activeNodes()) {   // 拷贝查找，再 update
         if (node.id == m_inlineEditNodeId) {
             node.params[m_inlineEditPinKey] = val;
-            m_doc->updateBPNode(node);
-            emit documentModified();
+            updateNodeInActive(m_bpClass, m_doc, node);
+            notifyModified();
             break;
         }
     }
@@ -1080,7 +1190,7 @@ void BlueprintEditor::showParamEditPopup(QPoint screenPos, const QString& nodeId
     hideParamEditPopup();
 
     const BPNode* node = findNode(nodeId);
-    if (!node || !m_doc) return;
+    if (!node || (!m_doc && !m_bpClass)) return;
     const NodeDef* def = findNodeDef(node->type);
     if (!def) return;
 
@@ -1138,11 +1248,13 @@ void BlueprintEditor::showParamEditPopup(QPoint screenPos, const QString& nodeId
         clearItem->setData(Qt::UserRole, QString(""));
 
         QString currentId = node->params.value(pinKey);
-        for (const ActorData& a : m_doc->actors()) {
-            auto* item = new QListWidgetItem(a.name, list);
-            item->setData(Qt::UserRole, a.id);
-            if (a.id == currentId)
-                list->setCurrentItem(item);
+        if (m_doc) {
+            for (const ActorData& a : m_doc->actors()) {
+                auto* item = new QListWidgetItem(a.name, list);
+                item->setData(Qt::UserRole, a.id);
+                if (a.id == currentId)
+                    list->setCurrentItem(item);
+            }
         }
 
         connect(list, &QListWidget::itemClicked, m_paramEditPopup, [this](QListWidgetItem* item) {
@@ -1195,20 +1307,63 @@ void BlueprintEditor::hideParamEditPopup() {
 }
 
 void BlueprintEditor::onParamValueConfirmed(const QString& value) {
-    if (!m_doc || m_paramEditNodeId.isEmpty()) { hideParamEditPopup(); return; }
+    if ((!m_doc && !m_bpClass) || m_paramEditNodeId.isEmpty()) { hideParamEditPopup(); return; }
     const QString nodeId  = m_paramEditNodeId;
     const QString pinKey  = m_paramEditPinKey;
     m_paramEditNodeId.clear();
     m_paramEditPinKey.clear();
-    for (BPNode& n : const_cast<QList<BPNode>&>(m_doc->bpNodes())) {
-        if (n.id == nodeId) {
-            if (value.isEmpty()) n.params.remove(pinKey);
-            else                  n.params[pinKey] = value;
-            m_doc->updateBPNode(n);
-            emit documentModified();
+    for (BPNode node : activeNodes()) {   // 拷贝查找，再 update
+        if (node.id == nodeId) {
+            if (value.isEmpty()) node.params.remove(pinKey);
+            else                  node.params[pinKey] = value;
+            updateNodeInActive(m_bpClass, m_doc, node);
+            notifyModified();
             break;
         }
     }
     hideParamEditPopup();
     update();
+}
+
+// ── bpClass 模式 ──────────────────────────────────────────────────────
+
+void BlueprintEditor::loadBpClass(BPClass* bpClass) {
+    m_bpClass = bpClass;
+    m_doc     = nullptr;
+    m_selectedNodeId.clear();
+    m_dragState = DragState::None;
+    hideWireDropPopup();
+    cancelInlineEdit();
+    update();
+}
+
+void BlueprintEditor::saveBpClass() {
+    if (m_bpClass) m_bpClass->save();
+}
+
+const QList<BPNode>& BlueprintEditor::activeNodes() const {
+    if (m_bpClass) return m_bpClass->nodes;
+    static QList<BPNode> empty;
+    return m_doc ? m_doc->bpNodes() : empty;
+}
+
+const QList<BPConnection>& BlueprintEditor::activeConns() const {
+    if (m_bpClass) return m_bpClass->connections;
+    static QList<BPConnection> empty;
+    return m_doc ? m_doc->bpConnections() : empty;
+}
+
+void BlueprintEditor::notifyModified() {
+    if (m_bpClass) { m_bpClass->save(); emit bpClassModified(); }
+    else           { emit documentModified(); }
+}
+
+bool BlueprintEditor::isSelfNodeVisible(const QString& typeId) const {
+    if (!typeId.startsWith("Self.")) return true;
+    if (!m_bpClass) return false;   // level mode: hide Self nodes
+    if (typeId.startsWith("Self.Sprite.") && !m_bpClass->components.contains("精灵渲染器"))
+        return false;
+    if (typeId.startsWith("Self.Camera.") && !m_bpClass->components.contains("摄像机组件"))
+        return false;
+    return true;
 }
