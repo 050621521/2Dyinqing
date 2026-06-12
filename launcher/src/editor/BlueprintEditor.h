@@ -19,6 +19,7 @@ public:
     void loadLevel(LevelDocument* doc);
     void loadBpClass(BPClass* bpClass);
     void saveBpClass();
+    void setProjectRoot(const QString& root);
 
 signals:
     void documentModified();
@@ -82,6 +83,11 @@ private:
     QString  m_paramEditNodeId;
     QString  m_paramEditPinKey;
 
+    // UI 资产选择器
+    QString  m_projectRoot;
+    QFrame*  m_uiAssetPopup     = nullptr;
+    QString  m_uiAssetNodeId;
+
     LevelDocument* m_doc     = nullptr;
     BPClass*       m_bpClass = nullptr;
 
@@ -143,4 +149,7 @@ private:
     void showParamEditPopup(QPoint screenPos, const QString& nodeId, const QString& pinKey);
     void hideParamEditPopup();
     void onParamValueConfirmed(const QString& value);
+    // UI 资产选择器
+    void showUIAssetPicker(QPoint screenPos, const QString& nodeId);
+    void hideUIAssetPicker();
 };

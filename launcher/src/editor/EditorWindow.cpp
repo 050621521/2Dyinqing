@@ -187,6 +187,7 @@ void EditorWindow::setupCentralArea() {
     m_viewportPage = leftWrap;
 
     m_blueprintEditor = new BlueprintEditor();
+    m_blueprintEditor->setProjectRoot(m_project.path);
     connect(m_blueprintEditor, &BlueprintEditor::documentModified, this, [this]() {
         updateTabTitle(m_docTabBar->currentIndex());
         updateSaveLabel();

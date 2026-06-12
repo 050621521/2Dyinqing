@@ -17,6 +17,8 @@
 #include <QTreeWidgetItem>
 #include <QListWidget>
 #include <QTimer>
+#include <QDir>
+#include <QFileInfo>
 
 // ── bpClass/doc 统一读写辅助 ─────────────────────────────────────────
 
@@ -185,7 +187,6 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
             "UI.Create", "创建UI", QColor("#4a1a6a"),
             {
                 {"exec_in",    "exec",   true,  false},
-                {"uiName",     "UI名称", false, false},
                 {"exec_out",   "exec",   true,  true},
                 {"instanceId", "UI引用", false, true},
             }
@@ -324,7 +325,7 @@ QPointF BlueprintEditor::screenToCanvas(QPointF s) const {
 float BlueprintEditor::nodeHeight(const BPNode& node) const {
     const NodeDef* def = findNodeDef(node.type);
     int pinCount = def ? def->pins.size() : 1;
-    int extraRows = (node.type == "Var.ActorRef") ? 1 : 0;
+    int extraRows = (node.type == "Var.ActorRef" || node.type == "UI.Create") ? 1 : 0;
     return kHeaderH + kRowH * qMax(1, pinCount + extraRows) + 4.0f;
 }
 
@@ -336,7 +337,7 @@ QPointF BlueprintEditor::pinCenter(const BPNode& node, const QString& pinKey, bo
     const NodeDef* def = findNodeDef(node.type);
     if (!def) return {};
     QPointF topLeftScreen = canvasToScreen({node.x, node.y});
-    int extraRows = (node.type == "Var.ActorRef") ? 1 : 0;
+    int extraRows = (node.type == "Var.ActorRef" || node.type == "UI.Create") ? 1 : 0;
     int row = 0;
     for (const PinDef& pd : def->pins) {
         if (pd.key == pinKey && pd.isOutput == isOutput) {
@@ -427,8 +428,23 @@ BlueprintEditor::Hit BlueprintEditor::hitTest(QPointF screenPos) const {
             continue; // ActorRef 无数据输入引脚，跳过后续检测
         }
 
+        // UI.Create：选择器按钮占据第 0 行（紧接 header）
+        if (node.type == "UI.Create") {
+            float rowY = tl.y() + kHeaderH * m_zoom;
+            float rowH = kRowH * m_zoom;
+            if (screenPos.x() >= tl.x() + 4*m_zoom && screenPos.x() <= tl.x() + nw - 4*m_zoom &&
+                screenPos.y() >= rowY && screenPos.y() <= rowY + rowH) {
+                Hit h;
+                h.type    = Hit::PinValue;
+                h.nodeId  = node.id;
+                h.pinName = "uiName";
+                return h;
+            }
+            continue;
+        }
+
         // 其他节点：检测未连接的非 actorId 数据输入引脚
-        int extraRows = 0;
+        int extraRows = (node.type == "Var.ActorRef" || node.type == "UI.Create") ? 1 : 0;
         int row = 0;
         for (const PinDef& pd : def->pins) {
             if (!pd.isExec && !pd.isOutput && pd.key != "actorId"
@@ -589,8 +605,13 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
     p.setFont(font);
     p.setPen(QColor(0xff, 0xff, 0xff));
     float textX = iconX + iconSz + 5.0f * (float)m_zoom;
+    QString titleText = def->displayName;
+    if (node.type == "UI.Create") {
+        const QString uiName = node.params.value("uiName");
+        if (!uiName.isEmpty()) titleText += ": " + uiName;
+    }
     p.drawText(QRectF(textX, tl.y(), nw - (textX - tl.x()) - 4, hh),
-               Qt::AlignVCenter | Qt::AlignLeft, def->displayName);
+               Qt::AlignVCenter | Qt::AlignLeft, titleText);
 
     // 分隔线
     p.setPen(QPen(QColor(0x33, 0x33, 0x33), 1.0));
@@ -618,13 +639,31 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
         p.drawText(btnRc, Qt::AlignCenter, actorName);
     }
 
+    // UI.Create：UI 资产选择器行
+    if (node.type == "UI.Create") {
+        const QString uiName = node.params.value("uiName");
+        const bool hasName   = !uiName.isEmpty();
+        QString btnText = hasName ? uiName + " ▾" : "(点击选择UI) ▾";
+        float btnRowY = tl.y() + kHeaderH * (float)m_zoom;
+        float btnRowH = kRowH * (float)m_zoom;
+        QRectF btnRc(tl.x() + 6.0f*(float)m_zoom, btnRowY + 3.0f*(float)m_zoom,
+                     nw - 12.0f*(float)m_zoom, btnRowH - 6.0f*(float)m_zoom);
+        p.setBrush(QColor(0x1a, 0x18, 0x2a));
+        p.setPen(QPen(hasName ? QColor(0x8a, 0x6a, 0xd4) : QColor(0x44, 0x33, 0x66), 1.0));
+        p.drawRoundedRect(btnRc, 3.0*(float)m_zoom, 3.0*(float)m_zoom);
+        QFont bf; bf.setPointSizeF(qMax(7.0, 9.0 * m_zoom));
+        p.setFont(bf);
+        p.setPen(hasName ? QColor(0x8a, 0x6a, 0xd4) : QColor(0x66, 0x55, 0x88));
+        p.drawText(btnRc, Qt::AlignCenter, btnText);
+    }
+
     // Pin 行
     font.setBold(false);
     float pinFontSize = qMax(7.0, 9.0 * m_zoom);
     font.setPointSizeF(pinFontSize);
     p.setFont(font);
 
-    int extraRows = (node.type == "Var.ActorRef") ? 1 : 0;
+    int extraRows = (node.type == "Var.ActorRef" || node.type == "UI.Create") ? 1 : 0;
     int row = 0;
     for (const PinDef& pd : def->pins) {
         QPointF pc = pinCenter(node, pd.key, pd.isOutput);
@@ -722,6 +761,10 @@ void BlueprintEditor::mousePressEvent(QMouseEvent* e) {
         }
         return;
     }
+    if (m_uiAssetPopup && m_uiAssetPopup->isVisible()) {
+        if (!m_uiAssetPopup->geometry().contains(e->pos()))
+            hideUIAssetPicker();
+    }
     setFocus();
     if (e->button() == Qt::MiddleButton) {
         m_panning   = true;
@@ -742,6 +785,9 @@ void BlueprintEditor::mousePressEvent(QMouseEvent* e) {
         if (hit.pinName == "actorId") {
             // actorId 仍用弹窗（需要 Actor 列表选择器）
             showParamEditPopup(e->pos(), hit.nodeId, hit.pinName);
+        } else if (hit.pinName == "uiName") {
+            // UI 资产选择器
+            showUIAssetPicker(e->pos(), hit.nodeId);
         } else {
             // 数值/文本 pin → 原地内联编辑，不弹窗
             showInlineEdit(hit.nodeId, hit.pinName);
@@ -1480,4 +1526,83 @@ bool BlueprintEditor::isSelfNodeVisible(const QString& typeId) const {
     if (typeId.startsWith("Self.Camera.") && !m_bpClass->components.contains("摄像机组件"))
         return false;
     return true;
+}
+
+// ── UI 资产选择器 ──────────────────────────────────────────────────────
+
+void BlueprintEditor::setProjectRoot(const QString& root) {
+    m_projectRoot = root;
+}
+
+void BlueprintEditor::hideUIAssetPicker() {
+    if (!m_uiAssetPopup) return;
+    m_uiAssetPopup->hide();
+    m_uiAssetPopup->deleteLater();
+    m_uiAssetPopup = nullptr;
+    m_uiAssetNodeId.clear();
+}
+
+void BlueprintEditor::showUIAssetPicker(QPoint screenPos, const QString& nodeId) {
+    hideUIAssetPicker();
+    if (m_projectRoot.isEmpty()) return;
+
+    // 扫描 UI/ 目录下的 .ui 文件
+    QDir uiDir(m_projectRoot + "/UI");
+    QStringList uiNames;
+    for (const QString& fn : uiDir.entryList({"*.ui"}, QDir::Files))
+        uiNames << QFileInfo(fn).baseName();
+
+    m_uiAssetNodeId = nodeId;
+    m_uiAssetPopup  = new QFrame(this);
+    m_uiAssetPopup->setObjectName("uiAssetPopup");
+    m_uiAssetPopup->setStyleSheet(
+        "QFrame#uiAssetPopup {"
+        "  background:#252526; border:1px solid #454545; border-radius:6px; }"
+        "QListWidget {"
+        "  background:transparent; color:#ccc; border:none; outline:0; }"
+        "QListWidget::item { padding:4px 10px; }"
+        "QListWidget::item:hover { background:#3a3a5a; color:#fff; }");
+
+    auto* layout = new QVBoxLayout(m_uiAssetPopup);
+    layout->setContentsMargins(4, 4, 4, 4);
+    layout->setSpacing(2);
+
+    if (uiNames.isEmpty()) {
+        auto* emptyLbl = new QLabel("（无 UI 文件）", m_uiAssetPopup);
+        emptyLbl->setStyleSheet("color:#666; padding:6px;");
+        layout->addWidget(emptyLbl);
+    } else {
+        auto* list = new QListWidget(m_uiAssetPopup);
+        for (const QString& name : uiNames)
+            list->addItem(name);
+        list->setFixedHeight(qMin(200, list->count() * 24 + 8));
+        layout->addWidget(list);
+
+        connect(list, &QListWidget::itemClicked, this, [this](QListWidgetItem* item) {
+            const QString name = item->text();
+            const QString nid  = m_uiAssetNodeId;
+            hideUIAssetPicker();
+            if (nid.isEmpty()) return;
+            for (BPNode node : activeNodes()) {
+                if (node.id == nid) {
+                    node.params["uiName"] = name;
+                    updateNodeInActive(m_bpClass, m_doc, node);
+                    notifyModified();
+                    break;
+                }
+            }
+            update();
+        });
+    }
+
+    m_uiAssetPopup->adjustSize();
+    // 弹窗位置：不超出边界
+    QPoint pos = screenPos + QPoint(0, 4);
+    if (pos.x() + m_uiAssetPopup->width()  > width())
+        pos.setX(width() - m_uiAssetPopup->width() - 4);
+    if (pos.y() + m_uiAssetPopup->height() > height())
+        pos.setY(screenPos.y() - m_uiAssetPopup->height() - 4);
+    m_uiAssetPopup->move(pos);
+    m_uiAssetPopup->show();
+    m_uiAssetPopup->raise();
 }
