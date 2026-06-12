@@ -755,6 +755,8 @@ void EditorWindow::closeEvent(QCloseEvent* e) {
     }
     qDeleteAll(m_openLevels);
     m_openLevels.clear();
+    qDeleteAll(m_openBpClasses);
+    m_openBpClasses.clear();
     emit editorClosed();
     e->accept();
 }
