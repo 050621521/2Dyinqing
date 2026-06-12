@@ -13,6 +13,28 @@ UIInstance* UIRuntime::findInstance(const QString& id) {
     return nullptr;
 }
 
+UIInstance* UIRuntime::findByName(const QString& uiName) {
+    for (UIInstance* inst : m_all)
+        if (inst->uiName == uiName) return inst;
+    return nullptr;
+}
+
+void UIRuntime::showByName   (const QString& n) { if (auto* i=findByName(n)) showInstance(i->instanceId); }
+void UIRuntime::hideByName   (const QString& n) { if (auto* i=findByName(n)) hideInstance(i->instanceId); }
+void UIRuntime::destroyByName(const QString& n) { if (auto* i=findByName(n)) destroyInstance(i->instanceId); }
+void UIRuntime::setTextByName(const QString& n, const QString& w, const QString& t) {
+    if (auto* i=findByName(n)) setText(i->instanceId, w, t);
+}
+void UIRuntime::setValueByName(const QString& n, const QString& w, float v) {
+    if (auto* i=findByName(n)) setValue(i->instanceId, w, v);
+}
+void UIRuntime::setPositionByName(const QString& n, float x, float y) {
+    if (auto* i=findByName(n)) setPosition(i->instanceId, x, y);
+}
+void UIRuntime::setWidgetVisibleByName(const QString& n, const QString& w, bool v) {
+    if (auto* i=findByName(n)) setWidgetVisible(i->instanceId, w, v);
+}
+
 QString UIRuntime::createInstance(const QString& uiName) {
     const QString path = m_projectRoot + "/UI/" + uiName + ".ui";
     UIDocument tmpl;
@@ -20,6 +42,7 @@ QString UIRuntime::createInstance(const QString& uiName) {
 
     auto* inst = new UIInstance;
     inst->instanceId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    inst->uiName     = uiName;
     inst->docCopy    = tmpl;
     inst->shown      = false;
     m_all << inst;

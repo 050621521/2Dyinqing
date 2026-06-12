@@ -47,6 +47,14 @@ static void removeConnFromActive(BPClass* bc, LevelDocument* doc, const QString&
 
 // ── 节点类型注册 ──────────────────────────────────────────────────────
 
+static bool nodeHasUIPicker(const QString& type) {
+    static const QSet<QString> kUIPickerTypes = {
+        "UI.Create", "UI.Show", "UI.Hide", "UI.Destroy",
+        "UI.SetText", "UI.SetValue", "UI.SetPosition", "UI.SetVisible"
+    };
+    return kUIPickerTypes.contains(type);
+}
+
 const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
     static QList<NodeDef> defs = {
         {
@@ -188,14 +196,12 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
             {
                 {"exec_in",    "exec",   true,  false},
                 {"exec_out",   "exec",   true,  true},
-                {"instanceId", "UI引用", false, true},
             }
         },
         {
             "UI.Show", "显示UI", QColor("#1a4a6a"),
             {
                 {"exec_in",    "exec",   true,  false},
-                {"instanceId", "UI引用", false, false},
                 {"exec_out",   "exec",   true,  true},
             }
         },
@@ -203,7 +209,6 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
             "UI.Hide", "隐藏UI", QColor("#1a4a6a"),
             {
                 {"exec_in",    "exec",   true,  false},
-                {"instanceId", "UI引用", false, false},
                 {"exec_out",   "exec",   true,  true},
             }
         },
@@ -211,7 +216,6 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
             "UI.Destroy", "销毁UI", QColor("#6a1a1a"),
             {
                 {"exec_in",    "exec",   true,  false},
-                {"instanceId", "UI引用", false, false},
                 {"exec_out",   "exec",   true,  true},
             }
         },
@@ -219,7 +223,6 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
             "UI.SetText", "设置文本", QColor("#1a4a6a"),
             {
                 {"exec_in",    "exec",     true,  false},
-                {"instanceId", "UI引用",   false, false},
                 {"widgetName", "控件名",   false, false},
                 {"text",       "文本内容", false, false},
                 {"exec_out",   "exec",     true,  true},
@@ -229,7 +232,6 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
             "UI.SetValue", "设置进度值", QColor("#1a4a6a"),
             {
                 {"exec_in",    "exec",   true,  false},
-                {"instanceId", "UI引用", false, false},
                 {"widgetName", "控件名", false, false},
                 {"value",      "数值",   false, false},
                 {"exec_out",   "exec",   true,  true},
@@ -239,7 +241,6 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
             "UI.SetPosition", "设置UI位置", QColor("#1a4a6a"),
             {
                 {"exec_in",    "exec",   true,  false},
-                {"instanceId", "UI引用", false, false},
                 {"x",          "X",      false, false},
                 {"y",          "Y",      false, false},
                 {"exec_out",   "exec",   true,  true},
@@ -249,16 +250,9 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
             "UI.SetVisible", "设置控件可见", QColor("#1a4a6a"),
             {
                 {"exec_in",    "exec",   true,  false},
-                {"instanceId", "UI引用", false, false},
                 {"widgetName", "控件名", false, false},
                 {"visible",    "可见",   false, false},
                 {"exec_out",   "exec",   true,  true},
-            }
-        },
-        {
-            "UI.Ref", "UI引用变量", QColor("#4a2a6a"),
-            {
-                {"instanceId", "UI引用", false, true},
             }
         },
         {
@@ -325,7 +319,7 @@ QPointF BlueprintEditor::screenToCanvas(QPointF s) const {
 float BlueprintEditor::nodeHeight(const BPNode& node) const {
     const NodeDef* def = findNodeDef(node.type);
     int pinCount = def ? def->pins.size() : 1;
-    int extraRows = (node.type == "Var.ActorRef" || node.type == "UI.Create") ? 1 : 0;
+    int extraRows = (node.type == "Var.ActorRef" || nodeHasUIPicker(node.type)) ? 1 : 0;
     return kHeaderH + kRowH * qMax(1, pinCount + extraRows) + 4.0f;
 }
 
@@ -337,7 +331,7 @@ QPointF BlueprintEditor::pinCenter(const BPNode& node, const QString& pinKey, bo
     const NodeDef* def = findNodeDef(node.type);
     if (!def) return {};
     QPointF topLeftScreen = canvasToScreen({node.x, node.y});
-    int extraRows = (node.type == "Var.ActorRef" || node.type == "UI.Create") ? 1 : 0;
+    int extraRows = (node.type == "Var.ActorRef" || nodeHasUIPicker(node.type)) ? 1 : 0;
     int row = 0;
     for (const PinDef& pd : def->pins) {
         if (pd.key == pinKey && pd.isOutput == isOutput) {
@@ -428,8 +422,8 @@ BlueprintEditor::Hit BlueprintEditor::hitTest(QPointF screenPos) const {
             continue; // ActorRef 无数据输入引脚，跳过后续检测
         }
 
-        // UI.Create：选择器按钮占据第 0 行（紧接 header）
-        if (node.type == "UI.Create") {
+        // UI 选择器节点：选择器按钮占据第 0 行（紧接 header）
+        if (nodeHasUIPicker(node.type)) {
             float rowY = tl.y() + kHeaderH * m_zoom;
             float rowH = kRowH * m_zoom;
             if (screenPos.x() >= tl.x() + 4*m_zoom && screenPos.x() <= tl.x() + nw - 4*m_zoom &&
@@ -444,7 +438,7 @@ BlueprintEditor::Hit BlueprintEditor::hitTest(QPointF screenPos) const {
         }
 
         // 其他节点：检测未连接的非 actorId 数据输入引脚
-        int extraRows = (node.type == "Var.ActorRef" || node.type == "UI.Create") ? 1 : 0;
+        int extraRows = (node.type == "Var.ActorRef" || nodeHasUIPicker(node.type)) ? 1 : 0;
         int row = 0;
         for (const PinDef& pd : def->pins) {
             if (!pd.isExec && !pd.isOutput && pd.key != "actorId"
@@ -606,7 +600,7 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
     p.setPen(QColor(0xff, 0xff, 0xff));
     float textX = iconX + iconSz + 5.0f * (float)m_zoom;
     QString titleText = def->displayName;
-    if (node.type == "UI.Create") {
+    if (nodeHasUIPicker(node.type)) {
         const QString uiName = node.params.value("uiName");
         if (!uiName.isEmpty()) titleText += ": " + uiName;
     }
@@ -639,8 +633,8 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
         p.drawText(btnRc, Qt::AlignCenter, actorName);
     }
 
-    // UI.Create：UI 资产选择器行
-    if (node.type == "UI.Create") {
+    // UI 选择器节点：UI 资产选择器行
+    if (nodeHasUIPicker(node.type)) {
         const QString uiName = node.params.value("uiName");
         const bool hasName   = !uiName.isEmpty();
         QString btnText = hasName ? uiName + " ▾" : "(点击选择UI) ▾";
@@ -663,7 +657,7 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
     font.setPointSizeF(pinFontSize);
     p.setFont(font);
 
-    int extraRows = (node.type == "Var.ActorRef" || node.type == "UI.Create") ? 1 : 0;
+    int extraRows = (node.type == "Var.ActorRef" || nodeHasUIPicker(node.type)) ? 1 : 0;
     int row = 0;
     for (const PinDef& pd : def->pins) {
         QPointF pc = pinCenter(node, pd.key, pd.isOutput);
@@ -1272,7 +1266,7 @@ void BlueprintEditor::showInlineEdit(const QString& nodeId, const QString& pinKe
     if (!def) return;
 
     // 计算该 pin 所在行
-    int extraRows = (node->type == "Var.ActorRef") ? 1 : 0;
+    int extraRows = (node->type == "Var.ActorRef" || nodeHasUIPicker(node->type)) ? 1 : 0;
     int row = 0;
     for (const PinDef& pd : def->pins) {
         if (pd.key == pinKey) break;

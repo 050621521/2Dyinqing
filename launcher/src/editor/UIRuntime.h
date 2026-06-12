@@ -5,6 +5,7 @@
 
 struct UIInstance {
     QString     instanceId;
+    QString     uiName;      // 创建时记录来源 UI 名
     UIDocument  docCopy;
     float       screenX = 0;
     float       screenY = 0;
@@ -26,6 +27,14 @@ public:
     void    setPosition    (const QString& instanceId, float x, float y);
     void    setWidgetVisible(const QString& instanceId, const QString& widgetName, bool visible);
 
+    void showByName            (const QString& uiName);
+    void hideByName            (const QString& uiName);
+    void destroyByName         (const QString& uiName);
+    void setTextByName         (const QString& uiName, const QString& widgetName, const QString& text);
+    void setValueByName        (const QString& uiName, const QString& widgetName, float value);
+    void setPositionByName     (const QString& uiName, float x, float y);
+    void setWidgetVisibleByName(const QString& uiName, const QString& widgetName, bool visible);
+
     const QList<UIInstance*>& shownInstances() const { return m_shown; }
 
 signals:
@@ -35,6 +44,7 @@ signals:
 
 private:
     UIInstance* findInstance(const QString& instanceId);
+    UIInstance* findByName  (const QString& uiName);
 
     QString            m_projectRoot;
     QList<UIInstance*> m_all;

@@ -137,44 +137,44 @@ QString ActorBPRuntime::executeNode(const QString& nodeId) {
         return "exec_out";
     }
     if (node->type == "UI.Show") {
-        if (m_uiRuntime) m_uiRuntime->showInstance(resolveDataPin(nodeId, "instanceId"));
+        if (m_uiRuntime) m_uiRuntime->showByName(node->params.value("uiName"));
         return "exec_out";
     }
     if (node->type == "UI.Hide") {
-        if (m_uiRuntime) m_uiRuntime->hideInstance(resolveDataPin(nodeId, "instanceId"));
+        if (m_uiRuntime) m_uiRuntime->hideByName(node->params.value("uiName"));
         return "exec_out";
     }
     if (node->type == "UI.Destroy") {
-        if (m_uiRuntime) m_uiRuntime->destroyInstance(resolveDataPin(nodeId, "instanceId"));
+        if (m_uiRuntime) m_uiRuntime->destroyByName(node->params.value("uiName"));
         return "exec_out";
     }
     if (node->type == "UI.SetText") {
         if (m_uiRuntime)
-            m_uiRuntime->setText(resolveDataPin(nodeId, "instanceId"),
-                                 resolveDataPin(nodeId, "widgetName"),
-                                 resolveDataPin(nodeId, "text"));
+            m_uiRuntime->setTextByName(node->params.value("uiName"),
+                                       resolveDataPin(nodeId, "widgetName"),
+                                       resolveDataPin(nodeId, "text"));
         return "exec_out";
     }
     if (node->type == "UI.SetValue") {
         if (m_uiRuntime)
-            m_uiRuntime->setValue(resolveDataPin(nodeId, "instanceId"),
-                                  resolveDataPin(nodeId, "widgetName"),
-                                  resolveDataPin(nodeId, "value").toFloat());
+            m_uiRuntime->setValueByName(node->params.value("uiName"),
+                                        resolveDataPin(nodeId, "widgetName"),
+                                        resolveDataPin(nodeId, "value").toFloat());
         return "exec_out";
     }
     if (node->type == "UI.SetPosition") {
         if (m_uiRuntime)
-            m_uiRuntime->setPosition(resolveDataPin(nodeId, "instanceId"),
-                                     resolveDataPin(nodeId, "x").toFloat(),
-                                     resolveDataPin(nodeId, "y").toFloat());
+            m_uiRuntime->setPositionByName(node->params.value("uiName"),
+                                           resolveDataPin(nodeId, "x").toFloat(),
+                                           resolveDataPin(nodeId, "y").toFloat());
         return "exec_out";
     }
     if (node->type == "UI.SetVisible") {
         const QString v = resolveDataPin(nodeId, "visible").toLower();
         if (m_uiRuntime)
-            m_uiRuntime->setWidgetVisible(resolveDataPin(nodeId, "instanceId"),
-                                          resolveDataPin(nodeId, "widgetName"),
-                                          v == "true" || v == "1");
+            m_uiRuntime->setWidgetVisibleByName(node->params.value("uiName"),
+                                                resolveDataPin(nodeId, "widgetName"),
+                                                v == "true" || v == "1");
         return "exec_out";
     }
 
