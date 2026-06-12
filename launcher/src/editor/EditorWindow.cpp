@@ -3,6 +3,7 @@
 #include "GameViewport.h"
 #include "BlueprintEditor.h"
 #include "BPRuntime.h"
+#include "UIRuntime.h"
 #include "SceneOutliner.h"
 #include "DetailsPanel.h"
 #include "ContentBrowser.h"
@@ -853,6 +854,20 @@ void EditorWindow::startRuntime() {
     if (!doc || !m_viewport) return;
 
     m_runtime = new BPRuntime(doc, this);
+    m_uiRuntime = new UIRuntime(m_project.path, this);
+    connect(m_uiRuntime, &UIRuntime::uiStateChanged, this, [this]() {
+        if (m_gameViewport) m_gameViewport->update();
+    });
+    connect(m_uiRuntime, &UIRuntime::buttonClicked,
+            this, [this](const QString& instId, const QString& widgetName) {
+        for (ActorBPRuntime* ar : m_actorRuntimes)
+            ar->triggerButtonClick(instId, widgetName);
+    });
+    connect(m_uiRuntime, &UIRuntime::dropdownChanged,
+            this, [this](const QString& instId, const QString& widgetName, int idx) {
+        for (ActorBPRuntime* ar : m_actorRuntimes)
+            ar->triggerDropdownChanged(instId, widgetName, idx);
+    });
     connect(m_runtime, &BPRuntime::stateChanged, this, [this]() {
         if (!m_runtime || !m_viewport) return;
         // 触发本帧 Actor Tick
@@ -893,6 +908,7 @@ void EditorWindow::startRuntime() {
             auto* ar = new ActorBPRuntime(bc, actor.id,
                                           &m_runtime->mutableActors(), this);
             m_actorRuntimes.append(ar);
+            ar->setUIRuntime(m_uiRuntime);
         }
     }
     // 触发各 Actor 蓝图 BeginPlay
@@ -905,6 +921,7 @@ void EditorWindow::startRuntime() {
     // 游戏视图运行时模式
     if (m_gameViewport) {
         m_gameViewport->setRuntimeMode(true);
+        m_gameViewport->setUIRuntime(m_uiRuntime);
         m_gameViewport->setRuntimeActors(m_runtime->actors());
     }
     // 自动跳转到游戏视图 Tab
@@ -933,13 +950,17 @@ void EditorWindow::stopRuntime() {
     m_actorRuntimes.clear();
     delete m_runtime;
     m_runtime = nullptr;
+    delete m_uiRuntime;
+    m_uiRuntime = nullptr;
 
     if (m_viewport) {
         m_viewport->setRuntimeMode(false);
         m_viewport->clearPrintLog();
     }
-    if (m_gameViewport)
+    if (m_gameViewport) {
         m_gameViewport->setRuntimeMode(false);
+        m_gameViewport->setUIRuntime(nullptr);
+    }
     if (m_runBtn)   m_runBtn->setEnabled(true);
     if (m_pauseBtn) { m_pauseBtn->setChecked(false); m_pauseBtn->setEnabled(false); }
     if (m_stopBtn)  m_stopBtn->setEnabled(false);

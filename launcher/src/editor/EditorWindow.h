@@ -17,6 +17,7 @@ class Viewport2D;
 class GameViewport;
 class BlueprintEditor;
 class BPRuntime;
+class UIRuntime;
 #include "ActorBPRuntime.h"
 #include "models/BPClass.h"
 class ContentBrowser;
@@ -109,6 +110,7 @@ private:
     QLabel*       m_saveLabel    = nullptr;
 
     BPRuntime* m_runtime = nullptr;
+    UIRuntime* m_uiRuntime = nullptr;
     QList<ActorBPRuntime*>   m_actorRuntimes;
     QMap<QString, BPClass*>  m_openBpClasses;
 

@@ -12,6 +12,7 @@ public:
     void loadLevel(LevelDocument* doc);
     void setRuntimeActors(const QList<ActorData>& actors);
     void setRuntimeMode(bool on);
+    void setUIRuntime(class UIRuntime*) {}   // 临时空桩，Task 7 实现
     void setPixelsPerUnit(float ppu);
 
 protected:
