@@ -44,8 +44,9 @@ QString UIRuntime::createInstance(const QString& uiName) {
     inst->instanceId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     inst->uiName     = uiName;
     inst->docCopy    = tmpl;
-    inst->shown      = false;
-    m_all << inst;
+    inst->shown      = true;
+    m_all  << inst;
+    m_shown << inst;
     emit uiStateChanged();
     return inst->instanceId;
 }
