@@ -10,11 +10,15 @@ QJsonObject BPClass::toJson() const {
     QJsonArray comps;
     for (const QString& c : components) comps.append(c);
     obj["components"] = comps;
+    QJsonObject defs;
+    for (auto it = defaults.constBegin(); it != defaults.constEnd(); ++it)
+        defs[it.key()] = it.value().toString();
+    obj["defaults"] = defs;
     QJsonArray nodesArr;
     for (const BPNode& n : nodes) nodesArr.append(n.toJson());
     obj["nodes"] = nodesArr;
     QJsonArray connsArr;
-    for (const BPConnection& c : connections) connsArr.append(c.toJson());
+    for (const BPConnection& conn : connections) connsArr.append(conn.toJson());
     obj["connections"] = connsArr;
     return obj;
 }
@@ -25,6 +29,9 @@ BPClass BPClass::fromJson(const QJsonObject& obj, const QString& fp) {
     bc.filePath = fp;
     for (const QJsonValue& v : obj["components"].toArray())
         bc.components.append(v.toString());
+    const QJsonObject defs = obj["defaults"].toObject();
+    for (auto it = defs.constBegin(); it != defs.constEnd(); ++it)
+        bc.defaults[it.key()] = it.value().toVariant();
     for (const QJsonValue& v : obj["nodes"].toArray())
         bc.nodes.append(BPNode::fromJson(v.toObject()));
     for (const QJsonValue& v : obj["connections"].toArray())

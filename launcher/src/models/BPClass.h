@@ -23,7 +23,7 @@ struct BPClass {
     QJsonObject toJson() const;
     static BPClass fromJson(const QJsonObject& obj, const QString& filePath = {});
 
-    // 内置类工厂：bpClass 字符串如 "builtin/Sprite" → BPClass
+    // 内置类工厂：bpClass 字符串如 "builtin/Sprite" → BPClass，未找到返回 nullptr
     static const BPClass* findBuiltin(const QString& bpClass);
     static QList<BPClass> builtinClasses();
 };
