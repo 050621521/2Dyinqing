@@ -1,4 +1,5 @@
 #include "GameViewport.h"
+#include "UIRuntime.h"
 #include "models/ActorTypeUtils.h"
 #include <QPainter>
 #include <QPaintEvent>
@@ -65,6 +66,7 @@ void GameViewport::paintEvent(QPaintEvent*) {
     const QRectF camRect = computeCameraRect(aspect);
     p.fillRect(camRect, cam->cameraBackground);
     drawScene(p, *actorsList, *cam, camRect);
+    renderUI(p);
 }
 
 QRectF GameViewport::computeCameraRect(float aspect) const {
@@ -171,4 +173,135 @@ void GameViewport::drawScene(QPainter& p, const QList<ActorData>& actors,
     }
 
     p.setClipping(false);
+}
+
+void GameViewport::setUIRuntime(UIRuntime* ui) {
+    m_uiRuntime = ui;
+    update();
+}
+
+QRectF GameViewport::widgetScreenRect(const UIWidget& w, const QRectF& parentRect) const {
+    float ax, ay;
+    const QString& a = w.anchor;
+    if      (a == "左上" || a == "左中" || a == "左下") ax = parentRect.left();
+    else if (a == "正上" || a == "居中" || a == "正下") ax = parentRect.center().x();
+    else                                                  ax = parentRect.right();
+    if      (a == "左上" || a == "正上" || a == "右上") ay = parentRect.top();
+    else if (a == "左中" || a == "居中" || a == "右中") ay = parentRect.center().y();
+    else                                                  ay = parentRect.bottom();
+    return QRectF(ax + w.x, ay + w.y, w.width, w.height);
+}
+
+void GameViewport::renderWidget(QPainter& p, const UIWidget& w,
+                                 const QRectF& parentRect, const UIDocument& doc) const {
+    if (!w.visible) return;
+    const QRectF r = widgetScreenRect(w, parentRect);
+    const QString& t = w.type;
+
+    if (t == "UI.面板") {
+        if (w.bgColor.alpha() > 0) p.fillRect(r, w.bgColor);
+    } else if (t == "UI.文本") {
+        p.save();
+        p.setPen(w.color);
+        QFont f; f.setPixelSize(qMax(6, w.fontSize));
+        p.setFont(f);
+        p.drawText(r, Qt::AlignVCenter | Qt::AlignLeft | Qt::TextWordWrap, w.text);
+        p.restore();
+    } else if (t == "UI.图片") {
+        if (!w.imagePath.isEmpty()) {
+            if (!m_pixmapCache.contains(w.imagePath))
+                m_pixmapCache[w.imagePath] = QPixmap(w.imagePath);
+            const QPixmap& px = m_pixmapCache[w.imagePath];
+            if (!px.isNull())
+                p.drawPixmap(r.toRect(),
+                             px.scaled(r.size().toSize(),
+                                       Qt::IgnoreAspectRatio,
+                                       Qt::SmoothTransformation));
+        }
+    } else if (t == "UI.按钮") {
+        p.fillRect(r, w.bgColor.alpha() > 0 ? w.bgColor : QColor(60, 60, 80, 200));
+        p.save();
+        p.setPen(w.color);
+        QFont f; f.setPixelSize(qMax(6, w.fontSize));
+        p.setFont(f);
+        p.drawText(r, Qt::AlignCenter, w.text);
+        p.restore();
+    } else if (t == "UI.进度条") {
+        p.fillRect(r, w.bgColor.alpha() > 0 ? w.bgColor : QColor(50, 50, 50, 200));
+        QRectF fill = r;
+        fill.setWidth(r.width() * qBound(0.0f, w.value, 1.0f));
+        if (fill.width() > 0) p.fillRect(fill, w.fillColor);
+    } else if (t == "UI.下拉菜单") {
+        p.fillRect(r, w.bgColor.alpha() > 0 ? w.bgColor : QColor(50, 50, 60, 200));
+        const QStringList opts = w.text.split('\n', Qt::SkipEmptyParts);
+        const QString display = (w.selectedIndex < opts.size())
+                                ? opts[w.selectedIndex] : "(空)";
+        p.save();
+        p.setPen(w.color);
+        QFont f; f.setPixelSize(qMax(6, w.fontSize));
+        p.setFont(f);
+        p.drawText(r.adjusted(6, 0, -20, 0), Qt::AlignVCenter | Qt::AlignLeft, display);
+        p.drawText(r.adjusted(0, 0, -4, 0),  Qt::AlignVCenter | Qt::AlignRight, "▾");
+        p.restore();
+    }
+
+    // 渲染子控件
+    if (t == "UI.面板"    || t == "UI.竖向布局" || t == "UI.横向布局" ||
+        t == "UI.网格布局" || t == "UI.滚动视图")
+        renderChildren(p, w.id, r, w, doc);
+}
+
+void GameViewport::renderChildren(QPainter& p, const QString& parentId,
+                                   const QRectF& parentRect, const UIWidget& parent,
+                                   const UIDocument& doc) const {
+    const QList<UIWidget> children = doc.childrenOf(parentId);
+
+    if (parent.type == "UI.竖向布局") {
+        float y = parentRect.top();
+        for (const UIWidget& child : children) {
+            if (!child.visible) continue;
+            renderWidget(p, child, QRectF(parentRect.left(), y - child.y,
+                                          parentRect.width(), child.height + child.y), doc);
+            y += child.height + parent.spacing;
+        }
+        return;
+    }
+    if (parent.type == "UI.横向布局") {
+        float x = parentRect.left();
+        for (const UIWidget& child : children) {
+            if (!child.visible) continue;
+            renderWidget(p, child, QRectF(x - child.x, parentRect.top(),
+                                          child.width + child.x, parentRect.height()), doc);
+            x += child.width + parent.spacing;
+        }
+        return;
+    }
+    if (parent.type == "UI.网格布局") {
+        int col = 0, row = 0;
+        for (const UIWidget& child : children) {
+            if (!child.visible) { col++; if (col >= parent.columns) { col = 0; row++; } continue; }
+            const float cx = parentRect.left() + col * (parent.cellW + parent.spacing);
+            const float cy = parentRect.top()  + row * (parent.cellH + parent.spacing);
+            renderWidget(p, child, QRectF(cx, cy, parent.cellW, parent.cellH), doc);
+            col++;
+            if (col >= parent.columns) { col = 0; row++; }
+        }
+        return;
+    }
+    // 面板 / 滚动视图：子节点用自身锚点定位
+    for (const UIWidget& child : children)
+        renderWidget(p, child, parentRect, doc);
+}
+
+void GameViewport::renderUI(QPainter& p) const {
+    if (!m_uiRuntime) return;
+    const QRectF screen(0, 0, width(), height());
+    for (const UIInstance* inst : m_uiRuntime->shownInstances()) {
+        p.save();
+        p.translate(inst->screenX, inst->screenY);
+        const UIDocument& doc = inst->docCopy;
+        for (const UIWidget& root : doc.rootWidgets())
+            renderWidget(p, root, screen, doc);
+        p.restore();
+    }
 }

@@ -1,5 +1,7 @@
 #pragma once
 #include "models/LevelDocument.h"
+#include "models/UIDocument.h"
+#include "UIRuntime.h"
 #include <QWidget>
 #include <QHash>
 #include <QPixmap>
@@ -12,7 +14,7 @@ public:
     void loadLevel(LevelDocument* doc);
     void setRuntimeActors(const QList<ActorData>& actors);
     void setRuntimeMode(bool on);
-    void setUIRuntime(class UIRuntime*) {}   // 临时空桩，Task 7 实现
+    void setUIRuntime(UIRuntime* ui);
     void setPixelsPerUnit(float ppu);
 
 protected:
@@ -24,7 +26,15 @@ private:
                                 const ActorData& cam) const;
     void    drawScene(QPainter& p, const QList<ActorData>& actors,
                       const ActorData& cam, const QRectF& camRect);
+    void    renderUI(QPainter& p) const;
+    QRectF  widgetScreenRect(const UIWidget& w, const QRectF& parentRect) const;
+    void    renderWidget(QPainter& p, const UIWidget& w,
+                         const QRectF& parentRect, const UIDocument& doc) const;
+    void    renderChildren(QPainter& p, const QString& parentId,
+                           const QRectF& parentRect, const UIWidget& parent,
+                           const UIDocument& doc) const;
 
+    UIRuntime*       m_uiRuntime   = nullptr;
     float            m_ppu         = 100.0f;
     LevelDocument*   m_doc         = nullptr;
     QList<ActorData> m_runtimeActors;
