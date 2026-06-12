@@ -31,6 +31,7 @@ static void removeNodeFromActive(BPClass* bc, LevelDocument* doc, const QString&
 static void updateNodeInActive(BPClass* bc, LevelDocument* doc, const BPNode& node) {
     if (bc) {
         for (BPNode& n : bc->nodes) if (n.id == node.id) { n = node; return; }
+        qWarning() << "updateNodeInActive: node" << node.id << "not found in BPClass";
     } else if (doc) doc->updateBPNode(node);
 }
 static void addConnToActive(BPClass* bc, LevelDocument* doc, const BPConnection& conn) {
@@ -200,9 +201,12 @@ BlueprintEditor::BlueprintEditor(QWidget* parent) : QWidget(parent) {
 }
 
 void BlueprintEditor::loadLevel(LevelDocument* doc) {
+    m_bpClass = nullptr;
     m_doc = doc;
     m_selectedNodeId.clear();
     m_dragState = DragState::None;
+    hideWireDropPopup();
+    cancelInlineEdit();
     update();
 }
 
@@ -1332,6 +1336,16 @@ void BlueprintEditor::loadBpClass(BPClass* bpClass) {
     m_doc     = nullptr;
     m_selectedNodeId.clear();
     m_dragState = DragState::None;
+    // Clear wire state
+    m_wireFromNode.clear();
+    m_wireFromPin.clear();
+    m_wireFromIsOutput = false;
+    // Clear inline edit state
+    m_inlineEditNodeId.clear();
+    m_inlineEditPinKey.clear();
+    // Clear param edit state
+    m_paramEditNodeId.clear();
+    m_paramEditPinKey.clear();
     hideWireDropPopup();
     cancelInlineEdit();
     update();
@@ -1354,8 +1368,8 @@ const QList<BPConnection>& BlueprintEditor::activeConns() const {
 }
 
 void BlueprintEditor::notifyModified() {
-    if (m_bpClass) { m_bpClass->save(); emit bpClassModified(); }
-    else           { emit documentModified(); }
+    if (m_bpClass) emit bpClassModified();
+    else           emit documentModified();
 }
 
 bool BlueprintEditor::isSelfNodeVisible(const QString& typeId) const {
