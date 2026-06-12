@@ -291,6 +291,14 @@ UIEditor::UIEditor(QWidget* parent) : QWidget(parent) {
     connect(m_tree, &QTreeWidget::currentItemChanged,
             this, &UIEditor::onTreeSelectionChanged);
 
+    connect(m_bgCombo, &QComboBox::currentTextChanged, this, [this](const QString& name) {
+        if (name == "关闭") {
+            m_canvas->setPreviewLevel(nullptr, m_ppu);
+        }
+        // 其他关卡由 EditorWindow 统一处理，这里只刷新
+        m_canvas->update();
+    });
+
     // 注册画布回调
     m_canvas->onSelectionChanged = [this](const QString& id) {
         m_selectedId = id;
@@ -343,7 +351,20 @@ void UIEditor::loadDocument(UIDocument* doc) {
 }
 
 void UIEditor::setPreviewLevel(LevelDocument* level, float ppu) {
+    m_ppu = ppu;
     m_canvas->setPreviewLevel(level, ppu);
+}
+
+void UIEditor::setAvailableLevels(const QStringList& levelNames) {
+    m_levelNames = levelNames;
+    m_bgCombo->blockSignals(true);
+    const QString current = m_bgCombo->currentText();
+    m_bgCombo->clear();
+    m_bgCombo->addItem("关闭");
+    m_bgCombo->addItems(levelNames);
+    int idx = m_bgCombo->findText(current);
+    m_bgCombo->setCurrentIndex(idx >= 0 ? idx : 0);
+    m_bgCombo->blockSignals(false);
 }
 
 void UIEditor::rebuildTree() {

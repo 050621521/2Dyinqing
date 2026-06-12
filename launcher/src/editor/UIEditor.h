@@ -57,6 +57,7 @@ public:
 
     void loadDocument(UIDocument* doc);
     void setPreviewLevel(LevelDocument* level, float ppu);
+    void setAvailableLevels(const QStringList& levelNames);
 
     UIDocument* document() const { return m_doc; }
 
@@ -81,4 +82,6 @@ private:
     QScrollArea*     m_propScroll = nullptr;
     QComboBox*       m_bgCombo    = nullptr;
     QString          m_selectedId;
+    QStringList      m_levelNames;   // 可用关卡名列表
+    float            m_ppu = 100.0f; // 记住当前 PPU
 };
