@@ -179,6 +179,103 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
             "Self.Camera.SetBackground", "设置背景色", QColor("#1a2a4a"),
             {{"exec_in","exec",true,false},{"exec_out","exec",true,true},
              {"r","R",false,false},{"g","G",false,false},{"b","B",false,false}}
+        },
+        // ── UI 节点 ──────────────────────────────────────────────────────────
+        {
+            "UI.Create", "创建UI", QColor("#4a1a6a"),
+            {
+                {"exec_in",    "exec",   true,  false},
+                {"uiName",     "UI名称", false, false},
+                {"exec_out",   "exec",   true,  true},
+                {"instanceId", "UI引用", false, true},
+            }
+        },
+        {
+            "UI.Show", "显示UI", QColor("#1a4a6a"),
+            {
+                {"exec_in",    "exec",   true,  false},
+                {"instanceId", "UI引用", false, false},
+                {"exec_out",   "exec",   true,  true},
+            }
+        },
+        {
+            "UI.Hide", "隐藏UI", QColor("#1a4a6a"),
+            {
+                {"exec_in",    "exec",   true,  false},
+                {"instanceId", "UI引用", false, false},
+                {"exec_out",   "exec",   true,  true},
+            }
+        },
+        {
+            "UI.Destroy", "销毁UI", QColor("#6a1a1a"),
+            {
+                {"exec_in",    "exec",   true,  false},
+                {"instanceId", "UI引用", false, false},
+                {"exec_out",   "exec",   true,  true},
+            }
+        },
+        {
+            "UI.SetText", "设置文本", QColor("#1a4a6a"),
+            {
+                {"exec_in",    "exec",     true,  false},
+                {"instanceId", "UI引用",   false, false},
+                {"widgetName", "控件名",   false, false},
+                {"text",       "文本内容", false, false},
+                {"exec_out",   "exec",     true,  true},
+            }
+        },
+        {
+            "UI.SetValue", "设置进度值", QColor("#1a4a6a"),
+            {
+                {"exec_in",    "exec",   true,  false},
+                {"instanceId", "UI引用", false, false},
+                {"widgetName", "控件名", false, false},
+                {"value",      "数值",   false, false},
+                {"exec_out",   "exec",   true,  true},
+            }
+        },
+        {
+            "UI.SetPosition", "设置UI位置", QColor("#1a4a6a"),
+            {
+                {"exec_in",    "exec",   true,  false},
+                {"instanceId", "UI引用", false, false},
+                {"x",          "X",      false, false},
+                {"y",          "Y",      false, false},
+                {"exec_out",   "exec",   true,  true},
+            }
+        },
+        {
+            "UI.SetVisible", "设置控件可见", QColor("#1a4a6a"),
+            {
+                {"exec_in",    "exec",   true,  false},
+                {"instanceId", "UI引用", false, false},
+                {"widgetName", "控件名", false, false},
+                {"visible",    "可见",   false, false},
+                {"exec_out",   "exec",   true,  true},
+            }
+        },
+        {
+            "UI.Ref", "UI引用变量", QColor("#4a2a6a"),
+            {
+                {"instanceId", "UI引用", false, true},
+            }
+        },
+        {
+            "UI.OnButtonClick", "按钮点击时", QColor("#6a2a8a"),
+            {
+                {"instanceId", "UI引用", false, false},
+                {"widgetName", "控件名", false, false},
+                {"exec_out",   "exec",   true,  true},
+            }
+        },
+        {
+            "UI.OnDropdownChanged", "下拉选项改变时", QColor("#6a2a8a"),
+            {
+                {"instanceId", "UI引用",   false, false},
+                {"widgetName", "控件名",   false, false},
+                {"exec_out",   "exec",     true,  true},
+                {"index",      "选中索引", false, true},
+            }
         }
     };
     return defs;
@@ -855,12 +952,14 @@ void BlueprintEditor::contextMenuEvent(QContextMenuEvent* e) {
     auto* flowMenu   = menu.addMenu("流程控制");
     auto* varMenu    = menu.addMenu("变量");
     auto* selfMenu   = menu.addMenu("Self");
+    auto* uiMenu     = menu.addMenu("UI");
 
     for (const NodeDef& def : nodeDefs()) {
         if (!isSelfNodeVisible(def.typeId)) continue;
         QMenu* target = def.typeId.startsWith("Event.")  ? eventMenu  :
                         def.typeId.startsWith("Action.") ? actionMenu :
                         def.typeId.startsWith("Flow.")   ? flowMenu   :
+                        def.typeId.startsWith("UI.")     ? uiMenu     :
                         def.typeId.startsWith("Self.")   ? selfMenu   : varMenu;
         const QString typeId = def.typeId;
         target->addAction(def.displayName, [this, typeId, canvasPos]() {
@@ -1013,6 +1112,7 @@ void BlueprintEditor::showWireDropPopup(QPoint screenPos) {
         QString catName = def.typeId.startsWith("Event.")  ? "事件"    :
                           def.typeId.startsWith("Action.") ? "动作"    :
                           def.typeId.startsWith("Flow.")   ? "流程控制" :
+                          def.typeId.startsWith("UI.")     ? "UI"      :
                           def.typeId.startsWith("Self.")   ? "Self"    : "变量";
         auto* ci  = getCat(catName);
         auto* ni  = new QTreeWidgetItem(ci, {def.displayName});
