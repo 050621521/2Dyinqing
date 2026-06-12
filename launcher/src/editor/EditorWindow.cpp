@@ -919,6 +919,7 @@ void EditorWindow::startRuntime() {
 
     m_runtime = new BPRuntime(doc, this);
     m_uiRuntime = new UIRuntime(m_project.path, this);
+    m_runtime->setUIRuntime(m_uiRuntime);
     connect(m_uiRuntime, &UIRuntime::uiStateChanged, this, [this]() {
         if (m_gameViewport) m_gameViewport->update();
     });

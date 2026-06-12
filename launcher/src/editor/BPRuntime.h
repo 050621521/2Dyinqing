@@ -4,6 +4,10 @@
 #include <QSet>
 #include <QTimer>
 #include <QElapsedTimer>
+#include <QMap>
+#include <QString>
+
+class UIRuntime;
 
 class BPRuntime : public QObject {
     Q_OBJECT
@@ -18,6 +22,8 @@ public:
     QList<ActorData>&       mutableActors()  { return m_actors; }
     float                   lastDt()   const { return m_lastDt; }
     const QStringList&      printLog() const { return m_printLog; }
+
+    void setUIRuntime(UIRuntime* ui) { m_uiRuntime = ui; }
 
 signals:
     void stateChanged();
@@ -40,6 +46,10 @@ private:
     QList<BPConnection> m_connections;
     QList<ActorData>    m_actors;
     QStringList         m_printLog;
+
+    UIRuntime*             m_uiRuntime = nullptr;
+    QMap<QString, QString> m_uiRefs;      // nodeId(UI.Create) → instanceId
+    QMap<QString, int>     m_dropdownIndex; // UI.OnDropdownChanged nodeId → 最新索引
 
     QTimer*       m_tickTimer  = nullptr;
     QElapsedTimer m_elapsedTimer;
