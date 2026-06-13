@@ -140,6 +140,40 @@ ContentBrowser::ContentBrowser(const QString& projectRoot, QWidget* parent)
     root->addWidget(vLine);
     root->addWidget(rightWrap, 1);
 
+    // 左侧树右键菜单
+    m_folderTree->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_folderTree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        QTreeWidgetItem* item = m_folderTree->itemAt(pos);
+        QMenu menu(this);
+        if (item) {
+            const QString path = item->data(0, Qt::UserRole).toString();
+            const bool isRoot = (path == m_projectRoot);
+            if (!isRoot) {
+                menu.addAction("重命名", [this, item]() {
+                    m_folderTree->editItem(item, 0);
+                });
+                menu.addAction("删除", [this, path]() {
+                    const QString name = QDir(path).dirName();
+                    if (QMessageBox::question(this, "删除文件夹",
+                            QString("确定删除文件夹「%1」及其所有内容？").arg(name),
+                            QMessageBox::Yes | QMessageBox::Cancel) != QMessageBox::Yes) return;
+                    if (QDir(path).removeRecursively()) {
+                        buildFolderTree();
+                        populateFolder(m_currentPath.startsWith(path)
+                            ? QFileInfo(path).dir().absolutePath()
+                            : m_currentPath);
+                    } else {
+                        QMessageBox::warning(this, "删除文件夹", "删除失败，请确认文件夹未被占用。");
+                    }
+                });
+            }
+        } else {
+            menu.addAction("新建文件夹", this, &ContentBrowser::onNewFolder);
+        }
+        if (!menu.isEmpty())
+            menu.exec(m_folderTree->viewport()->mapToGlobal(pos));
+    });
+
     // 连接信号
     connect(m_folderTree, &QTreeWidget::itemClicked, this, &ContentBrowser::onFolderSelected);
     connect(m_assetGrid, &QListWidget::itemDoubleClicked, this, &ContentBrowser::onGridItemDoubleClicked);
@@ -542,6 +576,38 @@ void ContentBrowser::showGridContextMenu(const QPoint& pos) {
                 } else {
                     QMessageBox::warning(this, "删除文件夹", "删除失败，请确认文件夹未被占用。");
                 }
+            });
+        } else if (type == "bp") {
+            menu.addAction("打开", [this, path]() {
+                emit bpClassOpenRequested(path);
+            });
+            menu.addSeparator();
+            menu.addAction("重命名", [this, item]() {
+                m_assetGrid->editItem(item);
+            });
+            menu.addAction("删除", [this, path]() {
+                const QString name = QFileInfo(path).fileName();
+                if (QMessageBox::question(this, "删除蓝图",
+                        QString("确定删除「%1」？").arg(name),
+                        QMessageBox::Yes | QMessageBox::Cancel) != QMessageBox::Yes) return;
+                QFile::remove(path);
+                populateFolder(m_currentPath);
+            });
+        } else if (type == "ui") {
+            menu.addAction("打开", [this, path]() {
+                emit uiDocOpenRequested(path);
+            });
+            menu.addSeparator();
+            menu.addAction("重命名", [this, item]() {
+                m_assetGrid->editItem(item);
+            });
+            menu.addAction("删除", [this, path]() {
+                const QString name = QFileInfo(path).fileName();
+                if (QMessageBox::question(this, "删除UI",
+                        QString("确定删除「%1」？").arg(name),
+                        QMessageBox::Yes | QMessageBox::Cancel) != QMessageBox::Yes) return;
+                QFile::remove(path);
+                populateFolder(m_currentPath);
             });
         } else if (type == "image") {
             menu.addAction("指定给当前精灵", [this, path]() {
