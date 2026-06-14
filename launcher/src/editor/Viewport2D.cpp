@@ -423,21 +423,44 @@ void Viewport2D::drawPrintLog(QPainter& p) {
 
 // ── 交互 ──────────────────────────────────────────────────────────────
 
+static QString qtKeyToId(int k) {
+    switch (k) {
+        case Qt::Key_W:       return "W";
+        case Qt::Key_A:       return "A";
+        case Qt::Key_S:       return "S";
+        case Qt::Key_D:       return "D";
+        case Qt::Key_Up:      return "Up";
+        case Qt::Key_Down:    return "Down";
+        case Qt::Key_Left:    return "Left";
+        case Qt::Key_Right:   return "Right";
+        case Qt::Key_Space:   return "Space";
+        case Qt::Key_Return:
+        case Qt::Key_Enter:   return "Return";
+        case Qt::Key_Escape:  return "Escape";
+        case Qt::Key_Shift:   return "Shift";
+        case Qt::Key_Control: return "Control";
+        default:              return {};
+    }
+}
+
 void Viewport2D::keyPressEvent(QKeyEvent* e) {
     if (m_runtimeMode) {
-        QString key = e->text().toUpper();
-        if (key.isEmpty()) {
-            // 处理方向键等特殊键
-            if (e->key() == Qt::Key_Up)    key = "UP";
-            else if (e->key() == Qt::Key_Down)  key = "DOWN";
-            else if (e->key() == Qt::Key_Left)  key = "LEFT";
-            else if (e->key() == Qt::Key_Right) key = "RIGHT";
-        }
+        const QString key = qtKeyToId(e->key());
         if (!key.isEmpty())
             emit keyPressed(key);
         return;
     }
     QWidget::keyPressEvent(e);
+}
+
+void Viewport2D::keyReleaseEvent(QKeyEvent* e) {
+    if (m_runtimeMode) {
+        const QString key = qtKeyToId(e->key());
+        if (!key.isEmpty())
+            emit keyReleased(key);
+        return;
+    }
+    QWidget::keyReleaseEvent(e);
 }
 
 void Viewport2D::wheelEvent(QWheelEvent* e) {
@@ -559,10 +582,18 @@ void Viewport2D::mousePressEvent(QMouseEvent* e) {
                 : szBaseR * qMax(0.05f, qAbs(a.scaleY));
             QRectF hit(pos.x() - szW2 / 2, pos.y() - szH2 / 2, szW2, szH2);
             if (hit.contains(e->pos())) {
-                // 点在 Actor 上：平移模式
-                m_panning   = true;
-                m_lastMouse = e->pos();
-                setCursor(Qt::ClosedHandCursor);
+                // 右键点在 Actor 上：弹出操作菜单
+                const QString actorId   = a.id;
+                const QString actorName = a.name;
+                QMenu menu(this);
+                menu.addAction("删除 "" + actorName + """, [this, actorId]() {
+                    if (!m_doc) return;
+                    m_doc->removeActor(actorId);
+                    if (m_selectedId == actorId) m_selectedId.clear();
+                    update();
+                    emit actorRemoved(actorId);
+                });
+                menu.exec(e->globalPosition().toPoint());
                 return;
             }
         }

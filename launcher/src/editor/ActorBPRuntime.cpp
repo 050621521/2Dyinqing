@@ -20,7 +20,11 @@ void ActorBPRuntime::triggerBeginPlay() {
 }
 
 void ActorBPRuntime::triggerKeyDown(const QString& key) {
-    triggerEvent("Event.KeyDown", key);
+    triggerEvent("Event.Key." + key, "pressed");
+}
+
+void ActorBPRuntime::triggerKeyUp(const QString& key) {
+    triggerEvent("Event.Key." + key, "released");
 }
 
 void ActorBPRuntime::triggerTick(float dt) {
@@ -28,16 +32,12 @@ void ActorBPRuntime::triggerTick(float dt) {
     triggerEvent("Event.Tick");
 }
 
-void ActorBPRuntime::triggerEvent(const QString& eventType, const QString& eventParam) {
+void ActorBPRuntime::triggerEvent(const QString& eventType, const QString& pinName) {
+    const QString pin = pinName.isEmpty() ? "exec_out" : pinName;
     for (const BPNode& node : m_bpClass->nodes) {
         if (node.type != eventType) continue;
-        if (eventType == "Event.KeyDown") {
-            const QString expected = node.params.value("key");
-            if (!expected.isEmpty() && expected.compare(eventParam, Qt::CaseInsensitive) != 0)
-                continue;
-        }
         QSet<QString> visited;
-        executeChain(node.id, "exec_out", &visited);
+        executeChain(node.id, pin, &visited);
     }
 }
 
@@ -165,30 +165,33 @@ QString ActorBPRuntime::executeNode(const QString& nodeId) {
     }
 
     // ── UI 节点 ──────────────────────────────────────────────────────────
+    auto uiRef = [&](const QString& pinKey) -> QString {
+        QString v = resolveDataPin(nodeId, pinKey);
+        if (v.isEmpty()) v = node->params.value("uiName");
+        return v;
+    };
     if (node->type == "UI.Create") {
-        if (m_uiRuntime) {
-            const QString uiName = splitWidgetRef(resolveDataPin(nodeId, "widgetRef")).first;
-            m_uiRefs[nodeId] = m_uiRuntime->createInstance(uiName);
-        }
+        if (m_uiRuntime)
+            m_uiRefs[nodeId] = m_uiRuntime->createInstance(splitWidgetRef(uiRef("widgetRef")).first);
         return "exec_out";
     }
     if (node->type == "UI.Show") {
         if (m_uiRuntime) {
-            auto [uiName, widgetName] = splitWidgetRef(resolveDataPin(nodeId, "widgetRef"));
+            auto [uiName, widgetName] = splitWidgetRef(uiRef("widgetRef"));
             m_uiRuntime->showWidgetByName(uiName, widgetName);
         }
         return "exec_out";
     }
     if (node->type == "UI.Hide") {
         if (m_uiRuntime) {
-            auto [uiName, widgetName] = splitWidgetRef(resolveDataPin(nodeId, "widgetRef"));
+            auto [uiName, widgetName] = splitWidgetRef(uiRef("widgetRef"));
             m_uiRuntime->hideWidgetByName(uiName, widgetName);
         }
         return "exec_out";
     }
     if (node->type == "UI.Destroy") {
         if (m_uiRuntime) {
-            m_uiRuntime->destroyByName(splitWidgetRef(resolveDataPin(nodeId, "widgetRef")).first);
+            m_uiRuntime->destroyByName(splitWidgetRef(uiRef("widgetRef")).first);
             m_uiRefs.remove(nodeId);
         }
         return "exec_out";

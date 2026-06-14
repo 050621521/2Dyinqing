@@ -16,6 +16,7 @@ public:
 
     void triggerBeginPlay();
     void triggerKeyDown(const QString& key);
+    void triggerKeyUp(const QString& key);
     void triggerButtonClick(const QString& instanceId, const QString& widgetName);
     void triggerDropdownChanged(const QString& instanceId, const QString& widgetName, int index);
 

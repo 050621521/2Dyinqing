@@ -57,6 +57,7 @@ private:
     float   m_zoom   = 1.0f;
     QPointF m_offset = {0.0, 0.0};
     QPoint  m_lastMouse;
+    QPoint  m_panStartPos;
     bool    m_panning = false;
 
     // 交互状态机
@@ -71,6 +72,7 @@ private:
     QString  m_wireFromPin;
     bool     m_wireFromIsOutput = false;
     QPointF  m_wireCursorPos;
+    QString  m_selectedConnId;
 
     // 拖线松开弹窗
     QFrame*  m_wireDropPopup    = nullptr;
@@ -118,11 +120,12 @@ private:
 
     // 命中检测
     struct Hit {
-        enum Type { None, Node, Pin, PinValue } type = None;
+        enum Type { None, Node, Pin, PinValue, Wire } type = None;
         QString nodeId;
         QString pinName;
         bool    pinIsOutput = false;
         bool    pinIsExec   = false;
+        QString connId;   // for Wire hits
     };
     Hit hitTest(QPointF screenPos) const;
 

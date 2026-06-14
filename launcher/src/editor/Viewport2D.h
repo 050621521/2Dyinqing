@@ -26,7 +26,9 @@ signals:
     void actorTransformed(const ActorData& actor);
     void actorDragging(const ActorData& actor);
     void actorCreated(const ActorData& actor);
+    void actorRemoved(const QString& id);
     void keyPressed(const QString& key);
+    void keyReleased(const QString& key);
 
 protected:
     void paintEvent(QPaintEvent* e) override;
@@ -35,6 +37,7 @@ protected:
     void mouseMoveEvent(QMouseEvent* e) override;
     void mouseReleaseEvent(QMouseEvent* e) override;
     void keyPressEvent(QKeyEvent* e) override;
+    void keyReleaseEvent(QKeyEvent* e) override;
 
 private:
     float   m_ppu    = 100.0f;

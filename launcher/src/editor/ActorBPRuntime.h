@@ -18,6 +18,7 @@ public:
 
     void triggerBeginPlay();
     void triggerKeyDown(const QString& key);
+    void triggerKeyUp(const QString& key);
     void triggerTick(float dt);
     void setUIRuntime(UIRuntime* ui) { m_uiRuntime = ui; }
     void triggerButtonClick(const QString& instanceId, const QString& widgetName);

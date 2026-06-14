@@ -715,6 +715,13 @@ void EditorWindow::onTabChanged(int index) {
             updateTabTitle(m_docTabBar->currentIndex());
             updateSaveLabel();
         });
+        m_tabConnections << connect(m_viewport, &Viewport2D::actorRemoved,
+                                    this, [this, doc](const QString&) {
+            m_sceneOutliner->loadLevel(doc);
+            m_detailsPanel->clearActor();
+            updateTabTitle(m_docTabBar->currentIndex());
+            updateSaveLabel();
+        });
     }
 
     m_tabConnections << connect(m_detailsPanel, &DetailsPanel::actorModified,
@@ -981,6 +988,12 @@ void EditorWindow::startRuntime() {
         for (ActorBPRuntime* ar : m_actorRuntimes)
             ar->triggerKeyDown(key);
     });
+    connect(m_viewport, &Viewport2D::keyReleased, this, [this](const QString& key) {
+        if (!m_runtime || (m_pauseBtn && m_pauseBtn->isChecked())) return;
+        m_runtime->triggerKeyUp(key);
+        for (ActorBPRuntime* ar : m_actorRuntimes)
+            ar->triggerKeyUp(key);
+    });
 
     connect(m_runtime, &BPRuntime::loadLevelRequested, this,
             [this](const QString& levelName) {
@@ -1043,6 +1056,22 @@ void EditorWindow::startRuntime() {
     if (m_runBtn)   m_runBtn->setEnabled(false);
     if (m_pauseBtn) m_pauseBtn->setEnabled(true);
     if (m_stopBtn)  m_stopBtn->setEnabled(true);
+
+    if (m_gameViewport) {
+        connect(m_gameViewport, &GameViewport::keyPressed, this, [this](const QString& key) {
+            if (!m_runtime || (m_pauseBtn && m_pauseBtn->isChecked())) return;
+            m_runtime->triggerKeyDown(key);
+            for (ActorBPRuntime* ar : m_actorRuntimes)
+                ar->triggerKeyDown(key);
+        });
+        connect(m_gameViewport, &GameViewport::keyReleased, this, [this](const QString& key) {
+            if (!m_runtime || (m_pauseBtn && m_pauseBtn->isChecked())) return;
+            m_runtime->triggerKeyUp(key);
+            for (ActorBPRuntime* ar : m_actorRuntimes)
+                ar->triggerKeyUp(key);
+        });
+        m_gameViewport->setFocus();
+    }
 }
 
 void EditorWindow::togglePauseRuntime() {

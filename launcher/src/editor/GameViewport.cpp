@@ -4,11 +4,43 @@
 #include <QPainter>
 #include <QPaintEvent>
 #include <QMouseEvent>
+#include <QKeyEvent>
 #include <QFont>
 #include <cmath>
 
+static QString gvKeyToId(int k) {
+    switch (k) {
+        case Qt::Key_W:       return "W";
+        case Qt::Key_A:       return "A";
+        case Qt::Key_S:       return "S";
+        case Qt::Key_D:       return "D";
+        case Qt::Key_Up:      return "Up";
+        case Qt::Key_Down:    return "Down";
+        case Qt::Key_Left:    return "Left";
+        case Qt::Key_Right:   return "Right";
+        case Qt::Key_Space:   return "Space";
+        case Qt::Key_Return:
+        case Qt::Key_Enter:   return "Return";
+        case Qt::Key_Escape:  return "Escape";
+        case Qt::Key_Shift:   return "Shift";
+        case Qt::Key_Control: return "Control";
+        default:              return {};
+    }
+}
+
 GameViewport::GameViewport(QWidget* parent) : QWidget(parent) {
     setObjectName("gameViewport");
+    setFocusPolicy(Qt::StrongFocus);
+}
+
+void GameViewport::keyPressEvent(QKeyEvent* e) {
+    const QString key = gvKeyToId(e->key());
+    if (!key.isEmpty()) emit keyPressed(key);
+}
+
+void GameViewport::keyReleaseEvent(QKeyEvent* e) {
+    const QString key = gvKeyToId(e->key());
+    if (!key.isEmpty()) emit keyReleased(key);
 }
 
 void GameViewport::loadLevel(LevelDocument* doc) {

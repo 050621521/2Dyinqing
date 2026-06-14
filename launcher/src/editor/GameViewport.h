@@ -17,9 +17,15 @@ public:
     void setUIRuntime(UIRuntime* ui);
     void setPixelsPerUnit(float ppu);
 
+signals:
+    void keyPressed(const QString& key);
+    void keyReleased(const QString& key);
+
 protected:
     void paintEvent(QPaintEvent*) override;
     void mousePressEvent(QMouseEvent* e) override;
+    void keyPressEvent(QKeyEvent* e) override;
+    void keyReleaseEvent(QKeyEvent* e) override;
 
 private:
     QRectF  computeCameraRect(float aspect) const;
