@@ -4,6 +4,7 @@
 #include <QList>
 #include <QColor>
 #include <QJsonObject>
+#include <QUndoStack>
 
 struct UIWidget {
     // ── 通用 ──────────────────────────────────────────────
@@ -55,8 +56,12 @@ public:
     void removeWidget(const QString& id);   // 同时递归删除子孙
     void updateWidget(const UIWidget& w);
 
+    QUndoStack* undoStack();
+    ~UIDocument();
+
 private:
     QString         m_filePath, m_name;
     QList<UIWidget> m_widgets;
-    bool            m_dirty = false;
+    bool            m_dirty    = false;
+    QUndoStack*     m_undoStack = nullptr;
 };

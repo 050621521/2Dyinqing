@@ -4,6 +4,8 @@
 #include <QHash>
 #include <QSet>
 #include <QPixmap>
+#include <QUndoStack>
+#include <functional>
 
 class Viewport2D : public QWidget {
     Q_OBJECT
@@ -21,6 +23,13 @@ public:
 
     int  selectionCount() const { return m_selectedIds.size(); }
 
+    void setUndoStack(QUndoStack* stack, std::function<void()> refresh);
+    void frameSelected();
+    void selectAll();
+    void duplicateSelected();
+    void deleteSelected();
+    void clearSelection();
+
     void setRuntimeMode(bool on, const QList<ActorData>& actors = {});
     void updateRuntimeActors(const QList<ActorData>& actors);
     void syncPrintLog(const QStringList& log);
@@ -37,6 +46,7 @@ signals:
     void actorRemoved(const QString& id);
     void keyPressed(const QString& key);
     void keyReleased(const QString& key);
+    void toolModeChanged(ToolMode mode);
 
 protected:
     void paintEvent(QPaintEvent* e) override;
@@ -89,6 +99,11 @@ private:
     // 多 Actor 拖拽起始位置
     QHash<QString, QPointF> m_dragStartPositions;
     QPointF                 m_dragMouseStartWorld;
+
+    // 拖拽前的 Actor 快照（用于 undo）
+    QList<ActorData>      m_dragBeforeActors;
+    QUndoStack*           m_undoStack = nullptr;
+    std::function<void()> m_onRefresh;
 
     void applyToolCursor();
     void drawGrid(QPainter& p);

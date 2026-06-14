@@ -1,4 +1,5 @@
 #include "BlueprintEditor.h"
+#include "UndoCommands.h"
 #include "models/UIDocument.h"
 #include <QPainter>
 #include <QPainterPath>
@@ -426,6 +427,7 @@ BlueprintEditor::BlueprintEditor(QWidget* parent) : QWidget(parent) {
     setFocusPolicy(Qt::StrongFocus);
     setAttribute(Qt::WA_OpaquePaintEvent);
     setMouseTracking(true);
+    m_bpUndoStack = new QUndoStack(this);
 }
 
 void BlueprintEditor::loadLevel(LevelDocument* doc) {
@@ -436,6 +438,7 @@ void BlueprintEditor::loadLevel(LevelDocument* doc) {
     m_dragState = DragState::None;
     hideWireDropPopup();
     cancelInlineEdit();
+    m_bpUndoStack->clear();
     update();
 }
 
@@ -1103,7 +1106,10 @@ void BlueprintEditor::mousePressEvent(QMouseEvent* e) {
         m_dragState       = DragState::DraggingNode;
         m_draggingNodeId  = hit.nodeId;
         const BPNode* n = findNode(hit.nodeId);
-        if (n) m_dragOffset = screenToCanvas(e->position()) - QPointF(n->x, n->y);
+        if (n) {
+            m_nodeBeforeDrag = *n;
+            m_dragOffset = screenToCanvas(e->position()) - QPointF(n->x, n->y);
+        }
         update();
         return;
     }
@@ -1167,11 +1173,16 @@ void BlueprintEditor::mouseReleaseEvent(QMouseEvent* e) {
     }
 
     if (m_dragState == DragState::DraggingNode && (m_doc || m_bpClass)) {
-        // 正式提交节点位置
         const BPNode* n = findNode(m_draggingNodeId);
         if (n) {
-            updateNodeInActive(m_bpClass, m_doc, *n);
-            notifyModified();
+            // 判断是否有实际移动
+            if (n->x != m_nodeBeforeDrag.x || n->y != m_nodeBeforeDrag.y) {
+                BPNode after = *n;
+                auto refresh = [this]() { notifyModified(); update(); };
+                m_bpUndoStack->push(new BPNodeMoveCmd(m_bpClass, m_doc, m_nodeBeforeDrag, after, refresh));
+            } else {
+                updateNodeInActive(m_bpClass, m_doc, *n);
+            }
         }
         m_dragState = DragState::None;
         m_draggingNodeId.clear();
@@ -1201,10 +1212,13 @@ void BlueprintEditor::mouseReleaseEvent(QMouseEvent* e) {
             }
 
             if (typeOk) {
-                // 若目标输入 pin 已有连接，先删除
+                // 查找目标输入 pin 是否已有连接（displaced）
+                BPConnection displaced;
+                bool hasDisplaced = false;
                 for (const BPConnection& c : activeConns()) {
                     if (c.toNode == toNode && c.toPin == toPin) {
-                        removeConnFromActive(m_bpClass, m_doc, c.id);
+                        displaced = c;
+                        hasDisplaced = true;
                         break;
                     }
                 }
@@ -1214,8 +1228,9 @@ void BlueprintEditor::mouseReleaseEvent(QMouseEvent* e) {
                 conn.fromPin  = fromPin;
                 conn.toNode   = toNode;
                 conn.toPin    = toPin;
-                addConnToActive(m_bpClass, m_doc, conn);
-                notifyModified();
+                auto refresh = [this]() { notifyModified(); update(); };
+                m_bpUndoStack->push(new BPConnectionAddCmd(
+                    m_bpClass, m_doc, conn, displaced, hasDisplaced, refresh));
             }
             m_dragState = DragState::None;
             update();
@@ -1238,29 +1253,66 @@ void BlueprintEditor::mouseReleaseEvent(QMouseEvent* e) {
 
 // ── 键盘事件 ──────────────────────────────────────────────────────────
 
-void BlueprintEditor::keyPressEvent(QKeyEvent* e) {
-    if ((e->key() == Qt::Key_Delete || e->key() == Qt::Key_Backspace)
-        && !m_selectedConnId.isEmpty() && (m_doc || m_bpClass)) {
-        removeConnFromActive(m_bpClass, m_doc, m_selectedConnId);
+void BlueprintEditor::frameAll() {
+    const auto& nodes = activeNodes();
+    if (nodes.isEmpty()) { m_offset = {0, 0}; m_zoom = 1.0f; update(); return; }
+    float minX = nodes[0].x, maxX = nodes[0].x + kNodeW;
+    float minY = nodes[0].y, maxY = nodes[0].y + nodeHeight(nodes[0]);
+    for (const BPNode& n : nodes) {
+        minX = qMin(minX, n.x);
+        maxX = qMax(maxX, n.x + kNodeW);
+        minY = qMin(minY, n.y);
+        maxY = qMax(maxY, n.y + nodeHeight(n));
+    }
+    float pad = 60.0f;
+    float zoomX = (float)width()  / ((maxX - minX) + pad * 2);
+    float zoomY = (float)height() / ((maxY - minY) + pad * 2);
+    m_zoom = qBound(0.2f, qMin(zoomX, zoomY), 2.0f);
+    float cx = (minX + maxX) * 0.5f, cy = (minY + maxY) * 0.5f;
+    m_offset = QPointF(-cx * m_zoom, -cy * m_zoom);
+    update();
+}
+
+void BlueprintEditor::duplicateSelectedNode() {
+    if (m_selectedNodeId.isEmpty() || (!m_doc && !m_bpClass)) return;
+    const BPNode* src = findNode(m_selectedNodeId);
+    if (!src) return;
+    BPNode copy = *src;
+    copy.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    copy.x += 20.0f;
+    copy.y += 20.0f;
+    auto refresh = [this]() { notifyModified(); update(); };
+    m_bpUndoStack->push(new BPNodeAddCmd(m_bpClass, m_doc, copy, refresh));
+    m_selectedNodeId = copy.id;
+    update();
+}
+
+void BlueprintEditor::deleteSelected() {
+    if (!m_doc && !m_bpClass) return;
+    auto refresh = [this]() { notifyModified(); update(); };
+    if (!m_selectedConnId.isEmpty()) {
+        BPConnection conn;
+        for (const BPConnection& c : activeConns())
+            if (c.id == m_selectedConnId) { conn = c; break; }
+        m_bpUndoStack->push(new BPConnectionRemoveCmd(m_bpClass, m_doc, conn, refresh));
         m_selectedConnId.clear();
-        notifyModified();
-        update();
         return;
     }
-    if ((e->key() == Qt::Key_Delete || e->key() == Qt::Key_Backspace)
-        && !m_selectedNodeId.isEmpty() && (m_doc || m_bpClass)) {
-        // 先删除所有关联连接
-        QStringList toRemove;
-        for (const BPConnection& c : activeConns())
-            if (c.fromNode == m_selectedNodeId || c.toNode == m_selectedNodeId)
-                toRemove.append(c.id);
-        for (const QString& id : toRemove)
-            removeConnFromActive(m_bpClass, m_doc, id);
-        removeNodeFromActive(m_bpClass, m_doc, m_selectedNodeId);
-        m_selectedNodeId.clear();
-        notifyModified();
-        update();
+    if (!m_selectedNodeId.isEmpty()) {
+        const BPNode* n = findNode(m_selectedNodeId);
+        if (n) {
+            QList<BPConnection> related;
+            for (const BPConnection& c : activeConns())
+                if (c.fromNode == m_selectedNodeId || c.toNode == m_selectedNodeId)
+                    related << c;
+            m_bpUndoStack->push(new BPNodeRemoveCmd(m_bpClass, m_doc, *n, related, refresh));
+            m_selectedNodeId.clear();
+        }
     }
+}
+
+void BlueprintEditor::keyPressEvent(QKeyEvent* e) {
+    QWidget::keyPressEvent(e);
 }
 
 // ── 右键菜单 ──────────────────────────────────────────────────────────
@@ -1277,17 +1329,14 @@ void BlueprintEditor::contextMenuEvent(QContextMenuEvent* e) {
         const NodeDef* def = findNodeDef(n->type);
         QString label = def ? def->displayName : n->type;
         QMenu menu(this);
-        menu.addAction("删除节点 "" + label + """, [this, nodeId]() {
-            QStringList toRemove;
+        menu.addAction("删除节点 "" + label + """, [this, nodeId, n]() {
+            QList<BPConnection> related;
             for (const BPConnection& c : activeConns())
                 if (c.fromNode == nodeId || c.toNode == nodeId)
-                    toRemove.append(c.id);
-            for (const QString& id : toRemove)
-                removeConnFromActive(m_bpClass, m_doc, id);
-            removeNodeFromActive(m_bpClass, m_doc, nodeId);
+                    related << c;
+            auto refresh = [this]() { notifyModified(); update(); };
+            m_bpUndoStack->push(new BPNodeRemoveCmd(m_bpClass, m_doc, *n, related, refresh));
             if (m_selectedNodeId == nodeId) m_selectedNodeId.clear();
-            notifyModified();
-            update();
         });
         menu.exec(e->globalPos());
         return;
@@ -1298,10 +1347,12 @@ void BlueprintEditor::contextMenuEvent(QContextMenuEvent* e) {
         const QString connId = hit.connId;
         QMenu menu(this);
         menu.addAction("删除连接", [this, connId]() {
-            removeConnFromActive(m_bpClass, m_doc, connId);
+            BPConnection conn;
+            for (const BPConnection& c : activeConns())
+                if (c.id == connId) { conn = c; break; }
+            auto refresh = [this]() { notifyModified(); update(); };
+            m_bpUndoStack->push(new BPConnectionRemoveCmd(m_bpClass, m_doc, conn, refresh));
             if (m_selectedConnId == connId) m_selectedConnId.clear();
-            notifyModified();
-            update();
         });
         menu.exec(e->globalPos());
         return;
@@ -1339,9 +1390,9 @@ void BlueprintEditor::contextMenuEvent(QContextMenuEvent* e) {
             node.type = typeId;
             node.x    = (float)canvasPos.x();
             node.y    = (float)canvasPos.y();
-            addNodeToActive(m_bpClass, m_doc, node);
+            auto refresh = [this]() { notifyModified(); update(); };
+            m_bpUndoStack->push(new BPNodeAddCmd(m_bpClass, m_doc, node, refresh));
             m_selectedNodeId = node.id;
-            notifyModified();
             update();
         });
     }
@@ -1563,8 +1614,6 @@ void BlueprintEditor::onWireDropSelected(const QString& typeId, const QString& c
     node.type = typeId;
     node.x    = (float)m_wireDropCanvasPos.x();
     node.y    = (float)m_wireDropCanvasPos.y();
-    addNodeToActive(m_bpClass, m_doc, node);
-
     BPConnection conn;
     conn.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
     if (fromIsOutput) {
@@ -1578,10 +1627,13 @@ void BlueprintEditor::onWireDropSelected(const QString& typeId, const QString& c
         conn.toNode   = fromNode;
         conn.toPin    = fromPin;
     }
-    addConnToActive(m_bpClass, m_doc, conn);
+    auto refresh = [this]() { notifyModified(); update(); };
+    m_bpUndoStack->beginMacro("拖线创建节点");
+    m_bpUndoStack->push(new BPNodeAddCmd(m_bpClass, m_doc, node, refresh));
+    m_bpUndoStack->push(new BPConnectionAddCmd(m_bpClass, m_doc, conn, {}, false, refresh));
+    m_bpUndoStack->endMacro();
 
     m_selectedNodeId = node.id;
-    notifyModified();
 
     hideWireDropPopup();
     update();
@@ -1821,6 +1873,7 @@ void BlueprintEditor::loadBpClass(BPClass* bpClass) {
     m_paramEditPinKey.clear();
     hideWireDropPopup();
     cancelInlineEdit();
+    m_bpUndoStack->clear();
     update();
 }
 

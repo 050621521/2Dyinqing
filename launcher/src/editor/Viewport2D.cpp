@@ -1,4 +1,5 @@
 #include "Viewport2D.h"
+#include "UndoCommands.h"
 #include "models/ActorTypeUtils.h"
 #include <QPainter>
 #include <QPaintEvent>
@@ -77,6 +78,95 @@ void Viewport2D::alignSelected(int type) {
 void Viewport2D::setToolMode(ToolMode mode) {
     m_toolMode = mode;
     applyToolCursor();
+    update();
+    emit toolModeChanged(mode);
+}
+
+void Viewport2D::setUndoStack(QUndoStack* stack, std::function<void()> refresh) {
+    m_undoStack = stack;
+    m_onRefresh = std::move(refresh);
+}
+
+void Viewport2D::frameSelected() {
+    if (!m_doc) return;
+    if (m_selectedId.isEmpty()) {
+        m_offset = {0, 0};
+    } else {
+        for (const ActorData& a : m_doc->actors()) {
+            if (a.id != m_selectedId) continue;
+            m_offset = QPointF(-a.x * m_zoom, -a.y * m_zoom);
+            break;
+        }
+    }
+    update();
+}
+
+void Viewport2D::selectAll() {
+    if (!m_doc) return;
+    m_selectedIds.clear();
+    for (const ActorData& a : m_doc->actors())
+        m_selectedIds.insert(a.id);
+    m_selectedId = m_selectedIds.isEmpty() ? QString() : *m_selectedIds.begin();
+    emit selectionChanged(m_selectedIds.values());
+    update();
+}
+
+void Viewport2D::clearSelection() {
+    m_selectedId.clear();
+    m_selectedIds.clear();
+    emit selectionChanged({});
+    update();
+}
+
+void Viewport2D::duplicateSelected() {
+    if (!m_doc || m_selectedIds.isEmpty() || !m_undoStack || !m_onRefresh) return;
+    QList<ActorData> copies;
+    for (const ActorData& a : m_doc->actors()) {
+        if (!m_selectedIds.contains(a.id)) continue;
+        ActorData copy = a;
+        copy.id   = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        copy.name = a.name + " 副本";
+        copy.x   += 50.0f;
+        copy.y   += 50.0f;
+        copies << copy;
+    }
+    if (copies.isEmpty()) return;
+    m_undoStack->beginMacro("复制 Actor");
+    for (const ActorData& c : copies)
+        m_undoStack->push(new ActorAddCmd(m_doc, c, m_onRefresh));
+    m_undoStack->endMacro();
+    m_selectedIds.clear();
+    for (const ActorData& c : copies) {
+        m_selectedIds.insert(c.id);
+        emit actorCreated(c);
+    }
+    m_selectedId = copies.first().id;
+    emit selectionChanged(m_selectedIds.values());
+    update();
+}
+
+void Viewport2D::deleteSelected() {
+    if (m_selectedIds.isEmpty() || !m_doc) return;
+    if (m_undoStack && m_onRefresh) {
+        m_undoStack->beginMacro("删除 Actor");
+        for (const QString& id : m_selectedIds) {
+            for (const ActorData& a : m_doc->actors()) {
+                if (a.id == id) {
+                    m_undoStack->push(new ActorRemoveCmd(m_doc, a, m_onRefresh));
+                    break;
+                }
+            }
+        }
+        m_undoStack->endMacro();
+    } else {
+        for (const QString& id : m_selectedIds)
+            m_doc->removeActor(id);
+        if (m_onRefresh) m_onRefresh();
+    }
+    for (const QString& id : m_selectedIds) emit actorRemoved(id);
+    m_selectedId.clear();
+    m_selectedIds.clear();
+    emit selectionChanged({});
     update();
 }
 
@@ -585,6 +675,10 @@ void Viewport2D::mousePressEvent(QMouseEvent* e) {
                     else if (yHandle.contains(e->pos())) hit = ScaleHandle::AxisY;
                     if (hit != ScaleHandle::None) {
                         m_scaleHandle = hit;
+                        m_dragBeforeActors.clear();
+                        for (const ActorData& b : m_doc->actors())
+                            if (m_selectedIds.contains(b.id))
+                                m_dragBeforeActors << b;
                         m_dragging    = true;
                         m_dragActorId = a.id;
                         m_dragMouseStartWorld = screenToWorld(e->pos());
@@ -613,7 +707,9 @@ void Viewport2D::mousePressEvent(QMouseEvent* e) {
                     else if (yHandle.contains(e->pos())) hit = ScaleHandle::AxisY;
                     else if (cHandle.contains(e->pos())) hit = ScaleHandle::Center;
                     if (hit != ScaleHandle::None) {
-                        m_scaleHandle     = hit;
+                        m_scaleHandle = hit;
+                        m_dragBeforeActors.clear();
+                        m_dragBeforeActors << a;
                         m_dragging        = true;
                         m_dragActorId     = a.id;
                         m_dragAnchor      = e->pos();
@@ -647,6 +743,10 @@ void Viewport2D::mousePressEvent(QMouseEvent* e) {
                         emit actorSelected(a);
                     }
                     m_selectedId  = a.id;
+                    m_dragBeforeActors.clear();
+                    for (const ActorData& b : m_doc->actors())
+                        if (m_selectedIds.contains(b.id))
+                            m_dragBeforeActors << b;
                     m_dragging    = true;
                     m_dragActorId = a.id;
                     if (m_toolMode == ToolMode::Rotate) {
@@ -694,9 +794,14 @@ void Viewport2D::mousePressEvent(QMouseEvent* e) {
                 const QString actorId   = a.id;
                 const QString actorName = a.name;
                 QMenu menu(this);
-                menu.addAction("删除 "" + actorName + """, [this, actorId]() {
+                menu.addAction("删除 "" + actorName + """, [this, actorId, a]() {
                     if (!m_doc) return;
-                    m_doc->removeActor(actorId);
+                    if (m_undoStack && m_onRefresh) {
+                        m_undoStack->push(new ActorRemoveCmd(m_doc, a, m_onRefresh));
+                    } else {
+                        m_doc->removeActor(actorId);
+                        if (m_onRefresh) m_onRefresh();
+                    }
                     if (m_selectedId == actorId) {
                         m_selectedId.clear();
                         m_selectedIds.clear();
@@ -724,7 +829,12 @@ void Viewport2D::mousePressEvent(QMouseEvent* e) {
                 a.components = defaultComponents(type);
                 a.x    = (float)worldPos.x();
                 a.y    = (float)worldPos.y();
-                m_doc->addActor(a);
+                if (m_undoStack && m_onRefresh) {
+                    m_undoStack->push(new ActorAddCmd(m_doc, a, m_onRefresh));
+                } else {
+                    m_doc->addActor(a);
+                    if (m_onRefresh) m_onRefresh();
+                }
                 m_selectedId = a.id;
                 m_selectedIds.clear();
                 m_selectedIds.insert(a.id);
@@ -847,6 +957,30 @@ void Viewport2D::mouseReleaseEvent(QMouseEvent* e) {
     if (e->button() == Qt::LeftButton && m_dragging) {
         m_dragging = false;
         if (m_doc) {
+            // 收集拖拽后状态
+            if (m_undoStack && m_onRefresh && !m_dragBeforeActors.isEmpty()) {
+                QSet<QString> beforeIds;
+                for (const ActorData& b : m_dragBeforeActors) beforeIds.insert(b.id);
+                QList<ActorData> afterActors;
+                for (const ActorData& a : m_doc->actors())
+                    if (beforeIds.contains(a.id)) afterActors << a;
+                // 判断是否有实际变化
+                bool changed = false;
+                for (const ActorData& b : m_dragBeforeActors) {
+                    for (const ActorData& a : afterActors) {
+                        if (a.id == b.id && (a.x != b.x || a.y != b.y
+                            || a.rotation != b.rotation
+                            || a.scaleX != b.scaleX || a.scaleY != b.scaleY)) {
+                            changed = true; break;
+                        }
+                    }
+                    if (changed) break;
+                }
+                if (changed)
+                    m_undoStack->push(new ActorTransformCmd(m_doc, m_dragBeforeActors, afterActors, m_onRefresh));
+            }
+            m_dragBeforeActors.clear();
+
             for (const ActorData& a : m_doc->actors()) {
                 if (a.id == m_dragActorId) {
                     emit actorTransformed(a);

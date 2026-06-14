@@ -136,3 +136,10 @@ void UIDocument::updateWidget(const UIWidget& w) {
         if (existing.id == w.id) { existing = w; m_dirty = true; return; }
     }
 }
+
+UIDocument::~UIDocument() { delete m_undoStack; }
+
+QUndoStack* UIDocument::undoStack() {
+    if (!m_undoStack) m_undoStack = new QUndoStack();
+    return m_undoStack;
+}

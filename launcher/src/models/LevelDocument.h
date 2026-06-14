@@ -5,6 +5,7 @@
 #include <QJsonObject>
 #include <QColor>
 #include <QMap>
+#include <QUndoStack>
 
 struct ActorData {
     QString id;
@@ -104,6 +105,10 @@ public:
     QString name() const { return m_name; }
     QString filePath() const { return m_filePath; }
 
+    QUndoStack* undoStack();
+
+    ~LevelDocument();
+
 private:
     void rebuildSortedActors();
 
@@ -115,4 +120,6 @@ private:
 
     QList<BPNode>       m_bpNodes;
     QList<BPConnection> m_bpConnections;
+
+    QUndoStack* m_undoStack = nullptr;
 };

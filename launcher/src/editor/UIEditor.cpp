@@ -1,4 +1,5 @@
 #include "UIEditor.h"
+#include "UndoCommands.h"
 #include "models/ActorTypeUtils.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -21,6 +22,7 @@
 #include <QMenu>
 #include <QPainter>
 #include <QMouseEvent>
+#include <QWheelEvent>
 #include <QContextMenuEvent>
 #include <QKeyEvent>
 #include <QUuid>
@@ -106,12 +108,13 @@ void UIEditorCanvas::setDoc(UIDocument* doc) {
     m_doc = doc;
     m_selectedId.clear();
     m_selectedIds.clear();
+    m_zoomInitialized = false;  // 下次 paintEvent 自动适配缩放
     update();
 }
 
 UIEditorCanvas::ResizeHandle UIEditorCanvas::hitResizeHandle(QPointF pos, const UIWidget& w) const {
     const QRectF r = widgetScreenRect(w, getViewportRect());
-    const float hs = 7.0f;
+    const float hs = 7.0f / m_zoom;  // 屏幕空间固定 7px
     // 四角（优先检测）
     if (QRectF(r.left()-hs,  r.top()-hs,    hs*2, hs*2).contains(pos)) return ResizeHandle::TL;
     if (QRectF(r.right()-hs, r.top()-hs,    hs*2, hs*2).contains(pos)) return ResizeHandle::TR;
@@ -218,7 +221,23 @@ void UIEditorCanvas::makeSameSize(bool useWidth) {
 }
 
 void UIEditorCanvas::setPreviewLevel(LevelDocument* level, float ppu) {
-    m_level = level; m_ppu = ppu; update();
+    m_level = level; m_ppu = ppu;
+    updateCanonicalSize();
+    update();
+}
+
+void UIEditorCanvas::updateCanonicalSize() {
+    m_canonicalW = 1920; m_canonicalH = 1080;
+    if (!m_level) return;
+    for (const ActorData& a : m_level->sortedActors()) {
+        if (a.cameraIsMain && (a.bpClass == "builtin/Camera" || a.components.contains("摄像机组件"))) {
+            if (a.cameraResW > 0 && a.cameraResH > 0) {
+                m_canonicalW = a.cameraResW;
+                m_canonicalH = a.cameraResH;
+            }
+            break;
+        }
+    }
 }
 
 void UIEditorCanvas::setSelectedId(const QString& id) {
@@ -305,12 +324,13 @@ void UIEditorCanvas::renderWidget(QPainter& p, const UIWidget& w, const QRectF& 
     if (m_selectedIds.contains(w.id)) {
         const bool isPrimary = (w.id == m_selectedId);
         p.save();
-        p.setPen(QPen(QColor("#38bdf8"), isPrimary ? 2 : 1));
+        p.setPen(QPen(QColor("#38bdf8"), isPrimary ? 2.0f/m_zoom : 1.0f/m_zoom));
         p.setBrush(Qt::NoBrush);
         p.drawRect(r);
         if (isPrimary) {
+            const float hs = 4.0f / m_zoom;
             for (const QPointF& pt : {r.topLeft(), r.topRight(), r.bottomLeft(), r.bottomRight()})
-                p.fillRect(QRectF(pt.x()-4, pt.y()-4, 8, 8), QColor("#38bdf8"));
+                p.fillRect(QRectF(pt.x()-hs, pt.y()-hs, hs*2, hs*2), QColor("#38bdf8"));
         }
         p.restore();
     }
@@ -356,10 +376,23 @@ void UIEditorCanvas::paintEvent(QPaintEvent*) {
     p.setRenderHint(QPainter::Antialiasing);
     p.fillRect(rect(), QColor(35, 35, 40));
 
+    // 网格保持屏幕空间（不随缩放移动）
     const int gs = 20;
     p.setPen(QPen(QColor(45,45,50), 1));
     for (int x = 0; x < width(); x += gs)  p.drawLine(x, 0, x, height());
     for (int y = 0; y < height(); y += gs)  p.drawLine(0, y, width(), y);
+
+    // 首次绘制时自动适配缩放（等比缩小使视口居中完整显示）
+    if (!m_zoomInitialized && width() > 0 && height() > 0) {
+        m_zoom = qMin((float)width() / m_canonicalW, (float)height() / m_canonicalH) * 0.92f;
+        m_panOffset = QPointF(0, 0);
+        m_zoomInitialized = true;
+    }
+
+    // 应用缩放/平移变换：世界原点对应 screenOrigin()
+    p.save();
+    p.translate(screenOrigin());
+    p.scale(m_zoom, m_zoom);
 
     if (m_level)
         drawScenePreview(p);
@@ -380,44 +413,99 @@ void UIEditorCanvas::paintEvent(QPaintEvent*) {
                 else { minX=qMin(minX,(float)r.left()); minY=qMin(minY,(float)r.top()); maxX=qMax(maxX,(float)r.right()); maxY=qMax(maxY,(float)r.bottom()); }
             }
             if (!first) {
-                p.setPen(QPen(Qt::white, 1, Qt::DashLine));
+                p.setPen(QPen(Qt::white, 1.0f / m_zoom, Qt::DashLine));
                 p.setBrush(Qt::NoBrush);
-                p.drawRect(QRectF(minX-6, minY-6, maxX-minX+12, maxY-minY+12));
+                p.drawRect(QRectF(minX - 6.0f/m_zoom, minY - 6.0f/m_zoom,
+                                  maxX - minX + 12.0f/m_zoom, maxY - minY + 12.0f/m_zoom));
             }
         }
     }
 
-    // 框选矩形
+    p.restore();
+
+    // 框选矩形保持屏幕空间
     if (m_rubberBanding && !m_rubberRect.isNull()) {
         p.setPen(QPen(QColor(100, 150, 255, 200), 1, Qt::DashLine));
         p.setBrush(QColor(100, 150, 255, 30));
         p.drawRect(m_rubberRect);
     }
+
+    // 缩放比例提示
+    if (m_zoom != 1.0f) {
+        const QString zoomText = QString("%1%").arg(qRound(m_zoom * 100));
+        p.setPen(QColor(180, 180, 180, 180));
+        p.drawText(rect().adjusted(8, 4, -8, -4), Qt::AlignTop | Qt::AlignRight, zoomText);
+    }
+}
+
+QPointF UIEditorCanvas::screenToCanvas(QPointF screenPos) const {
+    return (screenPos - screenOrigin()) / m_zoom;
+}
+
+QRectF UIEditorCanvas::worldRectToScreen(const QRectF& worldRect) const {
+    const QPointF o = screenOrigin();
+    return QRectF(
+        worldRect.left()   * m_zoom + o.x(),
+        worldRect.top()    * m_zoom + o.y(),
+        worldRect.width()  * m_zoom,
+        worldRect.height() * m_zoom
+    );
+}
+
+void UIEditorCanvas::wheelEvent(QWheelEvent* e) {
+    const float delta  = e->angleDelta().y() / 120.0f;
+    const float factor = (delta > 0) ? 1.15f : (1.0f / 1.15f);
+
+    const QPointF mouseScreen = e->position();
+    const QPointF mouseWorld  = screenToCanvas(mouseScreen);  // 鼠标下的世界坐标
+
+    m_zoom = qBound(0.1f, m_zoom * factor, 16.0f);
+
+    // 保持鼠标下世界点不动：mouseWorld * zoom + autoCenter + panOffset = mouseScreen
+    const QPointF autoCenter((width()  - m_canonicalW * m_zoom) / 2.0,
+                              (height() - m_canonicalH * m_zoom) / 2.0);
+    m_panOffset = mouseScreen - mouseWorld * m_zoom - autoCenter;
+    update();
+    e->accept();
 }
 
 QRectF UIEditorCanvas::getViewportRect() const {
-    float aspect = 1920.0f / 1080.0f;
-    if (m_level) {
-        for (const ActorData& a : m_level->sortedActors()) {
-            if (a.cameraIsMain && (a.bpClass == "builtin/Camera" || a.components.contains("摄像机组件"))) {
-                if (a.cameraResH > 0) aspect = (float)a.cameraResW / a.cameraResH;
-                break;
-            }
-        }
-    }
-    return computeCameraRect(aspect);
+    // 固定世界坐标系：视口永远是 (0,0,canonicalW,canonicalH)
+    return QRectF(0, 0, m_canonicalW, m_canonicalH);
 }
 
-QRectF UIEditorCanvas::computeCameraRect(float aspect) const {
-    const float w = (float)width();
-    const float h = (float)height();
-    float camW, camH;
-    if (h > 0.0f && w / h > aspect) {
-        camH = h; camW = h * aspect;
-    } else {
-        camW = w; camH = (aspect > 0.0f) ? w / aspect : h;
+QRectF UIEditorCanvas::resolveRect(const QString& widgetId) const {
+    if (!m_doc) return {};
+    for (const UIWidget& w : m_doc->widgets()) {
+        if (w.id != widgetId) continue;
+        const QRectF parentRect = w.parentId.isEmpty()
+            ? QRectF(0, 0, m_canonicalW, m_canonicalH)
+            : resolveRect(w.parentId);
+        return widgetScreenRect(w, parentRect);
     }
-    return QRectF((w - camW) / 2.0f, (h - camH) / 2.0f, camW, camH);
+    return {};
+}
+
+QRectF UIEditorCanvas::worldRectOf(const QString& widgetId) const {
+    return resolveRect(widgetId);
+}
+
+QRectF UIEditorCanvas::parentWorldRect(const QString& widgetId) const {
+    if (!m_doc) return QRectF(0, 0, m_canonicalW, m_canonicalH);
+    for (const UIWidget& w : m_doc->widgets()) {
+        if (w.id != widgetId) continue;
+        if (w.parentId.isEmpty()) return QRectF(0, 0, m_canonicalW, m_canonicalH);
+        return resolveRect(w.parentId);
+    }
+    return QRectF(0, 0, m_canonicalW, m_canonicalH);
+}
+
+QPointF UIEditorCanvas::screenOrigin() const {
+    // 世界原点 (0,0) 对应的屏幕坐标（考虑自动居中 + 用户平移）
+    return QPointF(
+        (width()  - m_canonicalW * m_zoom) / 2.0 + m_panOffset.x(),
+        (height() - m_canonicalH * m_zoom) / 2.0 + m_panOffset.y()
+    );
 }
 
 QPointF UIEditorCanvas::cameraWorldToScreen(QPointF world, const QRectF& camRect, const ActorData& cam) const {
@@ -445,11 +533,12 @@ void UIEditorCanvas::drawScenePreview(QPainter& p) const {
     }
     if (!cam) return;
 
-    const float aspect = cam->cameraResH > 0
-                         ? (float)cam->cameraResW / cam->cameraResH : 1.7778f;
-    const QRectF camRect = computeCameraRect(aspect);
+    // 世界坐标系：视口固定为 (0,0,canonicalW,canonicalH)
+    const QRectF camRect(0, 0, m_canonicalW, m_canonicalH);
     p.fillRect(camRect, cam->cameraBackground);
 
+    const float aspect = cam->cameraResH > 0
+                         ? (float)cam->cameraResW / cam->cameraResH : 1.7778f;
     const float halfH  = cam->cameraSize;
     const float halfW  = halfH * aspect;
     const float scaleX = (float)camRect.width()  / (halfW * 2.0f);
@@ -542,28 +631,38 @@ QString UIEditorCanvas::hitTest(QPointF pos, const QString& parentId, const QRec
 }
 
 void UIEditorCanvas::mousePressEvent(QMouseEvent* e) {
+    // 中键：开始平移
+    if (e->button() == Qt::MiddleButton) {
+        m_panning  = true;
+        m_panStart = e->pos();
+        setCursor(Qt::ClosedHandCursor);
+        return;
+    }
+
     if (e->button() != Qt::LeftButton) return;
     const bool ctrl = (e->modifiers() & Qt::ControlModifier) != 0;
-    const QRectF vp = getViewportRect();
+    const QRectF  vp  = getViewportRect();
+    const QPointF pos = screenToCanvas(e->position());  // 转为画布坐标
 
     // 先检测缩放手柄（主选控件存在时）
     if (!m_selectedId.isEmpty() && !ctrl && m_doc) {
         for (const UIWidget& w : m_doc->widgets()) {
             if (w.id != m_selectedId) continue;
-            ResizeHandle rh = hitResizeHandle(e->position(), w);
+            ResizeHandle rh = hitResizeHandle(pos, w);
             if (rh != ResizeHandle::None) {
                 m_resizing     = true;
                 m_resizeHandle = rh;
-                m_dragStart    = e->position();
+                m_dragStart    = pos;
                 m_resizeInitX  = w.x;  m_resizeInitY = w.y;
                 m_resizeInitW  = w.width; m_resizeInitH = w.height;
+                if (onResizeBegan) onResizeBegan(m_selectedId);
                 return;
             }
             break;
         }
     }
 
-    const QString hit = hitTest(e->position(), {}, vp);
+    const QString hit = hitTest(pos, {}, vp);
 
     if (!hit.isEmpty()) {
         if (ctrl) {
@@ -585,11 +684,12 @@ void UIEditorCanvas::mousePressEvent(QMouseEvent* e) {
             }
             // 开始拖拽：记录所有选中控件的起始位置
             m_dragging = true;
-            m_dragStart = e->position();
+            m_dragStart = pos;
             m_dragStartPositions.clear();
             for (const UIWidget& w : m_doc->widgets())
                 if (m_selectedIds.contains(w.id))
                     m_dragStartPositions[w.id] = {w.x, w.y};
+            if (onDragBegan) onDragBegan(m_selectedIds.values());
         }
         update();
     } else {
@@ -607,9 +707,19 @@ void UIEditorCanvas::mousePressEvent(QMouseEvent* e) {
 }
 
 void UIEditorCanvas::mouseMoveEvent(QMouseEvent* e) {
+    // 中键平移
+    if (m_panning) {
+        m_panOffset += QPointF(e->pos() - m_panStart);
+        m_panStart = e->pos();
+        update();
+        return;
+    }
+
+    const QPointF pos = screenToCanvas(e->position());
+
     // 缩放拖拽
     if (m_resizing && !m_selectedId.isEmpty() && m_doc) {
-        const QPointF d = e->position() - m_dragStart;
+        const QPointF d = pos - m_dragStart;
         float dx = (float)d.x(), dy = (float)d.y();
         float nx = m_resizeInitX, ny = m_resizeInitY;
         float nw = m_resizeInitW, nh = m_resizeInitH;
@@ -634,7 +744,7 @@ void UIEditorCanvas::mouseMoveEvent(QMouseEvent* e) {
     if (!m_dragging && !m_resizing && !m_selectedId.isEmpty() && m_doc) {
         for (const UIWidget& w : m_doc->widgets()) {
             if (w.id != m_selectedId) continue;
-            const ResizeHandle rh = hitResizeHandle(e->position(), w);
+            const ResizeHandle rh = hitResizeHandle(pos, w);
             switch (rh) {
                 case ResizeHandle::TL: case ResizeHandle::BR: setCursor(Qt::SizeFDiagCursor); break;
                 case ResizeHandle::TR: case ResizeHandle::BL: setCursor(Qt::SizeBDiagCursor); break;
@@ -653,7 +763,7 @@ void UIEditorCanvas::mouseMoveEvent(QMouseEvent* e) {
     }
     if (!m_dragging || m_selectedIds.isEmpty() || !m_doc) return;
 
-    const QPointF totalDelta = e->position() - m_dragStart;
+    const QPointF totalDelta = pos - m_dragStart;  // 画布坐标差，直接对应 UI 单位
     const QRectF  vp = getViewportRect();
 
     if (m_selectedIds.size() == 1) {
@@ -686,7 +796,15 @@ void UIEditorCanvas::mouseMoveEvent(QMouseEvent* e) {
 }
 
 void UIEditorCanvas::mouseReleaseEvent(QMouseEvent* e) {
+    // 中键：结束平移
+    if (m_panning && e->button() == Qt::MiddleButton) {
+        m_panning = false;
+        setCursor(Qt::ArrowCursor);
+        return;
+    }
+
     if (m_resizing && e->button() == Qt::LeftButton) {
+        if (onResizeEnded) onResizeEnded();
         m_resizing = false;
         m_resizeHandle = ResizeHandle::None;
         setCursor(Qt::ArrowCursor);
@@ -700,8 +818,9 @@ void UIEditorCanvas::mouseReleaseEvent(QMouseEvent* e) {
         if (m_doc && !m_rubberRect.isNull()) {
             const QRectF vp = getViewportRect();
             for (const UIWidget& w : m_doc->widgets()) {
-                QRectF r = widgetScreenRect(w, vp);
-                if (m_rubberRect.intersects(r.toRect()))
+                // 框选矩形在屏幕空间，控件 rect 需转换到屏幕空间再做交叉检测
+                QRectF screenR = worldRectToScreen(widgetScreenRect(w, vp));
+                if (m_rubberRect.intersects(screenR.toRect()))
                     m_selectedIds.insert(w.id);
             }
         }
@@ -713,6 +832,8 @@ void UIEditorCanvas::mouseReleaseEvent(QMouseEvent* e) {
         update();
         return;
     }
+    if (m_dragging && e->button() == Qt::LeftButton)
+        if (onDragEnded) onDragEnded(m_selectedIds.values());
     m_dragging = false;
     m_dragStartPositions.clear();
 }
@@ -860,16 +981,35 @@ UIEditor::UIEditor(QWidget* parent) : QWidget(parent) {
     alignLay->addWidget(snapCombo);
     alignLay->addStretch();
 
-    connect(bAlignL,  &QToolButton::clicked, this, [this](){ m_canvas->alignSelected(0); emit documentModified(); });
-    connect(bAlignR,  &QToolButton::clicked, this, [this](){ m_canvas->alignSelected(1); emit documentModified(); });
-    connect(bAlignHC, &QToolButton::clicked, this, [this](){ m_canvas->alignSelected(2); emit documentModified(); });
-    connect(bAlignT,  &QToolButton::clicked, this, [this](){ m_canvas->alignSelected(3); emit documentModified(); });
-    connect(bAlignB,  &QToolButton::clicked, this, [this](){ m_canvas->alignSelected(4); emit documentModified(); });
-    connect(bAlignVC, &QToolButton::clicked, this, [this](){ m_canvas->alignSelected(5); emit documentModified(); });
-    connect(bDistH,   &QToolButton::clicked, this, [this](){ m_canvas->distributeSelected(true);  emit documentModified(); });
-    connect(bDistV,   &QToolButton::clicked, this, [this](){ m_canvas->distributeSelected(false); emit documentModified(); });
-    connect(bSameW,   &QToolButton::clicked, this, [this](){ m_canvas->makeSameSize(true);  emit documentModified(); });
-    connect(bSameH,   &QToolButton::clicked, this, [this](){ m_canvas->makeSameSize(false); emit documentModified(); });
+    // 通用对齐操作辅助：快照 before → 执行 → 快照 after → 推 undo
+    auto alignWithUndo = [this](std::function<void()> action) {
+        if (!m_doc) return;
+        QList<UIWidget> before;
+        const QStringList ids = m_canvas->selectedIds();
+        for (const UIWidget& w : m_doc->widgets())
+            if (ids.contains(w.id)) before << w;
+        action();
+        if (m_undoStack && m_onRefresh) {
+            QList<UIWidget> after;
+            for (const UIWidget& w : m_doc->widgets())
+                if (ids.contains(w.id)) after << w;
+            m_undoStack->push(new UIWidgetMoveCmd(m_doc, before, after, m_onRefresh));
+        } else {
+            emit documentModified();
+        }
+        m_canvas->update();
+    };
+
+    connect(bAlignL,  &QToolButton::clicked, this, [this, alignWithUndo](){ alignWithUndo([this](){ m_canvas->alignSelected(0); }); });
+    connect(bAlignR,  &QToolButton::clicked, this, [this, alignWithUndo](){ alignWithUndo([this](){ m_canvas->alignSelected(1); }); });
+    connect(bAlignHC, &QToolButton::clicked, this, [this, alignWithUndo](){ alignWithUndo([this](){ m_canvas->alignSelected(2); }); });
+    connect(bAlignT,  &QToolButton::clicked, this, [this, alignWithUndo](){ alignWithUndo([this](){ m_canvas->alignSelected(3); }); });
+    connect(bAlignB,  &QToolButton::clicked, this, [this, alignWithUndo](){ alignWithUndo([this](){ m_canvas->alignSelected(4); }); });
+    connect(bAlignVC, &QToolButton::clicked, this, [this, alignWithUndo](){ alignWithUndo([this](){ m_canvas->alignSelected(5); }); });
+    connect(bDistH,   &QToolButton::clicked, this, [this, alignWithUndo](){ alignWithUndo([this](){ m_canvas->distributeSelected(true);  }); });
+    connect(bDistV,   &QToolButton::clicked, this, [this, alignWithUndo](){ alignWithUndo([this](){ m_canvas->distributeSelected(false); }); });
+    connect(bSameW,   &QToolButton::clicked, this, [this, alignWithUndo](){ alignWithUndo([this](){ m_canvas->makeSameSize(true);  }); });
+    connect(bSameH,   &QToolButton::clicked, this, [this, alignWithUndo](){ alignWithUndo([this](){ m_canvas->makeSameSize(false); }); });
 
     connect(snapBtn, &QToolButton::toggled, this, [this, snapCombo](bool on) {
         snapCombo->setEnabled(on);
@@ -963,6 +1103,7 @@ UIEditor::UIEditor(QWidget* parent) : QWidget(parent) {
         m_selectedId = id;
         rebuildPropsPanel(id);
         updateAlignBtns(id.isEmpty() ? 0 : 1);
+        QSignalBlocker blocker(m_tree);
         QTreeWidgetItemIterator it(m_tree);
         while (*it) {
             if ((*it)->data(0, Qt::UserRole).toString() == id) {
@@ -982,10 +1123,11 @@ UIEditor::UIEditor(QWidget* parent) : QWidget(parent) {
         } else {
             m_selectedId = ids.isEmpty() ? QString() : ids.first();
             if (n == 0) rebuildPropsPanel({});
-            // 多选时不展示属性（保持现有空状态）
+            else rebuildMultiPropsPanel(ids);
         }
-        // 树中高亮第一个选中项
+        // 树中高亮第一个选中项，屏蔽信号避免触发 onTreeSelectionChanged 覆盖多选
         if (!m_selectedId.isEmpty()) {
+            QSignalBlocker blocker(m_tree);
             QTreeWidgetItemIterator it(m_tree);
             while (*it) {
                 if ((*it)->data(0, Qt::UserRole).toString() == m_selectedId) {
@@ -997,16 +1139,15 @@ UIEditor::UIEditor(QWidget* parent) : QWidget(parent) {
         }
     };
 
+    // 拖动过程中直接更新（不走 undo），拖动结束时批量提交（见 onDragEnded）
     m_canvas->onWidgetMoved = [this](const QString& id, float x, float y) {
         if (!m_doc) return;
         for (const UIWidget& w : m_doc->widgets()) {
-            if (w.id == id) {
-                UIWidget u = w; u.x = x; u.y = y;
-                m_doc->updateWidget(u);
-                rebuildPropsPanel(id);
-                emit documentModified();
-                break;
-            }
+            if (w.id != id) continue;
+            UIWidget u = w; u.x = x; u.y = y;
+            m_doc->updateWidget(u);
+            if (m_selectedId == id) rebuildPropsPanel(id);
+            break;
         }
     };
 
@@ -1019,19 +1160,75 @@ UIEditor::UIEditor(QWidget* parent) : QWidget(parent) {
             u.y = (float)positions[w.id].y();
             m_doc->updateWidget(u);
         }
-        emit documentModified();
     };
 
+    // 缩放过程中直接更新（不走 undo），缩放结束时批量提交（见 onResizeEnded）
     m_canvas->onWidgetResized = [this](const QString& id, float x, float y, float w, float h) {
         if (!m_doc) return;
         for (const UIWidget& wgt : m_doc->widgets()) {
             if (wgt.id != id) continue;
             UIWidget u = wgt; u.x = x; u.y = y; u.width = w; u.height = h;
             m_doc->updateWidget(u);
-            rebuildPropsPanel(id);
-            emit documentModified();
+            if (m_selectedId == id) rebuildPropsPanel(id);
             break;
         }
+    };
+
+    // 拖动开始：快照选中控件状态（供 onDragEnded 比较）
+    m_canvas->onDragBegan = [this](QStringList ids) {
+        m_dragBeforeWidgets.clear();
+        if (!m_doc) return;
+        for (const UIWidget& w : m_doc->widgets())
+            if (ids.contains(w.id)) m_dragBeforeWidgets << w;
+    };
+
+    // 拖动结束：若位置有变则推 undo 命令
+    m_canvas->onDragEnded = [this](QStringList ids) {
+        if (!m_undoStack || m_dragBeforeWidgets.isEmpty() || !m_doc) {
+            m_dragBeforeWidgets.clear();
+            if (m_doc) emit documentModified();
+            return;
+        }
+        QList<UIWidget> after;
+        for (const UIWidget& w : m_doc->widgets())
+            if (ids.contains(w.id)) after << w;
+        bool changed = false;
+        for (const UIWidget& b : m_dragBeforeWidgets)
+            for (const UIWidget& a : after)
+                if (a.id == b.id && (a.x != b.x || a.y != b.y)) { changed = true; break; }
+        if (changed)
+            m_undoStack->push(new UIWidgetMoveCmd(m_doc, m_dragBeforeWidgets, after, m_onRefresh));
+        else
+            emit documentModified();
+        m_dragBeforeWidgets.clear();
+    };
+
+    // 缩放开始：快照
+    m_canvas->onResizeBegan = [this](const QString& id) {
+        m_dragBeforeWidgets.clear();
+        if (!m_doc) return;
+        for (const UIWidget& w : m_doc->widgets())
+            if (w.id == id) { m_dragBeforeWidgets << w; break; }
+    };
+
+    // 缩放结束：若尺寸/位置有变则推 undo 命令
+    m_canvas->onResizeEnded = [this]() {
+        if (!m_undoStack || m_dragBeforeWidgets.isEmpty() || !m_doc) {
+            m_dragBeforeWidgets.clear();
+            if (m_doc) emit documentModified();
+            return;
+        }
+        const QString id = m_dragBeforeWidgets.first().id;
+        for (const UIWidget& w : m_doc->widgets()) {
+            if (w.id != id) continue;
+            const UIWidget& b = m_dragBeforeWidgets.first();
+            if (w.x != b.x || w.y != b.y || w.width != b.width || w.height != b.height)
+                m_undoStack->push(new UIWidgetMoveCmd(m_doc, m_dragBeforeWidgets, {w}, m_onRefresh));
+            else
+                emit documentModified();
+            break;
+        }
+        m_dragBeforeWidgets.clear();
     };
 
     m_canvas->onAddWidget = [this](const QString& type) { onAddWidget(type); };
@@ -1039,14 +1236,16 @@ UIEditor::UIEditor(QWidget* parent) : QWidget(parent) {
     m_canvas->onImageDropped = [this](const QString& widgetId, const QString& imagePath) {
         if (!m_doc) return;
         for (const UIWidget& wi : m_doc->widgets()) {
-            if (wi.id == widgetId) {
-                UIWidget u = wi; u.imagePath = imagePath;
-                m_doc->updateWidget(u);
-                m_canvas->update();
-                if (m_selectedId == widgetId) rebuildPropsPanel(widgetId);
-                emit documentModified();
-                break;
-            }
+            if (wi.id != widgetId) continue;
+            UIWidget before = wi;
+            UIWidget after = wi; after.imagePath = imagePath;
+            m_doc->updateWidget(after);
+            m_canvas->update();
+            if (m_selectedId == widgetId) rebuildPropsPanel(widgetId);
+            if (m_undoStack && m_onRefresh)
+                m_undoStack->push(new UIWidgetModifyCmd(m_doc, before, after, m_onRefresh));
+            else emit documentModified();
+            break;
         }
     };
 
@@ -1080,10 +1279,10 @@ void UIEditor::setProjectRoot(const QString& root) {
     m_projectRoot = root;
 }
 
-void UIEditor::setAvailableLevels(const QStringList& levelNames) {
+void UIEditor::setAvailableLevels(const QStringList& levelNames, const QString& activeLevel) {
     m_levelNames = levelNames;
     m_bgCombo->blockSignals(true);
-    const QString current = m_bgCombo->currentText();
+    const QString current = activeLevel.isEmpty() ? m_bgCombo->currentText() : activeLevel;
     m_bgCombo->clear();
     m_bgCombo->addItem("关闭");
     m_bgCombo->addItems(levelNames);
@@ -1139,22 +1338,36 @@ void UIEditor::onAddWidget(const QString& type) {
     w.height = (type == "UI.进度条") ? 14  : (type.contains("布局") ? 150 : 30);
     w.bgColor = (type == "UI.面板") ? QColor(30, 30, 50, 200) : QColor(0, 0, 0, 0);
     w.text    = (type == "UI.文本") ? "文本" : (type == "UI.按钮") ? "按钮" : "";
-    m_doc->addWidget(w);
-    rebuildTree();
-    m_selectedId = w.id;
-    m_canvas->setSelectedId(w.id);
-    rebuildPropsPanel(w.id);
-    emit documentModified();
+    const QString newId = w.id;
+    if (m_undoStack && m_onRefresh) {
+        m_selectedId = newId;  // 先设好，push → redo → m_onRefresh 时会显示正确控件
+        m_undoStack->push(new UIWidgetAddCmd(m_doc, {w}, m_onRefresh));
+        m_canvas->setSelectedId(m_selectedId);
+    } else {
+        m_doc->addWidget(w);
+        rebuildTree();
+        m_selectedId = newId;
+        m_canvas->setSelectedId(newId);
+        rebuildPropsPanel(newId);
+        emit documentModified();
+    }
 }
 
 void UIEditor::onDeleteSelected() {
     if (!m_doc || m_selectedId.isEmpty()) return;
-    m_doc->removeWidget(m_selectedId);
-    m_selectedId.clear();
-    m_canvas->setSelectedId({});
-    rebuildTree();
-    rebuildPropsPanel({});
-    emit documentModified();
+    QList<UIWidget> subtree = collectSubtree(m_selectedId);
+    if (subtree.isEmpty()) return;
+    if (m_undoStack && m_onRefresh) {
+        m_undoStack->push(new UIWidgetRemoveCmd(m_doc, subtree, m_onRefresh));
+        // m_onRefresh 会检测 m_selectedId 已失效并清空
+    } else {
+        m_doc->removeWidget(m_selectedId);
+        m_selectedId.clear();
+        m_canvas->setSelectedId({});
+        rebuildTree();
+        rebuildPropsPanel({});
+        emit documentModified();
+    }
 }
 
 bool UIEditor::eventFilter(QObject* obj, QEvent* e) {
@@ -1166,6 +1379,138 @@ bool UIEditor::eventFilter(QObject* obj, QEvent* e) {
         }
     }
     return QWidget::eventFilter(obj, e);
+}
+
+void UIEditor::rebuildMultiPropsPanel(const QStringList& ids)
+{
+    auto* lay = qobject_cast<QVBoxLayout*>(m_props->layout());
+    if (!lay) return;
+    while (lay->count() > 0) {
+        auto* item = lay->takeAt(0);
+        if (item->widget()) item->widget()->deleteLater();
+        delete item;
+    }
+    if (!m_doc || ids.isEmpty()) { lay->addStretch(); return; }
+
+    auto addRow = [&](const QString& label, QWidget* ctrl) {
+        auto* row = new QWidget;
+        auto* rl  = new QHBoxLayout(row);
+        rl->setContentsMargins(4, 1, 4, 1);
+        rl->addWidget(new QLabel(label));
+        rl->addWidget(ctrl, 1);
+        lay->addWidget(row);
+    };
+
+    auto* title = new QLabel(QString("已选中 %1 个控件").arg(ids.size()));
+    title->setAlignment(Qt::AlignCenter);
+    lay->addWidget(title);
+
+    // 锚点：显示公共值，改动批量应用
+    QString commonAnchor;
+    bool sameAnchor = true;
+    for (const QString& id : ids) {
+        for (const UIWidget& w : m_doc->widgets()) {
+            if (w.id != id) continue;
+            if (commonAnchor.isEmpty()) commonAnchor = w.anchor;
+            else if (commonAnchor != w.anchor) sameAnchor = false;
+            break;
+        }
+    }
+    auto* anchorPicker = new AnchorPicker;
+    if (sameAnchor && !commonAnchor.isEmpty()) anchorPicker->setAnchor(commonAnchor);
+    addRow("锚点", anchorPicker);
+    connect(anchorPicker, &AnchorPicker::anchorChanged, this, [this, ids](const QString& v) {
+        if (!m_doc || !m_undoStack || !m_onRefresh) return;
+        auto anchorOrig = [](const QString& a, const QRectF& p) -> QPointF {
+            float ax = (a=="左上"||a=="左中"||a=="左下") ? p.left()
+                     : (a=="正上"||a=="居中"||a=="正下") ? p.center().x() : p.right();
+            float ay = (a=="左上"||a=="正上"||a=="右上") ? p.top()
+                     : (a=="左中"||a=="居中"||a=="右中") ? p.center().y() : p.bottom();
+            return {ax, ay};
+        };
+        QList<UIWidget> before, after;
+        for (const QString& id : ids) {
+            for (const UIWidget& wi : m_doc->widgets()) {
+                if (wi.id != id) continue;
+                before << wi;
+                const QPointF worldTL = m_canvas->worldRectOf(id).topLeft();
+                const QRectF  pRect   = m_canvas->parentWorldRect(id);
+                const QPointF newRef  = anchorOrig(v, pRect);
+                UIWidget a = wi;
+                a.anchor = v;
+                a.x = (float)(worldTL.x() - newRef.x());
+                a.y = (float)(worldTL.y() - newRef.y());
+                after << a;
+                break;
+            }
+        }
+        for (const UIWidget& w : after) m_doc->updateWidget(w);
+        m_canvas->update();
+        m_undoStack->push(new UIWidgetBatchModifyCmd(m_doc, before, after, "批量修改锚点", m_onRefresh));
+    });
+
+    // 可见性：全选中可见则勾，否则不勾
+    bool allVisible = true;
+    for (const QString& id : ids) {
+        for (const UIWidget& w : m_doc->widgets()) {
+            if (w.id != id) continue;
+            if (!w.visible) allVisible = false;
+            break;
+        }
+    }
+    auto* visCheck = new QCheckBox("可见");
+    visCheck->setChecked(allVisible);
+    lay->addWidget(visCheck);
+    connect(visCheck, &QCheckBox::toggled, this, [this, ids](bool v) {
+        if (!m_doc || !m_undoStack || !m_onRefresh) return;
+        QList<UIWidget> before, after;
+        for (const QString& id : ids) {
+            for (const UIWidget& wi : m_doc->widgets()) {
+                if (wi.id != id) continue;
+                before << wi;
+                UIWidget a = wi; a.visible = v;
+                after << a;
+                break;
+            }
+        }
+        for (const UIWidget& w : after) m_doc->updateWidget(w);
+        m_canvas->update();
+        m_undoStack->push(new UIWidgetBatchModifyCmd(m_doc, before, after, "批量修改可见", m_onRefresh));
+    });
+
+    // 背景色批量
+    auto* bgBtn = new QPushButton;
+    bgBtn->setFixedHeight(22);
+    bgBtn->setStyleSheet("background:#00000000;border:1px solid #555;");
+    addRow("背景色", bgBtn);
+    connect(bgBtn, &QPushButton::clicked, this, [this, ids, bgBtn]() {
+        if (!m_doc || !m_undoStack || !m_onRefresh) return;
+        QColor initColor(0, 0, 0, 0);
+        for (const QString& id : ids) {
+            for (const UIWidget& w : m_doc->widgets()) {
+                if (w.id == id) { initColor = w.bgColor; break; }
+            }
+            break;
+        }
+        QColor c = QColorDialog::getColor(initColor, this, "选择背景色", QColorDialog::ShowAlphaChannel);
+        if (!c.isValid()) return;
+        QList<UIWidget> before, after;
+        for (const QString& id : ids) {
+            for (const UIWidget& wi : m_doc->widgets()) {
+                if (wi.id != id) continue;
+                before << wi;
+                UIWidget a = wi; a.bgColor = c;
+                after << a;
+                break;
+            }
+        }
+        for (const UIWidget& w : after) m_doc->updateWidget(w);
+        bgBtn->setStyleSheet(QString("background:%1;border:1px solid #555;").arg(c.name(QColor::HexArgb)));
+        m_canvas->update();
+        m_undoStack->push(new UIWidgetBatchModifyCmd(m_doc, before, after, "批量修改背景色", m_onRefresh));
+    });
+
+    lay->addStretch();
 }
 
 void UIEditor::rebuildPropsPanel(const QString& widgetId) {
@@ -1199,10 +1544,13 @@ void UIEditor::rebuildPropsPanel(const QString& widgetId) {
     connect(nameEdit, &QLineEdit::editingFinished, this, [this, widgetId, nameEdit]() {
         if (!m_doc) return;
         for (const UIWidget& wi : m_doc->widgets()) {
-            if (wi.id == widgetId) {
-                UIWidget u = wi; u.name = nameEdit->text();
-                m_doc->updateWidget(u); rebuildTree(); emit documentModified(); break;
-            }
+            if (wi.id != widgetId) continue;
+            if (wi.name == nameEdit->text()) break;
+            UIWidget before = wi, after = wi; after.name = nameEdit->text();
+            m_doc->updateWidget(after); rebuildTree();
+            if (m_undoStack && m_onRefresh) m_undoStack->push(new UIWidgetModifyCmd(m_doc, before, after, m_onRefresh));
+            else emit documentModified();
+            break;
         }
     });
 
@@ -1212,7 +1560,30 @@ void UIEditor::rebuildPropsPanel(const QString& widgetId) {
     connect(anchorPicker, &AnchorPicker::anchorChanged, this, [this, widgetId](const QString& v) {
         if (!m_doc) return;
         for (const UIWidget& wi : m_doc->widgets()) {
-            if (wi.id == widgetId) { UIWidget u = wi; u.anchor = v; m_doc->updateWidget(u); m_canvas->update(); emit documentModified(); break; }
+            if (wi.id != widgetId) continue;
+            // 当前控件在背景预览世界坐标中的左上角（绝对位置）
+            const QPointF worldTL = m_canvas->worldRectOf(widgetId).topLeft();
+            // 父区域（根控件=背景预览 0,0,W,H；子控件=父控件世界矩形）
+            const QRectF pRect = m_canvas->parentWorldRect(widgetId);
+            // 计算新锚点在父区域中的参考原点
+            auto anchorOrig = [](const QString& a, const QRectF& p) -> QPointF {
+                float ax = (a=="左上"||a=="左中"||a=="左下") ? p.left()
+                         : (a=="正上"||a=="居中"||a=="正下") ? p.center().x() : p.right();
+                float ay = (a=="左上"||a=="正上"||a=="右上") ? p.top()
+                         : (a=="左中"||a=="居中"||a=="右中") ? p.center().y() : p.bottom();
+                return {ax, ay};
+            };
+            const QPointF newRef = anchorOrig(v, pRect);
+            UIWidget before = wi, after = wi;
+            after.anchor = v;
+            // 保持世界绝对位置不变：newRef + newX = worldTL
+            after.x = (float)(worldTL.x() - newRef.x());
+            after.y = (float)(worldTL.y() - newRef.y());
+            m_doc->updateWidget(after); m_canvas->update();
+            if (m_undoStack && m_onRefresh) m_undoStack->push(new UIWidgetModifyCmd(m_doc, before, after, m_onRefresh));
+            else emit documentModified();
+            rebuildPropsPanel(widgetId);
+            break;
         }
     });
 
@@ -1229,12 +1600,15 @@ void UIEditor::rebuildPropsPanel(const QString& widgetId) {
     auto updateLayout = [this, widgetId, xSb, ySb, wSb, hSb]() {
         if (!m_doc) return;
         for (const UIWidget& wi : m_doc->widgets()) {
-            if (wi.id == widgetId) {
-                UIWidget u = wi;
-                u.x = (float)xSb->value(); u.y = (float)ySb->value();
-                u.width = (float)wSb->value(); u.height = (float)hSb->value();
-                m_doc->updateWidget(u); m_canvas->update(); emit documentModified(); break;
-            }
+            if (wi.id != widgetId) continue;
+            UIWidget before = wi, after = wi;
+            after.x = (float)xSb->value(); after.y = (float)ySb->value();
+            after.width = (float)wSb->value(); after.height = (float)hSb->value();
+            if (before.x == after.x && before.y == after.y && before.width == after.width && before.height == after.height) break;
+            m_doc->updateWidget(after); m_canvas->update();
+            if (m_undoStack && m_onRefresh) m_undoStack->push(new UIWidgetModifyCmd(m_doc, before, after, m_onRefresh));
+            else emit documentModified();
+            break;
         }
     };
     connect(xSb, &QDoubleSpinBox::editingFinished, this, updateLayout);
@@ -1248,7 +1622,12 @@ void UIEditor::rebuildPropsPanel(const QString& widgetId) {
     connect(visCheck, &QCheckBox::toggled, this, [this, widgetId](bool v) {
         if (!m_doc) return;
         for (const UIWidget& wi : m_doc->widgets()) {
-            if (wi.id == widgetId) { UIWidget u = wi; u.visible = v; m_doc->updateWidget(u); m_canvas->update(); emit documentModified(); break; }
+            if (wi.id != widgetId) continue;
+            UIWidget before = wi, after = wi; after.visible = v;
+            m_doc->updateWidget(after); m_canvas->update();
+            if (m_undoStack && m_onRefresh) m_undoStack->push(new UIWidgetModifyCmd(m_doc, before, after, m_onRefresh));
+            else emit documentModified();
+            break;
         }
     });
 
@@ -1267,12 +1646,15 @@ void UIEditor::rebuildPropsPanel(const QString& widgetId) {
         if (!m_doc) return;
         for (const UIWidget& wi : m_doc->widgets()) {
             if (wi.id != widgetId) continue;
-            QColor c = QColorDialog::getColor(wi.bgColor, this, "选择背景色",
-                                               QColorDialog::ShowAlphaChannel);
+            QColor c = QColorDialog::getColor(wi.bgColor, this, "选择背景色", QColorDialog::ShowAlphaChannel);
             if (!c.isValid()) break;
-            UIWidget u = wi; u.bgColor = c; m_doc->updateWidget(u);
+            UIWidget before = wi, after = wi; after.bgColor = c;
+            m_doc->updateWidget(after);
             bgBtn->setStyleSheet(QString("background:%1;border:1px solid #555;").arg(c.name(QColor::HexArgb)));
-            m_canvas->update(); emit documentModified(); break;
+            m_canvas->update();
+            if (m_undoStack && m_onRefresh) m_undoStack->push(new UIWidgetModifyCmd(m_doc, before, after, m_onRefresh));
+            else emit documentModified();
+            break;
         }
     });
 
@@ -1285,9 +1667,13 @@ void UIEditor::rebuildPropsPanel(const QString& widgetId) {
                 if (wi.id != widgetId) continue;
                 QColor c = QColorDialog::getColor(wi.color, this, "选择文字颜色");
                 if (!c.isValid()) break;
-                UIWidget u = wi; u.color = c; m_doc->updateWidget(u);
+                UIWidget before = wi, after = wi; after.color = c;
+                m_doc->updateWidget(after);
                 fgBtn->setStyleSheet(QString("background:%1;border:1px solid #555;").arg(c.name(QColor::HexArgb)));
-                m_canvas->update(); emit documentModified(); break;
+                m_canvas->update();
+                if (m_undoStack && m_onRefresh) m_undoStack->push(new UIWidgetModifyCmd(m_doc, before, after, m_onRefresh));
+                else emit documentModified();
+                break;
             }
         });
 
@@ -1297,7 +1683,13 @@ void UIEditor::rebuildPropsPanel(const QString& widgetId) {
         connect(fsSb, &QSpinBox::editingFinished, this, [this, widgetId, fsSb]() {
             if (!m_doc) return;
             for (const UIWidget& wi : m_doc->widgets()) {
-                if (wi.id == widgetId) { UIWidget u = wi; u.fontSize = fsSb->value(); m_doc->updateWidget(u); m_canvas->update(); emit documentModified(); break; }
+                if (wi.id != widgetId) continue;
+                if (wi.fontSize == fsSb->value()) break;
+                UIWidget before = wi, after = wi; after.fontSize = fsSb->value();
+                m_doc->updateWidget(after); m_canvas->update();
+                if (m_undoStack && m_onRefresh) m_undoStack->push(new UIWidgetModifyCmd(m_doc, before, after, m_onRefresh));
+                else emit documentModified();
+                break;
             }
         });
     }
@@ -1310,7 +1702,13 @@ void UIEditor::rebuildPropsPanel(const QString& widgetId) {
         connect(alphaSb, &QDoubleSpinBox::editingFinished, this, [this, widgetId, alphaSb]() {
             if (!m_doc) return;
             for (const UIWidget& wi : m_doc->widgets()) {
-                if (wi.id == widgetId) { UIWidget u = wi; u.alpha = (float)alphaSb->value(); m_doc->updateWidget(u); m_canvas->update(); emit documentModified(); break; }
+                if (wi.id != widgetId) continue;
+                if (wi.alpha == (float)alphaSb->value()) break;
+                UIWidget before = wi, after = wi; after.alpha = (float)alphaSb->value();
+                m_doc->updateWidget(after); m_canvas->update();
+                if (m_undoStack && m_onRefresh) m_undoStack->push(new UIWidgetModifyCmd(m_doc, before, after, m_onRefresh));
+                else emit documentModified();
+                break;
             }
         });
     }
@@ -1384,7 +1782,12 @@ void UIEditor::rebuildPropsPanel(const QString& widgetId) {
             imgEdit->setText(path);
             if (!m_doc) return;
             for (const UIWidget& wi : m_doc->widgets()) {
-                if (wi.id == widgetId) { UIWidget u = wi; u.imagePath = path; m_doc->updateWidget(u); m_canvas->update(); emit documentModified(); break; }
+                if (wi.id != widgetId) continue;
+                UIWidget before = wi, after = wi; after.imagePath = path;
+                m_doc->updateWidget(after); m_canvas->update();
+                if (m_undoStack && m_onRefresh) m_undoStack->push(new UIWidgetModifyCmd(m_doc, before, after, m_onRefresh));
+                else emit documentModified();
+                break;
             }
         });
     }
@@ -1395,7 +1798,13 @@ void UIEditor::rebuildPropsPanel(const QString& widgetId) {
         connect(te, &QLineEdit::editingFinished, this, [this, widgetId, te]() {
             if (!m_doc) return;
             for (const UIWidget& wi : m_doc->widgets()) {
-                if (wi.id == widgetId) { UIWidget u = wi; u.text = te->text(); m_doc->updateWidget(u); m_canvas->update(); emit documentModified(); break; }
+                if (wi.id != widgetId) continue;
+                if (wi.text == te->text()) break;
+                UIWidget before = wi, after = wi; after.text = te->text();
+                m_doc->updateWidget(after); m_canvas->update();
+                if (m_undoStack && m_onRefresh) m_undoStack->push(new UIWidgetModifyCmd(m_doc, before, after, m_onRefresh));
+                else emit documentModified();
+                break;
             }
         });
     }
@@ -1406,7 +1815,13 @@ void UIEditor::rebuildPropsPanel(const QString& widgetId) {
         connect(valSb, &QDoubleSpinBox::editingFinished, this, [this, widgetId, valSb]() {
             if (!m_doc) return;
             for (const UIWidget& wi : m_doc->widgets()) {
-                if (wi.id == widgetId) { UIWidget u = wi; u.value = (float)valSb->value(); m_doc->updateWidget(u); m_canvas->update(); emit documentModified(); break; }
+                if (wi.id != widgetId) continue;
+                if (wi.value == (float)valSb->value()) break;
+                UIWidget before = wi, after = wi; after.value = (float)valSb->value();
+                m_doc->updateWidget(after); m_canvas->update();
+                if (m_undoStack && m_onRefresh) m_undoStack->push(new UIWidgetModifyCmd(m_doc, before, after, m_onRefresh));
+                else emit documentModified();
+                break;
             }
         });
         auto* fillBtn = makeColorBtn(w.fillColor);
@@ -1417,9 +1832,13 @@ void UIEditor::rebuildPropsPanel(const QString& widgetId) {
                 if (wi.id != widgetId) continue;
                 QColor c = QColorDialog::getColor(wi.fillColor, this, "选择填充色");
                 if (!c.isValid()) break;
-                UIWidget u = wi; u.fillColor = c; m_doc->updateWidget(u);
+                UIWidget before = wi, after = wi; after.fillColor = c;
+                m_doc->updateWidget(after);
                 fillBtn->setStyleSheet(QString("background:%1;border:1px solid #555;").arg(c.name(QColor::HexArgb)));
-                m_canvas->update(); emit documentModified(); break;
+                m_canvas->update();
+                if (m_undoStack && m_onRefresh) m_undoStack->push(new UIWidgetModifyCmd(m_doc, before, after, m_onRefresh));
+                else emit documentModified();
+                break;
             }
         });
     }
@@ -1429,7 +1848,13 @@ void UIEditor::rebuildPropsPanel(const QString& widgetId) {
         connect(colSb, &QSpinBox::editingFinished, this, [this, widgetId, colSb]() {
             if (!m_doc) return;
             for (const UIWidget& wi : m_doc->widgets()) {
-                if (wi.id == widgetId) { UIWidget u = wi; u.columns = colSb->value(); m_doc->updateWidget(u); m_canvas->update(); emit documentModified(); break; }
+                if (wi.id != widgetId) continue;
+                if (wi.columns == colSb->value()) break;
+                UIWidget before = wi, after = wi; after.columns = colSb->value();
+                m_doc->updateWidget(after); m_canvas->update();
+                if (m_undoStack && m_onRefresh) m_undoStack->push(new UIWidgetModifyCmd(m_doc, before, after, m_onRefresh));
+                else emit documentModified();
+                break;
             }
         });
     }
@@ -1438,4 +1863,80 @@ void UIEditor::rebuildPropsPanel(const QString& widgetId) {
     auto* delBtn = new QPushButton("删除控件");
     lay->addWidget(delBtn);
     connect(delBtn, &QPushButton::clicked, this, &UIEditor::onDeleteSelected);
+}
+
+QList<UIWidget> UIEditor::collectSubtree(const QString& rootId) const {
+    if (!m_doc || rootId.isEmpty()) return {};
+    QList<UIWidget> result;
+    QStringList queue = {rootId};
+    while (!queue.isEmpty()) {
+        const QString id = queue.takeFirst();
+        for (const UIWidget& w : m_doc->widgets())
+            if (w.id == id) { result.append(w); break; }
+        for (const UIWidget& w : m_doc->widgets())
+            if (w.parentId == id) queue.append(w.id);
+    }
+    return result;
+}
+
+void UIEditor::setUndoStack(QUndoStack* stack, std::function<void()> externalRefresh) {
+    m_undoStack = stack;
+    m_onRefresh = [this, externalRefresh]() {
+        bool found = false;
+        if (m_doc && !m_selectedId.isEmpty())
+            for (const UIWidget& w : m_doc->widgets())
+                if (w.id == m_selectedId) { found = true; break; }
+        if (!found) {
+            // 主选控件已被删除，清空画布选区
+            m_selectedId.clear();
+            if (m_canvas) m_canvas->setSelectedId({});
+        }
+        // 主选控件仍存在时，不重置画布选区，保留多选状态
+        rebuildTree();
+        rebuildPropsPanel(m_selectedId);
+        if (m_canvas) m_canvas->update();
+        emit documentModified();
+        if (externalRefresh) externalRefresh();
+    };
+}
+
+void UIEditor::copySelected() {
+    if (!m_doc || m_selectedId.isEmpty()) return;
+    m_clipboard = collectSubtree(m_selectedId);
+}
+
+void UIEditor::paste() {
+    if (!m_doc || m_clipboard.isEmpty()) return;
+    QMap<QString, QString> idMap;
+    QList<UIWidget> pasted;
+    for (int i = 0; i < m_clipboard.size(); ++i) {
+        UIWidget w = m_clipboard[i];
+        const QString newId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        idMap[w.id] = newId;
+        w.id = newId;
+        if (i == 0) {
+            w.x += 10; w.y += 10;
+        } else {
+            if (idMap.contains(w.parentId)) w.parentId = idMap[w.parentId];
+        }
+        pasted.append(w);
+    }
+    const QString newRootId = pasted[0].id;
+    if (m_undoStack && m_onRefresh) {
+        m_selectedId = newRootId;
+        m_undoStack->push(new UIWidgetAddCmd(m_doc, pasted, m_onRefresh));
+        m_canvas->setSelectedId(m_selectedId);
+    } else {
+        for (const UIWidget& w : pasted) m_doc->addWidget(w);
+        m_selectedId = newRootId;
+        m_canvas->setSelectedId(newRootId);
+        rebuildTree();
+        rebuildPropsPanel(newRootId);
+        emit documentModified();
+    }
+}
+
+void UIEditor::duplicateSelected() {
+    copySelected();
+    paste();
 }

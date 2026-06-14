@@ -8,6 +8,7 @@
 #include <QList>
 #include <QMap>
 #include <QString>
+#include <QUndoStack>
 
 class QPainter;
 class QFrame;
@@ -22,6 +23,10 @@ public:
     void saveBpClass();
     void setProjectRoot(const QString& root);
     QString currentBpClassPath() const;
+    QUndoStack* bpUndoStack() const { return m_bpUndoStack; }
+    void frameAll();
+    void duplicateSelectedNode();
+    void deleteSelected();
 
 signals:
     void documentModified();
@@ -96,6 +101,8 @@ private:
 
     LevelDocument* m_doc     = nullptr;
     BPClass*       m_bpClass = nullptr;
+    QUndoStack*    m_bpUndoStack = nullptr;
+    BPNode         m_nodeBeforeDrag;
 
     const QList<BPNode>&       activeNodes() const;
     const QList<BPConnection>& activeConns() const;

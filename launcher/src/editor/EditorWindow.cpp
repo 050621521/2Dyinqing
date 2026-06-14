@@ -42,8 +42,12 @@
 #include <QMessageBox>
 #include <QShortcut>
 #include <QKeySequence>
+#include "UndoCommands.h"
 #include <QButtonGroup>
 #include <QComboBox>
+#include <QApplication>
+#include <QAbstractSpinBox>
+#include <QTextEdit>
 
 EditorWindow::EditorWindow(const ProjectInfo& project, QWidget* parent)
     : QMainWindow(parent), m_project(project)
@@ -68,6 +72,99 @@ EditorWindow::EditorWindow(const ProjectInfo& project, QWidget* parent)
 
     auto* saveShortcut = new QShortcut(QKeySequence::Save, this);
     connect(saveShortcut, &QShortcut::activated, this, &EditorWindow::saveCurrentLevel);
+
+    auto* undoSc = new QShortcut(QKeySequence::Undo, this);
+    connect(undoSc, &QShortcut::activated, this, [this]() {
+        if (m_activeUndoStack) m_activeUndoStack->undo();
+    });
+    auto* redoSc1 = new QShortcut(QKeySequence::Redo, this);
+    connect(redoSc1, &QShortcut::activated, this, [this]() {
+        if (m_activeUndoStack) m_activeUndoStack->redo();
+    });
+
+    // ── 全局编辑器快捷键（无论哪个子面板有焦点均生效）──────────────────
+
+    // Q/W/E/R 工具模式切换（仅视口 tab）
+    auto* qSc = new QShortcut(QKeySequence("Q"), this);
+    connect(qSc, &QShortcut::activated, this, [this]() {
+        if (m_centralStack->currentIndex() == 0 && m_viewport)
+            m_viewport->setToolMode(Viewport2D::ToolMode::Select);
+    });
+    auto* wSc = new QShortcut(QKeySequence("W"), this);
+    connect(wSc, &QShortcut::activated, this, [this]() {
+        if (m_centralStack->currentIndex() == 0 && m_viewport)
+            m_viewport->setToolMode(Viewport2D::ToolMode::Move);
+    });
+    auto* eSc = new QShortcut(QKeySequence("E"), this);
+    connect(eSc, &QShortcut::activated, this, [this]() {
+        if (m_centralStack->currentIndex() == 0 && m_viewport)
+            m_viewport->setToolMode(Viewport2D::ToolMode::Rotate);
+    });
+    auto* rSc = new QShortcut(QKeySequence("R"), this);
+    connect(rSc, &QShortcut::activated, this, [this]() {
+        if (m_centralStack->currentIndex() == 0 && m_viewport)
+            m_viewport->setToolMode(Viewport2D::ToolMode::Scale);
+    });
+
+    // F 帧居中（视口：聚焦选中；蓝图：居中所有节点）
+    auto* fSc = new QShortcut(QKeySequence("F"), this);
+    connect(fSc, &QShortcut::activated, this, [this]() {
+        const int idx = m_centralStack->currentIndex();
+        if (idx == 0 && m_viewport) m_viewport->frameSelected();
+        else if (idx == 1 && m_blueprintEditor) m_blueprintEditor->frameAll();
+    });
+
+    // Escape 取消选中（视口；蓝图内的弹窗关闭由 BlueprintEditor 内部处理）
+    auto* escSc = new QShortcut(Qt::Key_Escape, this);
+    connect(escSc, &QShortcut::activated, this, [this]() {
+        if (m_centralStack->currentIndex() == 0 && m_viewport)
+            m_viewport->clearSelection();
+    });
+
+    // Delete / Backspace 删除（按当前 tab 路由）
+    auto deleteAction = [this]() {
+        const int idx = m_centralStack->currentIndex();
+        if (idx == 0 && m_viewport) m_viewport->deleteSelected();
+        else if (idx == 1 && m_blueprintEditor) m_blueprintEditor->deleteSelected();
+        else if (idx == 3 && m_uiEditor) m_uiEditor->onDeleteSelected();
+    };
+    auto* delSc = new QShortcut(QKeySequence::Delete, this);
+    connect(delSc, &QShortcut::activated, this, deleteAction);
+    auto* bsSc = new QShortcut(Qt::Key_Backspace, this);
+    connect(bsSc, &QShortcut::activated, this, deleteAction);
+
+    // Ctrl+A 全选
+    auto* selectAllSc = new QShortcut(QKeySequence::SelectAll, this);
+    connect(selectAllSc, &QShortcut::activated, this, [this]() {
+        const int idx = m_centralStack->currentIndex();
+        if (idx == 0 && m_viewport) m_viewport->selectAll();
+    });
+
+    // Ctrl+D 原位复制
+    auto* dupSc = new QShortcut(QKeySequence("Ctrl+D"), this);
+    connect(dupSc, &QShortcut::activated, this, [this]() {
+        if (isTextInputFocused()) return;
+        const int idx = m_centralStack->currentIndex();
+        if (idx == 0 && m_viewport) m_viewport->duplicateSelected();
+        else if (idx == 1 && m_blueprintEditor) m_blueprintEditor->duplicateSelectedNode();
+        else if (idx == 3 && m_uiEditor) m_uiEditor->duplicateSelected();
+    });
+
+    // Ctrl+C 复制
+    auto* copySc = new QShortcut(QKeySequence::Copy, this);
+    connect(copySc, &QShortcut::activated, this, [this]() {
+        if (isTextInputFocused()) return;
+        const int idx = m_centralStack->currentIndex();
+        if (idx == 3 && m_uiEditor) m_uiEditor->copySelected();
+    });
+
+    // Ctrl+V 粘贴
+    auto* pasteSc = new QShortcut(QKeySequence::Paste, this);
+    connect(pasteSc, &QShortcut::activated, this, [this]() {
+        if (isTextInputFocused()) return;
+        const int idx = m_centralStack->currentIndex();
+        if (idx == 3 && m_uiEditor) m_uiEditor->paste();
+    });
 
     QString defaultLevel = ProjectSettingsDialog::readDefaultLevel(m_project.path);
     if (defaultLevel.isEmpty())
@@ -477,6 +574,12 @@ QWidget* EditorWindow::buildViewportToolBar(QWidget* parent) {
         };
         m_viewport->setToolMode(modes[id]);
     });
+    // 同步 Q/W/E/R 快捷键触发的工具切换 → 更新按钮组
+    connect(m_viewport, &Viewport2D::toolModeChanged, this, [this](Viewport2D::ToolMode mode) {
+        QSignalBlocker b(m_toolBtnGroup);
+        if (auto* btn = m_toolBtnGroup->button(static_cast<int>(mode)))
+            btn->setChecked(true);
+    });
 
     sep();
     drop("2D 正交  ▾");
@@ -699,6 +802,7 @@ void EditorWindow::onTabChanged(int index) {
         m_centralStack->setCurrentWidget(m_bpWrapper);
         LevelDocument* doc = m_openLevels.value(m_activeLevelPath, nullptr);
         if (m_blueprintEditor) m_blueprintEditor->loadLevel(doc);
+        m_activeUndoStack = m_blueprintEditor ? m_blueprintEditor->bpUndoStack() : nullptr;
         return;
     }
 
@@ -710,6 +814,7 @@ void EditorWindow::onTabChanged(int index) {
             m_gameViewport->loadLevel(doc);
             updateGameViewToolbar(doc);
         }
+        m_activeUndoStack = nullptr;
         return;
     }
 
@@ -721,6 +826,7 @@ void EditorWindow::onTabChanged(int index) {
         BPClass* bc = m_openBpClasses.value(path, nullptr);
         if (bc && m_blueprintEditor)
             m_blueprintEditor->loadBpClass(bc);
+        m_activeUndoStack = m_blueprintEditor ? m_blueprintEditor->bpUndoStack() : nullptr;
         return;
     }
 
@@ -739,8 +845,11 @@ void EditorWindow::onTabChanged(int index) {
         const QDir levelsDir(m_project.path + "/Levels");
         for (const QString& f : levelsDir.entryList({"*.level"}, QDir::Files))
             levelNames << QFileInfo(f).baseName();
-        m_uiEditor->setAvailableLevels(levelNames);
+        const QString activeLevelName = previewLevel ? QFileInfo(m_activeLevelPath).baseName() : QString();
+        m_uiEditor->setAvailableLevels(levelNames, activeLevelName);
+        m_uiEditor->setUndoStack(doc->undoStack(), nullptr);
         if (m_centralStack) m_centralStack->setCurrentWidget(m_uiEditor);
+        m_activeUndoStack = doc->undoStack();
         return;
     }
 
@@ -761,6 +870,22 @@ void EditorWindow::onTabChanged(int index) {
     }
     LevelDocument* doc = m_openLevels[path];
     m_activeLevelPath = path;
+    m_activeUndoStack = doc->undoStack();
+
+    // 设置 refresh 回调（outliner + viewport 重建）
+    auto levelRefresh = [this, doc]() {
+        m_sceneOutliner->loadLevel(doc);
+        if (m_viewport) m_viewport->update();
+        updateTabTitle(m_docTabBar->currentIndex());
+        updateSaveLabel();
+    };
+    if (m_viewport) m_viewport->setUndoStack(doc->undoStack(), levelRefresh);
+    m_sceneOutliner->setUndoStack(doc->undoStack(), [this, doc]() {
+        m_sceneOutliner->loadLevel(doc);
+        if (m_viewport) m_viewport->update();
+        updateTabTitle(m_docTabBar->currentIndex());
+        updateSaveLabel();
+    });
 
     m_sceneOutliner->loadLevel(doc);
     if (m_viewport) m_viewport->loadLevel(doc);
@@ -826,11 +951,15 @@ void EditorWindow::onTabChanged(int index) {
     }
 
     m_tabConnections << connect(m_detailsPanel, &DetailsPanel::actorModified,
-                                this, [this, doc](const ActorData& a) {
-        // 主摄像机互斥：取消同关卡其他摄像机的主摄像机标记
-        if (a.components.contains("摄像机组件") && a.cameraIsMain) {
+                                this, [this, doc](const ActorData& after) {
+        // 找出修改前的状态
+        ActorData before;
+        for (const ActorData& a : doc->actors())
+            if (a.id == after.id) { before = a; break; }
+        // 主摄像机互斥（不纳入 undo，属于约束逻辑）
+        if (after.components.contains("摄像机组件") && after.cameraIsMain) {
             for (const ActorData& other : doc->actors()) {
-                if (other.id != a.id && other.components.contains("摄像机组件")
+                if (other.id != after.id && other.components.contains("摄像机组件")
                         && other.cameraIsMain) {
                     ActorData updated = other;
                     updated.cameraIsMain = false;
@@ -838,15 +967,14 @@ void EditorWindow::onTabChanged(int index) {
                 }
             }
         }
-        doc->updateActor(a);
-        updateTabTitle(m_docTabBar->currentIndex());
-        updateSaveLabel();
-        if (m_viewport) m_viewport->update();
-        if (m_gameViewport) {
-            m_gameViewport->update();
-            updateGameViewToolbar(doc);
-        }
-        m_sceneOutliner->loadLevel(doc);
+        auto doRefresh = [this, doc]() {
+            updateTabTitle(m_docTabBar->currentIndex());
+            updateSaveLabel();
+            if (m_viewport) m_viewport->update();
+            if (m_gameViewport) { m_gameViewport->update(); updateGameViewToolbar(doc); }
+            m_sceneOutliner->loadLevel(doc);
+        };
+        doc->undoStack()->push(new ActorModifyCmd(doc, before, after, doRefresh));
     });
 
     m_tabConnections << connect(m_sceneOutliner, &SceneOutliner::actorRemoved,
@@ -990,6 +1118,17 @@ void EditorWindow::saveCurrentLevel() {
     const int index = m_docTabBar->currentIndex();
     if (index < 0) return;
     const QString path = m_docTabBar->tabData(index).toString();
+
+    if (path.endsWith(".ui")) {
+        UIDocument* doc = m_openUIDocs.value(path);
+        if (doc && doc->isDirty()) {
+            doc->save();
+            updateTabTitle(index);
+            updateSaveLabel();
+        }
+        return;
+    }
+
     LevelDocument* doc = m_openLevels.value(path);
     if (doc && doc->isDirty()) {
         doc->save();
@@ -1351,4 +1490,11 @@ void EditorWindow::embedBlueprint() {
         onTabChanged(idx);
     else
         m_docTabBar->setCurrentIndex(idx);
+}
+
+bool EditorWindow::isTextInputFocused() const {
+    QWidget* fw = QApplication::focusWidget();
+    return qobject_cast<QLineEdit*>(fw) ||
+           qobject_cast<QTextEdit*>(fw) ||
+           qobject_cast<QAbstractSpinBox*>(fw);
 }

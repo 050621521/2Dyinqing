@@ -297,3 +297,10 @@ void LevelDocument::removeBPConnection(const QString& id) {
         }
     }
 }
+
+LevelDocument::~LevelDocument() { delete m_undoStack; }
+
+QUndoStack* LevelDocument::undoStack() {
+    if (!m_undoStack) m_undoStack = new QUndoStack();
+    return m_undoStack;
+}

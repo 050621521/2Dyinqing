@@ -1,4 +1,6 @@
 #pragma once
+#include <QUndoStack>
+#include <functional>
 #include "models/UIDocument.h"
 #include "models/LevelDocument.h"
 #include <QWidget>
@@ -47,6 +49,8 @@ public:
     void alignSelected(int type);     // 0=左 1=右 2=水平居中 3=上 4=下 5=垂直居中
     void distributeSelected(bool horizontal);
     void makeSameSize(bool width);
+    QRectF worldRectOf(const QString& widgetId) const;    // 控件在背景预览世界坐标中的矩形
+    QRectF parentWorldRect(const QString& widgetId) const; // 控件父区域世界矩形
 
     // 回调，由 UIEditor 赋值
     std::function<void(const QString&)>                              onSelectionChanged;
@@ -57,12 +61,18 @@ public:
     std::function<void(const QString&)>                              onAddWidget;
     std::function<void()>                                            onDeleteSelected;
     std::function<void(const QString&, const QString&)>              onImageDropped;
+    // 拖拽/缩放开始与结束（用于批量 undo 提交）
+    std::function<void(QStringList)> onDragBegan;
+    std::function<void(QStringList)> onDragEnded;
+    std::function<void(QString)>     onResizeBegan;
+    std::function<void()>            onResizeEnded;
 
 protected:
     void paintEvent(QPaintEvent*) override;
     void mousePressEvent(QMouseEvent*) override;
     void mouseMoveEvent(QMouseEvent*) override;
     void mouseReleaseEvent(QMouseEvent*) override;
+    void wheelEvent(QWheelEvent*) override;
     void contextMenuEvent(QContextMenuEvent*) override;
     void dragEnterEvent(QDragEnterEvent*) override;
     void dropEvent(QDropEvent*) override;
@@ -103,10 +113,24 @@ private:
 
     ResizeHandle hitResizeHandle(QPointF pos, const UIWidget& w) const;
 
-    QRectF  getViewportRect() const;
-    QRectF  computeCameraRect(float aspect) const;
+    QRectF  getViewportRect() const;                 // 固定世界坐标 (0,0,cW,cH)
     QPointF cameraWorldToScreen(QPointF world, const QRectF& camRect, const ActorData& cam) const;
     void    drawScenePreview(QPainter& p) const;
+    QRectF  resolveRect(const QString& widgetId) const;  // 递归计算世界坐标矩形
+
+    // 视图变换
+    QPointF screenOrigin() const;                    // 世界原点的屏幕坐标
+    QPointF screenToCanvas(QPointF screenPos) const;
+    QRectF  worldRectToScreen(const QRectF& worldRect) const;
+    void    updateCanonicalSize();                   // 从摄像机同步分辨率
+
+    float   m_zoom             = 1.0f;
+    QPointF m_panOffset;
+    bool    m_panning          = false;
+    QPoint  m_panStart;
+    int     m_canonicalW       = 1920;
+    int     m_canonicalH       = 1080;
+    bool    m_zoomInitialized  = false;
 };
 
 // ── UIEditor ──────────────────────────────────────────────────────────────
@@ -117,7 +141,7 @@ public:
 
     void loadDocument(UIDocument* doc);
     void setPreviewLevel(LevelDocument* level, float ppu);
-    void setAvailableLevels(const QStringList& levelNames);
+    void setAvailableLevels(const QStringList& levelNames, const QString& activeLevel = {});
     void setProjectRoot(const QString& root);
 
     UIDocument* document() const { return m_doc; }
@@ -130,6 +154,11 @@ public slots:
     void onAddWidget(const QString& type);
     void onDeleteSelected();
 
+    void setUndoStack(QUndoStack* stack, std::function<void()> refresh);
+    void copySelected();
+    void paste();
+    void duplicateSelected();
+
 protected:
     bool eventFilter(QObject* obj, QEvent* e) override;
 
@@ -139,6 +168,7 @@ private slots:
 private:
     void rebuildTree();
     void rebuildPropsPanel(const QString& widgetId);
+    void rebuildMultiPropsPanel(const QStringList& ids);
 
     UIDocument*      m_doc        = nullptr;
     UIEditorCanvas*  m_canvas     = nullptr;
@@ -152,4 +182,11 @@ private:
     float            m_ppu = 100.0f;
 
     QList<QToolButton*> m_alignBtns; // 对齐/分布/等尺寸按钮（多选时启用）
+
+    QUndoStack*           m_undoStack = nullptr;
+    std::function<void()> m_onRefresh;
+    QList<UIWidget>       m_clipboard;
+    QList<UIWidget>       m_dragBeforeWidgets;
+
+    QList<UIWidget> collectSubtree(const QString& rootId) const;
 };

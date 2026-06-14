@@ -1,6 +1,8 @@
 #pragma once
 #include "models/LevelDocument.h"
 #include <QWidget>
+#include <QUndoStack>
+#include <functional>
 
 class QTreeWidget;
 class QTreeWidgetItem;
@@ -12,6 +14,7 @@ public:
     explicit SceneOutliner(QWidget* parent = nullptr);
     void loadLevel(LevelDocument* doc);
     void clear();
+    void setUndoStack(QUndoStack* stack, std::function<void()> refresh);
 
 signals:
     void actorSelected(const ActorData& actor);
@@ -26,7 +29,9 @@ private slots:
 private:
     void rebuild();
 
-    LevelDocument* m_doc = nullptr;
-    QTreeWidget*   m_tree  = nullptr;
-    QLineEdit*     m_search = nullptr;
+    LevelDocument*        m_doc     = nullptr;
+    QTreeWidget*          m_tree    = nullptr;
+    QLineEdit*            m_search  = nullptr;
+    QUndoStack*           m_undoStack = nullptr;
+    std::function<void()> m_onRefresh;
 };

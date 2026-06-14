@@ -66,6 +66,7 @@ set(HEADERS
     src/editor/ContentBrowser.h
     src/editor/ProjectSettingsDialog.h
     src/editor/BlueprintEditor.h
+    src/editor/UndoCommands.h
     src/editor/BPRuntime.h
     src/editor/ActorBPRuntime.h
     src/editor/LayoutManager.h

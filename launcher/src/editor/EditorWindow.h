@@ -6,6 +6,7 @@
 #include <QSet>
 #include <QButtonGroup>
 #include <QStackedWidget>
+#include <QUndoStack>
 
 class QTabBar;
 class QMenu;
@@ -127,4 +128,9 @@ private:
     QMap<QString, LevelDocument*> m_openLevels;
     QSet<QString>                 m_dirtyBpClasses; // 记录已修改但未保存的 .bp 路径
     QList<QMetaObject::Connection> m_tabConnections;
+
+    QUndoStack* m_activeUndoStack = nullptr;
+    ActorData   m_detailsBeforeEdit;
+
+    bool isTextInputFocused() const;
 };

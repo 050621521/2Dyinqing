@@ -1,4 +1,5 @@
 #include "SceneOutliner.h"
+#include "UndoCommands.h"
 #include "models/ActorTypeUtils.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -95,6 +96,11 @@ void SceneOutliner::clear() {
     m_tree->clear();
 }
 
+void SceneOutliner::setUndoStack(QUndoStack* stack, std::function<void()> refresh) {
+    m_undoStack = stack;
+    m_onRefresh = std::move(refresh);
+}
+
 // ── 重建树 ────────────────────────────────────────────────────────────
 
 void SceneOutliner::rebuild() {
@@ -149,10 +155,17 @@ void SceneOutliner::showContextMenu(const QPoint& pos) {
         });
         menu.addAction("删除", [this, id]() {
             if (!m_doc) return;
-            m_doc->removeActor(id);
-            rebuild();
+            ActorData data;
+            for (const ActorData& a : m_doc->actors())
+                if (a.id == id) { data = a; break; }
+            if (m_undoStack && m_onRefresh) {
+                m_undoStack->push(new ActorRemoveCmd(m_doc, data, m_onRefresh));
+            } else {
+                m_doc->removeActor(id);
+                rebuild();
+                emit levelChanged();
+            }
             emit actorRemoved(id);
-            emit levelChanged();
         });
     } else {
         auto* addMenu = menu.addMenu("添加 Actor");
