@@ -49,13 +49,14 @@ public:
     void makeSameSize(bool width);
 
     // 回调，由 UIEditor 赋值
-    std::function<void(const QString&)>                    onSelectionChanged;
-    std::function<void(QStringList)>                       onMultiSelectionChanged;
-    std::function<void(const QString&, float, float)>      onWidgetMoved;
-    std::function<void(QHash<QString,QPointF>)>            onWidgetsMoved;
-    std::function<void(const QString&)>                    onAddWidget;
-    std::function<void()>                                  onDeleteSelected;
-    std::function<void(const QString&, const QString&)>    onImageDropped;
+    std::function<void(const QString&)>                              onSelectionChanged;
+    std::function<void(QStringList)>                                 onMultiSelectionChanged;
+    std::function<void(const QString&, float, float)>                onWidgetMoved;
+    std::function<void(QHash<QString,QPointF>)>                      onWidgetsMoved;
+    std::function<void(const QString&, float, float, float, float)>  onWidgetResized; // id,x,y,w,h
+    std::function<void(const QString&)>                              onAddWidget;
+    std::function<void()>                                            onDeleteSelected;
+    std::function<void(const QString&, const QString&)>              onImageDropped;
 
 protected:
     void paintEvent(QPaintEvent*) override;
@@ -92,6 +93,15 @@ private:
     bool   m_rubberBanding = false;
     QPoint m_rubberStart;
     QRect  m_rubberRect;
+
+    // 缩放手柄
+    enum class ResizeHandle { None, TL, T, TR, R, BR, B, BL, L };
+    bool         m_resizing      = false;
+    ResizeHandle m_resizeHandle  = ResizeHandle::None;
+    float        m_resizeInitX   = 0, m_resizeInitY = 0;
+    float        m_resizeInitW   = 0, m_resizeInitH = 0;
+
+    ResizeHandle hitResizeHandle(QPointF pos, const UIWidget& w) const;
 
     QRectF  getViewportRect() const;
     QRectF  computeCameraRect(float aspect) const;

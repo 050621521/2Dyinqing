@@ -109,6 +109,22 @@ void UIEditorCanvas::setDoc(UIDocument* doc) {
     update();
 }
 
+UIEditorCanvas::ResizeHandle UIEditorCanvas::hitResizeHandle(QPointF pos, const UIWidget& w) const {
+    const QRectF r = widgetScreenRect(w, getViewportRect());
+    const float hs = 7.0f;
+    // 四角（优先检测）
+    if (QRectF(r.left()-hs,  r.top()-hs,    hs*2, hs*2).contains(pos)) return ResizeHandle::TL;
+    if (QRectF(r.right()-hs, r.top()-hs,    hs*2, hs*2).contains(pos)) return ResizeHandle::TR;
+    if (QRectF(r.left()-hs,  r.bottom()-hs, hs*2, hs*2).contains(pos)) return ResizeHandle::BL;
+    if (QRectF(r.right()-hs, r.bottom()-hs, hs*2, hs*2).contains(pos)) return ResizeHandle::BR;
+    // 四边
+    if (QRectF(r.left()-hs,  r.top()+hs,    hs*2, r.height()-hs*2).contains(pos)) return ResizeHandle::L;
+    if (QRectF(r.right()-hs, r.top()+hs,    hs*2, r.height()-hs*2).contains(pos)) return ResizeHandle::R;
+    if (QRectF(r.left()+hs,  r.top()-hs,    r.width()-hs*2, hs*2).contains(pos))  return ResizeHandle::T;
+    if (QRectF(r.left()+hs,  r.bottom()-hs, r.width()-hs*2, hs*2).contains(pos))  return ResizeHandle::B;
+    return ResizeHandle::None;
+}
+
 void UIEditorCanvas::setPixelSnap(bool enabled, int grid) {
     m_pixelSnapEnabled = enabled;
     m_snapGrid = qMax(1, grid);
@@ -529,6 +545,24 @@ void UIEditorCanvas::mousePressEvent(QMouseEvent* e) {
     if (e->button() != Qt::LeftButton) return;
     const bool ctrl = (e->modifiers() & Qt::ControlModifier) != 0;
     const QRectF vp = getViewportRect();
+
+    // 先检测缩放手柄（主选控件存在时）
+    if (!m_selectedId.isEmpty() && !ctrl && m_doc) {
+        for (const UIWidget& w : m_doc->widgets()) {
+            if (w.id != m_selectedId) continue;
+            ResizeHandle rh = hitResizeHandle(e->position(), w);
+            if (rh != ResizeHandle::None) {
+                m_resizing     = true;
+                m_resizeHandle = rh;
+                m_dragStart    = e->position();
+                m_resizeInitX  = w.x;  m_resizeInitY = w.y;
+                m_resizeInitW  = w.width; m_resizeInitH = w.height;
+                return;
+            }
+            break;
+        }
+    }
+
     const QString hit = hitTest(e->position(), {}, vp);
 
     if (!hit.isEmpty()) {
@@ -573,6 +607,45 @@ void UIEditorCanvas::mousePressEvent(QMouseEvent* e) {
 }
 
 void UIEditorCanvas::mouseMoveEvent(QMouseEvent* e) {
+    // 缩放拖拽
+    if (m_resizing && !m_selectedId.isEmpty() && m_doc) {
+        const QPointF d = e->position() - m_dragStart;
+        float dx = (float)d.x(), dy = (float)d.y();
+        float nx = m_resizeInitX, ny = m_resizeInitY;
+        float nw = m_resizeInitW, nh = m_resizeInitH;
+        switch (m_resizeHandle) {
+            case ResizeHandle::TL: nx+=dx; ny+=dy; nw-=dx; nh-=dy; break;
+            case ResizeHandle::T:             ny+=dy;          nh-=dy; break;
+            case ResizeHandle::TR:        ny+=dy; nw+=dx; nh-=dy; break;
+            case ResizeHandle::R:                  nw+=dx;         break;
+            case ResizeHandle::BR:         nw+=dx; nh+=dy; break;
+            case ResizeHandle::B:                          nh+=dy; break;
+            case ResizeHandle::BL: nx+=dx;  nw-=dx; nh+=dy; break;
+            case ResizeHandle::L:  nx+=dx;  nw-=dx;         break;
+            default: break;
+        }
+        nw = qMax(10.0f, nw); nh = qMax(10.0f, nh);
+        if (onWidgetResized) onWidgetResized(m_selectedId, nx, ny, nw, nh);
+        update();
+        return;
+    }
+
+    // 悬停时更新缩放光标
+    if (!m_dragging && !m_resizing && !m_selectedId.isEmpty() && m_doc) {
+        for (const UIWidget& w : m_doc->widgets()) {
+            if (w.id != m_selectedId) continue;
+            const ResizeHandle rh = hitResizeHandle(e->position(), w);
+            switch (rh) {
+                case ResizeHandle::TL: case ResizeHandle::BR: setCursor(Qt::SizeFDiagCursor); break;
+                case ResizeHandle::TR: case ResizeHandle::BL: setCursor(Qt::SizeBDiagCursor); break;
+                case ResizeHandle::L:  case ResizeHandle::R:  setCursor(Qt::SizeHorCursor);   break;
+                case ResizeHandle::T:  case ResizeHandle::B:  setCursor(Qt::SizeVerCursor);   break;
+                default: setCursor(Qt::ArrowCursor); break;
+            }
+            break;
+        }
+    }
+
     if (m_rubberBanding) {
         m_rubberRect = QRect(m_rubberStart, e->pos()).normalized();
         update();
@@ -613,6 +686,13 @@ void UIEditorCanvas::mouseMoveEvent(QMouseEvent* e) {
 }
 
 void UIEditorCanvas::mouseReleaseEvent(QMouseEvent* e) {
+    if (m_resizing && e->button() == Qt::LeftButton) {
+        m_resizing = false;
+        m_resizeHandle = ResizeHandle::None;
+        setCursor(Qt::ArrowCursor);
+        return;
+    }
+
     if (m_rubberBanding && e->button() == Qt::LeftButton) {
         m_rubberBanding = false;
         const bool ctrl = (e->modifiers() & Qt::ControlModifier) != 0;
@@ -940,6 +1020,18 @@ UIEditor::UIEditor(QWidget* parent) : QWidget(parent) {
             m_doc->updateWidget(u);
         }
         emit documentModified();
+    };
+
+    m_canvas->onWidgetResized = [this](const QString& id, float x, float y, float w, float h) {
+        if (!m_doc) return;
+        for (const UIWidget& wgt : m_doc->widgets()) {
+            if (wgt.id != id) continue;
+            UIWidget u = wgt; u.x = x; u.y = y; u.width = w; u.height = h;
+            m_doc->updateWidget(u);
+            rebuildPropsPanel(id);
+            emit documentModified();
+            break;
+        }
     };
 
     m_canvas->onAddWidget = [this](const QString& type) { onAddWidget(type); };
