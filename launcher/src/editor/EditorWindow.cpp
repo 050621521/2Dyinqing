@@ -38,6 +38,7 @@
 #include <QCloseEvent>
 #include <QTimer>
 #include <QFileInfo>
+#include <QDir>
 #include <QMessageBox>
 #include <QShortcut>
 #include <QKeySequence>
@@ -192,6 +193,10 @@ void EditorWindow::setupCentralArea() {
         updateTabTitle(m_docTabBar->currentIndex());
         updateSaveLabel();
     });
+    connect(m_blueprintEditor, &BlueprintEditor::bpClassModified, this, [this]() {
+        if (m_blueprintEditor->currentBpClassPath().isEmpty()) return;
+        m_dirtyBpClasses.insert(m_blueprintEditor->currentBpClassPath());
+    });
 
     m_bpWrapper = new QWidget();
     auto* bpLay = new QVBoxLayout(m_bpWrapper);
@@ -216,6 +221,7 @@ void EditorWindow::setupCentralArea() {
     m_centralStack->addWidget(m_gameViewPage);  // index 2
 
     m_uiEditor = new UIEditor(this);
+    m_uiEditor->setProjectRoot(m_project.path);
     m_centralStack->addWidget(m_uiEditor);  // index 3
 
     connect(m_uiEditor, &UIEditor::documentModified, this, [this]() {
@@ -647,10 +653,11 @@ void EditorWindow::onTabChanged(int index) {
         m_uiEditor->loadDocument(doc);
         LevelDocument* previewLevel = m_openLevels.value(m_activeLevelPath, nullptr);
         m_uiEditor->setPreviewLevel(previewLevel, m_ppu);
-        // 填充可用关卡名
+        // 填充可用关卡名：扫描项目 Levels 目录
         QStringList levelNames;
-        for (const QString& lp : m_openLevels.keys())
-            levelNames << QFileInfo(lp).baseName();
+        const QDir levelsDir(m_project.path + "/Levels");
+        for (const QString& f : levelsDir.entryList({"*.level"}, QDir::Files))
+            levelNames << QFileInfo(f).baseName();
         m_uiEditor->setAvailableLevels(levelNames);
         if (m_centralStack) m_centralStack->setCurrentWidget(m_uiEditor);
         return;
@@ -850,6 +857,17 @@ void EditorWindow::closeEvent(QCloseEvent* e) {
             if (ret == QMessageBox::Save) doc->save();
         }
     }
+    for (const QString& bpPath : m_dirtyBpClasses) {
+        BPClass* bc = m_openBpClasses.value(bpPath);
+        if (!bc) continue;
+        const QString name = QFileInfo(bpPath).baseName();
+        const auto ret = QMessageBox::question(this, "未保存的更改",
+            QString("蓝图类「%1」有未保存的更改，是否保存？").arg(name),
+            QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel);
+        if (ret == QMessageBox::Cancel) { e->ignore(); return; }
+        if (ret == QMessageBox::Save) bc->save();
+    }
+    m_dirtyBpClasses.clear();
     qDeleteAll(m_openLevels);
     m_openLevels.clear();
     qDeleteAll(m_openBpClasses);
@@ -964,6 +982,15 @@ void EditorWindow::startRuntime() {
             ar->triggerKeyDown(key);
     });
 
+    connect(m_runtime, &BPRuntime::loadLevelRequested, this,
+            [this](const QString& levelName) {
+        const QString levelPath = m_project.path + "/Levels/" + levelName + ".level";
+        if (!QFileInfo::exists(levelPath)) return;
+        stopRuntime();
+        openLevelTab(levelPath);
+        startRuntime();
+    }, Qt::QueuedConnection);
+
     m_viewport->setRuntimeMode(true, m_runtime->actors());
     m_runtime->triggerBeginPlay();
 
@@ -986,6 +1013,10 @@ void EditorWindow::startRuntime() {
                                           &m_runtime->mutableActors(), this);
             m_actorRuntimes.append(ar);
             ar->setUIRuntime(m_uiRuntime);
+            connect(ar, &ActorBPRuntime::printOutput,
+                    this, [this](const QString& text) {
+                        m_runtime->appendPrintLog(text);
+                    });
         }
     }
     // 触发各 Actor 蓝图 BeginPlay

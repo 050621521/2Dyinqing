@@ -23,6 +23,9 @@ signals:
     void bpClassOpenRequested(const QString& bpFilePath);
     void uiDocOpenRequested(const QString& path);
 
+protected:
+    bool eventFilter(QObject* obj, QEvent* e) override;
+
 private slots:
     void onFolderSelected(QTreeWidgetItem* item, int col);
     void onGridItemDoubleClicked(QListWidgetItem* item);

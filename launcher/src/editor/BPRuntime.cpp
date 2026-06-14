@@ -2,8 +2,24 @@
 #include "UIRuntime.h"
 #include <QSet>
 #include <QDebug>
+#include <QRegularExpression>
 #include <algorithm>
 #include <cmath>
+
+static std::pair<QString,QString> splitWidgetRef(const QString& ref) {
+    int sep = ref.indexOf("::");
+    if (sep < 0) return {ref, {}};
+    return {ref.left(sep), ref.mid(sep + 2)};
+}
+
+void BPRuntime::setUIRuntime(UIRuntime* ui) {
+    m_uiRuntime = ui;
+    if (!ui) return;
+    connect(ui, &UIRuntime::buttonClicked,
+            this, &BPRuntime::triggerButtonClick);
+    connect(ui, &UIRuntime::dropdownChanged,
+            this, &BPRuntime::triggerDropdownChanged);
+}
 
 BPRuntime::BPRuntime(const LevelDocument* doc, QObject* parent)
     : QObject(parent)
@@ -47,8 +63,22 @@ void BPRuntime::tickComponents(float dt) {
         if (!a.components.contains("边界限制组件")) continue;
         if (!a.confinerEnabled) continue;
 
-        a.x = std::clamp(a.x, a.confinerMinX, a.confinerMaxX);
-        a.y = std::clamp(a.y, a.confinerMinY, a.confinerMaxY);
+        float minX = a.confinerMinX, maxX = a.confinerMaxX;
+        float minY = a.confinerMinY, maxY = a.confinerMaxY;
+
+        // 优先从绑定的 Trigger Actor 推算边界矩形
+        if (!a.confinerActor.isEmpty()) {
+            const ActorData* t = findActorByName(a.confinerActor);
+            if (t) {
+                minX = t->x - t->scaleX * 0.5f;
+                maxX = t->x + t->scaleX * 0.5f;
+                minY = t->y - t->scaleY * 0.5f;
+                maxY = t->y + t->scaleY * 0.5f;
+            }
+        }
+
+        a.x = std::clamp(a.x, minX, maxX);
+        a.y = std::clamp(a.y, minY, maxY);
     }
 }
 
@@ -111,6 +141,13 @@ QString BPRuntime::executeNode(const QString& nodeId) {
         return "exec_out";
     }
 
+    if (node->type == "Var.SetNumber" || node->type == "Var.SetBool" || node->type == "Var.SetString") {
+        QString name  = resolveDataPin(nodeId, "name");
+        QString value = resolveDataPin(nodeId, "value");
+        if (!name.isEmpty()) m_varStore[name] = value;
+        return "exec_out";
+    }
+
     if (node->type == "Action.MoveActor") {
         QString actorId = resolveDataPin(nodeId, "actorId");
         float dx = resolveDataPin(nodeId, "dx").toFloat();
@@ -123,6 +160,13 @@ QString BPRuntime::executeNode(const QString& nodeId) {
             }
         }
         return "exec_out";
+    }
+
+    if (node->type == "Action.LoadLevel") {
+        const QString levelName = resolveDataPin(nodeId, "levelName");
+        if (!levelName.isEmpty())
+            emit loadLevelRequested(levelName);
+        return {};
     }
 
     if (node->type == "Action.SetActive") {
@@ -143,52 +187,57 @@ QString BPRuntime::executeNode(const QString& nodeId) {
 
     if (node->type == "UI.Create") {
         if (!m_uiRuntime) return "exec_out";
-        const QString uiName = resolveDataPin(nodeId, "uiRef");
-        const QString instId = m_uiRuntime->createInstance(uiName);
-        m_uiRefs[nodeId] = instId;
+        const QString uiName = splitWidgetRef(resolveDataPin(nodeId, "widgetRef")).first;
+        m_uiRefs[nodeId] = m_uiRuntime->createInstance(uiName);
         return "exec_out";
     }
     if (node->type == "UI.Show") {
-        if (m_uiRuntime) m_uiRuntime->showByName(resolveDataPin(nodeId, "uiRef"));
+        if (m_uiRuntime) {
+            auto [uiName, widgetName] = splitWidgetRef(resolveDataPin(nodeId, "widgetRef"));
+            m_uiRuntime->showWidgetByName(uiName, widgetName);
+        }
         return "exec_out";
     }
     if (node->type == "UI.Hide") {
-        if (m_uiRuntime) m_uiRuntime->hideByName(resolveDataPin(nodeId, "uiRef"));
+        if (m_uiRuntime) {
+            auto [uiName, widgetName] = splitWidgetRef(resolveDataPin(nodeId, "widgetRef"));
+            m_uiRuntime->hideWidgetByName(uiName, widgetName);
+        }
         return "exec_out";
     }
     if (node->type == "UI.Destroy") {
         if (m_uiRuntime) {
-            m_uiRuntime->destroyByName(resolveDataPin(nodeId, "uiRef"));
+            m_uiRuntime->destroyByName(splitWidgetRef(resolveDataPin(nodeId, "widgetRef")).first);
             m_uiRefs.remove(nodeId);
         }
         return "exec_out";
     }
     if (node->type == "UI.SetText") {
-        if (m_uiRuntime)
-            m_uiRuntime->setTextByName(resolveDataPin(nodeId, "uiRef"),
-                                       resolveDataPin(nodeId, "widgetName"),
-                                       resolveDataPin(nodeId, "text"));
+        if (m_uiRuntime) {
+            auto [ui, widget] = splitWidgetRef(resolveDataPin(nodeId, "widgetRef"));
+            m_uiRuntime->setTextByName(ui, widget, resolveDataPin(nodeId, "text"));
+        }
         return "exec_out";
     }
     if (node->type == "UI.SetValue") {
-        if (m_uiRuntime)
-            m_uiRuntime->setValueByName(resolveDataPin(nodeId, "uiRef"),
-                                        resolveDataPin(nodeId, "widgetName"),
-                                        resolveDataPin(nodeId, "value").toFloat());
+        if (m_uiRuntime) {
+            auto [ui, widget] = splitWidgetRef(resolveDataPin(nodeId, "widgetRef"));
+            m_uiRuntime->setValueByName(ui, widget, resolveDataPin(nodeId, "value").toFloat());
+        }
         return "exec_out";
     }
     if (node->type == "UI.SetPosition") {
         if (m_uiRuntime)
-            m_uiRuntime->setPositionByName(resolveDataPin(nodeId, "uiRef"),
+            m_uiRuntime->setPositionByName(splitWidgetRef(resolveDataPin(nodeId, "widgetRef")).first,
                                            resolveDataPin(nodeId, "x").toFloat(),
                                            resolveDataPin(nodeId, "y").toFloat());
         return "exec_out";
     }
     if (node->type == "UI.SetVisible") {
         if (m_uiRuntime) {
+            auto [ui, widget] = splitWidgetRef(resolveDataPin(nodeId, "widgetRef"));
             const QString val = resolveDataPin(nodeId, "visible").toLower();
-            m_uiRuntime->setWidgetVisibleByName(resolveDataPin(nodeId, "uiRef"),
-                                                resolveDataPin(nodeId, "widgetName"),
+            m_uiRuntime->setWidgetVisibleByName(ui, widget,
                                                 !val.isEmpty() && val != "0" && val != "false");
         }
         return "exec_out";
@@ -215,8 +264,78 @@ QString BPRuntime::resolveOutputPin(const QString& nodeId, const QString& pinKey
 
     if (node->type == "UI.Create")
         return m_uiRefs.value(nodeId);
-    if (node->type == "UI.Ref")
-        return node->params.value("uiName");
+    if (node->type == "UI.Ref") {
+        const QString uiName = node->params.value("uiName");
+        return uiName + "::" + pinKey;  // 所有控件引脚返回 "uiName::widgetName"
+    }
+
+    // 运行时变量读取（数值/布尔/字符串共用同一张表）
+    if (node->type == "Var.GetNumber" || node->type == "Var.GetBool" || node->type == "Var.GetString") {
+        QString name = resolveDataPin(nodeId, "name");
+        return m_varStore.value(name);
+    }
+
+    // 数值转字符串（去掉多余的小数零）
+    if (node->type == "Var.NumberToString" && pinKey == "text") {
+        float v = resolveDataPin(nodeId, "number").toFloat();
+        return QString::number(v, 'f', 6).remove(QRegularExpression("0+$")).remove(QRegularExpression("\\.$"));
+    }
+
+    // 数学运算
+    if (node->type == "Math.Add" && pinKey == "result") {
+        float a = resolveDataPin(nodeId, "a").toFloat();
+        float b = resolveDataPin(nodeId, "b").toFloat();
+        return QString::number(a + b);
+    }
+    if (node->type == "Math.Sub" && pinKey == "result") {
+        float a = resolveDataPin(nodeId, "a").toFloat();
+        float b = resolveDataPin(nodeId, "b").toFloat();
+        return QString::number(a - b);
+    }
+    if (node->type == "Math.Mul" && pinKey == "result") {
+        float a = resolveDataPin(nodeId, "a").toFloat();
+        float b = resolveDataPin(nodeId, "b").toFloat();
+        return QString::number(a * b);
+    }
+    if (node->type == "Math.Div" && pinKey == "result") {
+        float a = resolveDataPin(nodeId, "a").toFloat();
+        float b = resolveDataPin(nodeId, "b").toFloat();
+        return (b != 0.0f) ? QString::number(a / b) : QString("0");
+    }
+    if (node->type == "Math.Clamp" && pinKey == "result") {
+        float v   = resolveDataPin(nodeId, "value").toFloat();
+        float mn  = resolveDataPin(nodeId, "min").toFloat();
+        float mx  = resolveDataPin(nodeId, "max").toFloat();
+        return QString::number(std::clamp(v, mn, mx));
+    }
+
+    // 逻辑运算
+    auto isTruthy = [](const QString& s) {
+        return !s.isEmpty() && s != "0" && s.toLower() != "false";
+    };
+    if (node->type == "Logic.Not" && pinKey == "result")
+        return isTruthy(resolveDataPin(nodeId, "value")) ? "false" : "true";
+    if (node->type == "Logic.And" && pinKey == "result") {
+        return (isTruthy(resolveDataPin(nodeId, "a")) && isTruthy(resolveDataPin(nodeId, "b")))
+               ? "true" : "false";
+    }
+    if (node->type == "Logic.Or" && pinKey == "result") {
+        return (isTruthy(resolveDataPin(nodeId, "a")) || isTruthy(resolveDataPin(nodeId, "b")))
+               ? "true" : "false";
+    }
+    if (node->type == "Logic.Compare" && pinKey == "result") {
+        float a   = resolveDataPin(nodeId, "a").toFloat();
+        float b   = resolveDataPin(nodeId, "b").toFloat();
+        QString op = resolveDataPin(nodeId, "op").trimmed();
+        bool res = false;
+        if      (op == "==") res = (a == b);
+        else if (op == "!=") res = (a != b);
+        else if (op == "<")  res = (a <  b);
+        else if (op == "<=") res = (a <= b);
+        else if (op == ">")  res = (a >  b);
+        else if (op == ">=") res = (a >= b);
+        return res ? "true" : "false";
+    }
 
     if (node->type == "Var.GetActorPos") {
         QString actorId = resolveDataPin(nodeId, "actorId");
@@ -231,6 +350,9 @@ QString BPRuntime::resolveOutputPin(const QString& nodeId, const QString& pinKey
     if (node->type == "Event.Tick")
         return (pinKey == "delta_time") ? QString::number(m_deltaTick) : QString();
 
+    if (node->type == "UI.OnDropdownChanged" && pinKey == "index")
+        return QString::number(m_dropdownIndex.value(nodeId, 0));
+
     return {};
 }
 
@@ -244,4 +366,40 @@ const ActorData* BPRuntime::findActorByName(const QString& name) const {
     for (const ActorData& a : m_actors)
         if (a.name == name) return &a;
     return nullptr;
+}
+
+void BPRuntime::triggerButtonClick(const QString& instanceId, const QString& widgetName) {
+    QString uiName;
+    if (m_uiRuntime) {
+        for (const UIInstance* inst : m_uiRuntime->shownInstances())
+            if (inst->instanceId == instanceId) { uiName = inst->uiName; break; }
+    }
+    for (const BPNode& node : m_nodes) {
+        if (node.type != "UI.OnButtonClick") continue;
+        auto [refUi, refWidget] = splitWidgetRef(resolveDataPin(node.id, "widgetRef"));
+        if ((refUi == instanceId || refUi == uiName) && refWidget == widgetName) {
+            QSet<QString> visited;
+            executeChain(node.id, "exec_out", &visited);
+        }
+    }
+    emit stateChanged();
+}
+
+void BPRuntime::triggerDropdownChanged(const QString& instanceId,
+                                        const QString& widgetName, int index) {
+    QString uiName;
+    if (m_uiRuntime) {
+        for (const UIInstance* inst : m_uiRuntime->shownInstances())
+            if (inst->instanceId == instanceId) { uiName = inst->uiName; break; }
+    }
+    for (const BPNode& node : m_nodes) {
+        if (node.type != "UI.OnDropdownChanged") continue;
+        auto [refUi, refWidget] = splitWidgetRef(resolveDataPin(node.id, "widgetRef"));
+        if ((refUi == instanceId || refUi == uiName) && refWidget == widgetName) {
+            m_dropdownIndex[node.id] = index;
+            QSet<QString> visited;
+            executeChain(node.id, "exec_out", &visited);
+        }
+    }
+    emit stateChanged();
 }

@@ -19,6 +19,7 @@ public:
 
 protected:
     void paintEvent(QPaintEvent*) override;
+    void mousePressEvent(QMouseEvent* e) override;
 
 private:
     QRectF  computeCameraRect(float aspect) const;
@@ -33,6 +34,10 @@ private:
     void    renderChildren(QPainter& p, const QString& parentId,
                            const QRectF& parentRect, const UIWidget& parent,
                            const UIDocument& doc) const;
+    bool    hitTestWidget(QPointF pos, const UIWidget& w, QRectF parentRect,
+                          const UIDocument& doc, QString& outWidget) const;
+    bool    hitTestChildren(QPointF pos, const QString& parentId, QRectF parentRect,
+                            const UIWidget& parent, const UIDocument& doc, QString& outWidget) const;
 
     UIRuntime*       m_uiRuntime   = nullptr;
     float            m_ppu         = 100.0f;

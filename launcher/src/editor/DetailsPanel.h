@@ -96,6 +96,7 @@ private:
     // 边界限制组件区块
     QWidget*        m_confinerBox        = nullptr;
     QCheckBox*      m_confinerEnabledChk = nullptr;
+    QLineEdit*      m_confinerActorEdit  = nullptr;
     QDoubleSpinBox* m_confinerMinXSpin   = nullptr;
     QDoubleSpinBox* m_confinerMaxXSpin   = nullptr;
     QDoubleSpinBox* m_confinerMinYSpin   = nullptr;

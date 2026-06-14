@@ -1,5 +1,12 @@
 #include "ActorBPRuntime.h"
 #include "UIRuntime.h"
+#include <utility>
+
+static std::pair<QString,QString> splitWidgetRef(const QString& ref) {
+    int sep = ref.indexOf("::");
+    if (sep < 0) return {ref, {}};
+    return {ref.left(sep), ref.mid(sep + 2)};
+}
 
 ActorBPRuntime::ActorBPRuntime(const BPClass* bpClass,
                                 const QString& actorId,
@@ -57,6 +64,7 @@ QString ActorBPRuntime::executeNode(const QString& nodeId) {
 
     // ── 通用节点类型（复用关卡蓝图逻辑）─────────────────────────────────
     if (node->type == "Action.Print") {
+        emit printOutput(resolveDataPin(nodeId, "text"));
         return "exec_out";
     }
     if (node->type == "Flow.Branch") {
@@ -109,7 +117,7 @@ QString ActorBPRuntime::executeNode(const QString& nodeId) {
     }
     if (node->type == "Self.Sprite.SetVisible") {
         const QString v = resolveDataPin(nodeId, "visible").toLower();
-        self->active = (v == "true" || v == "1");
+        self->spriteVisible = (v == "true" || v == "1");
         return "exec_out";
     }
 
@@ -126,57 +134,91 @@ QString ActorBPRuntime::executeNode(const QString& nodeId) {
         );
         return "exec_out";
     }
+    if (node->type == "Self.Camera.SetFollow") {
+        self->followTarget = resolveDataPin(nodeId, "target");
+        return "exec_out";
+    }
+    if (node->type == "Self.Camera.SetFollowOffset") {
+        self->followOffsetX = resolveDataPin(nodeId, "x").toFloat();
+        self->followOffsetY = resolveDataPin(nodeId, "y").toFloat();
+        return "exec_out";
+    }
+    if (node->type == "Self.Camera.SetSmooth") {
+        self->followLerpSpeed = resolveDataPin(nodeId, "speed").toFloat();
+        return "exec_out";
+    }
+    if (node->type == "Self.Camera.SetBoundary") {
+        self->confinerEnabled = true;
+        self->confinerMinX = resolveDataPin(nodeId, "minX").toFloat();
+        self->confinerMaxX = resolveDataPin(nodeId, "maxX").toFloat();
+        self->confinerMinY = resolveDataPin(nodeId, "minY").toFloat();
+        self->confinerMaxY = resolveDataPin(nodeId, "maxY").toFloat();
+        return "exec_out";
+    }
+    if (node->type == "Self.Camera.ClearFollow") {
+        self->followTarget.clear();
+        return "exec_out";
+    }
+    if (node->type == "Self.Camera.ClearBoundary") {
+        self->confinerEnabled = false;
+        return "exec_out";
+    }
 
     // ── UI 节点 ──────────────────────────────────────────────────────────
     if (node->type == "UI.Create") {
         if (m_uiRuntime) {
-            const QString uiName = resolveDataPin(nodeId, "uiRef");
+            const QString uiName = splitWidgetRef(resolveDataPin(nodeId, "widgetRef")).first;
             m_uiRefs[nodeId] = m_uiRuntime->createInstance(uiName);
         }
         return "exec_out";
     }
     if (node->type == "UI.Show") {
-        if (m_uiRuntime) m_uiRuntime->showByName(resolveDataPin(nodeId, "uiRef"));
+        if (m_uiRuntime) {
+            auto [uiName, widgetName] = splitWidgetRef(resolveDataPin(nodeId, "widgetRef"));
+            m_uiRuntime->showWidgetByName(uiName, widgetName);
+        }
         return "exec_out";
     }
     if (node->type == "UI.Hide") {
-        if (m_uiRuntime) m_uiRuntime->hideByName(resolveDataPin(nodeId, "uiRef"));
+        if (m_uiRuntime) {
+            auto [uiName, widgetName] = splitWidgetRef(resolveDataPin(nodeId, "widgetRef"));
+            m_uiRuntime->hideWidgetByName(uiName, widgetName);
+        }
         return "exec_out";
     }
     if (node->type == "UI.Destroy") {
         if (m_uiRuntime) {
-            m_uiRuntime->destroyByName(resolveDataPin(nodeId, "uiRef"));
+            m_uiRuntime->destroyByName(splitWidgetRef(resolveDataPin(nodeId, "widgetRef")).first);
             m_uiRefs.remove(nodeId);
         }
         return "exec_out";
     }
     if (node->type == "UI.SetText") {
-        if (m_uiRuntime)
-            m_uiRuntime->setTextByName(resolveDataPin(nodeId, "uiRef"),
-                                       resolveDataPin(nodeId, "widgetName"),
-                                       resolveDataPin(nodeId, "text"));
+        if (m_uiRuntime) {
+            auto [ui, widget] = splitWidgetRef(resolveDataPin(nodeId, "widgetRef"));
+            m_uiRuntime->setTextByName(ui, widget, resolveDataPin(nodeId, "text"));
+        }
         return "exec_out";
     }
     if (node->type == "UI.SetValue") {
-        if (m_uiRuntime)
-            m_uiRuntime->setValueByName(resolveDataPin(nodeId, "uiRef"),
-                                        resolveDataPin(nodeId, "widgetName"),
-                                        resolveDataPin(nodeId, "value").toFloat());
+        if (m_uiRuntime) {
+            auto [ui, widget] = splitWidgetRef(resolveDataPin(nodeId, "widgetRef"));
+            m_uiRuntime->setValueByName(ui, widget, resolveDataPin(nodeId, "value").toFloat());
+        }
         return "exec_out";
     }
     if (node->type == "UI.SetPosition") {
         if (m_uiRuntime)
-            m_uiRuntime->setPositionByName(resolveDataPin(nodeId, "uiRef"),
+            m_uiRuntime->setPositionByName(splitWidgetRef(resolveDataPin(nodeId, "widgetRef")).first,
                                            resolveDataPin(nodeId, "x").toFloat(),
                                            resolveDataPin(nodeId, "y").toFloat());
         return "exec_out";
     }
     if (node->type == "UI.SetVisible") {
         if (m_uiRuntime) {
+            auto [ui, widget] = splitWidgetRef(resolveDataPin(nodeId, "widgetRef"));
             const QString v = resolveDataPin(nodeId, "visible").toLower();
-            m_uiRuntime->setWidgetVisibleByName(resolveDataPin(nodeId, "uiRef"),
-                                                resolveDataPin(nodeId, "widgetName"),
-                                                v == "true" || v == "1");
+            m_uiRuntime->setWidgetVisibleByName(ui, widget, v == "true" || v == "1");
         }
         return "exec_out";
     }
@@ -219,8 +261,10 @@ QString ActorBPRuntime::resolveOutputPin(const QString& nodeId, const QString& p
     // UI 输出引脚
     if (node->type == "UI.Create" && pinKey == "uiRef")
         return m_uiRefs.value(nodeId);
-    if (node->type == "UI.Ref" && pinKey == "uiRef")
-        return node->params.value("uiName");
+    if (node->type == "UI.Ref") {
+        const QString uiName = node->params.value("uiName");
+        return uiName + "::" + pinKey;  // 所有控件引脚返回 "uiName::widgetName"
+    }
     if (node->type == "UI.OnDropdownChanged" && pinKey == "index")
         return QString::number(m_dropdownIndex.value(nodeId, 0));
 
@@ -240,22 +284,35 @@ ActorData* ActorBPRuntime::findSelf() {
 }
 
 void ActorBPRuntime::triggerButtonClick(const QString& instanceId, const QString& widgetName) {
+    QString uiName;
+    if (m_uiRuntime) {
+        for (const UIInstance* inst : m_uiRuntime->shownInstances())
+            if (inst->instanceId == instanceId) { uiName = inst->uiName; break; }
+    }
     for (const BPNode& node : m_bpClass->nodes) {
         if (node.type != "UI.OnButtonClick") continue;
-        if (resolveDataPin(node.id, "instanceId") == instanceId &&
-            resolveDataPin(node.id, "widgetName") == widgetName)
-            executeChain(node.id, "exec_out");
+        auto [refUi, refWidget] = splitWidgetRef(resolveDataPin(node.id, "widgetRef"));
+        if ((refUi == instanceId || refUi == uiName) && refWidget == widgetName) {
+            QSet<QString> visited;
+            executeChain(node.id, "exec_out", &visited);
+        }
     }
 }
 
 void ActorBPRuntime::triggerDropdownChanged(const QString& instanceId,
                                              const QString& widgetName, int index) {
+    QString uiName;
+    if (m_uiRuntime) {
+        for (const UIInstance* inst : m_uiRuntime->shownInstances())
+            if (inst->instanceId == instanceId) { uiName = inst->uiName; break; }
+    }
     for (const BPNode& node : m_bpClass->nodes) {
         if (node.type != "UI.OnDropdownChanged") continue;
-        if (resolveDataPin(node.id, "instanceId") == instanceId &&
-            resolveDataPin(node.id, "widgetName") == widgetName) {
+        auto [refUi, refWidget] = splitWidgetRef(resolveDataPin(node.id, "widgetRef"));
+        if ((refUi == instanceId || refUi == uiName) && refWidget == widgetName) {
             m_dropdownIndex[node.id] = index;
-            executeChain(node.id, "exec_out");
+            QSet<QString> visited;
+            executeChain(node.id, "exec_out", &visited);
         }
     }
 }

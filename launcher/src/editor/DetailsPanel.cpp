@@ -348,7 +348,8 @@ void DetailsPanel::showActor(const ActorData& actor) {
                    b18(*m_cameraIsMainCheck), b18b(*m_cameraResWSpin), b18c(*m_cameraResHSpin),
                    b19(m_followTargetEdit), b20(m_followLerpSpin),
                    b21(m_followOffsetXSpin), b22(m_followOffsetYSpin),
-                   b23(m_confinerEnabledChk), b24(m_confinerMinXSpin), b25(m_confinerMaxXSpin),
+                   b23(m_confinerEnabledChk), b23b(m_confinerActorEdit),
+                   b24(m_confinerMinXSpin), b25(m_confinerMaxXSpin),
                    b26(m_confinerMinYSpin), b27(m_confinerMaxYSpin);
 
     m_currentActor = actor;
@@ -413,6 +414,7 @@ void DetailsPanel::showActor(const ActorData& actor) {
 
     // 边界限制组件字段
     m_confinerEnabledChk->setChecked(actor.confinerEnabled);
+    m_confinerActorEdit->setText(actor.confinerActor);
     m_confinerMinXSpin->setValue(actor.confinerMinX);
     m_confinerMaxXSpin->setValue(actor.confinerMaxX);
     m_confinerMinYSpin->setValue(actor.confinerMinY);
@@ -682,8 +684,16 @@ void DetailsPanel::buildConfiner(QVBoxLayout* root) {
     connect(m_confinerEnabledChk, &QCheckBox::toggled, this, &DetailsPanel::onAnyFieldChanged);
     grid->addWidget(m_confinerEnabledChk, 0, 1, 1, 2);
 
-    // 行1：X 范围
-    grid->addWidget(new QLabel("X 范围", content), 1, 0);
+    // 行1：绑定 Trigger Actor（优先于手填）
+    grid->addWidget(new QLabel("边界Actor", content), 1, 0);
+    m_confinerActorEdit = new QLineEdit(content);
+    m_confinerActorEdit->setPlaceholderText("Trigger Actor 名称（可选）");
+    m_confinerActorEdit->setObjectName("detailEdit");
+    connect(m_confinerActorEdit, &QLineEdit::textChanged, this, &DetailsPanel::onAnyFieldChanged);
+    grid->addWidget(m_confinerActorEdit, 1, 1, 1, 2);
+
+    // 行2：X 范围
+    grid->addWidget(new QLabel("X 范围", content), 2, 0);
     auto* xRow = new QHBoxLayout;
     auto* lmin = new QLabel("最小", content); lmin->setObjectName("detailSmallLabel");
     m_confinerMinXSpin = mkDSpin(-99999, 99999, -500.0);
@@ -691,10 +701,10 @@ void DetailsPanel::buildConfiner(QVBoxLayout* root) {
     m_confinerMaxXSpin = mkDSpin(-99999, 99999, 500.0);
     xRow->addWidget(lmin); xRow->addWidget(m_confinerMinXSpin, 1);
     xRow->addWidget(lmax); xRow->addWidget(m_confinerMaxXSpin, 1);
-    grid->addLayout(xRow, 1, 1, 1, 2);
+    grid->addLayout(xRow, 2, 1, 1, 2);
 
-    // 行2：Y 范围
-    grid->addWidget(new QLabel("Y 范围", content), 2, 0);
+    // 行3：Y 范围
+    grid->addWidget(new QLabel("Y 范围", content), 3, 0);
     auto* yRow = new QHBoxLayout;
     auto* lymin = new QLabel("最小", content); lymin->setObjectName("detailSmallLabel");
     m_confinerMinYSpin = mkDSpin(-99999, 99999, -500.0);
@@ -702,7 +712,7 @@ void DetailsPanel::buildConfiner(QVBoxLayout* root) {
     m_confinerMaxYSpin = mkDSpin(-99999, 99999, 500.0);
     yRow->addWidget(lymin); yRow->addWidget(m_confinerMinYSpin, 1);
     yRow->addWidget(lymax); yRow->addWidget(m_confinerMaxYSpin, 1);
-    grid->addLayout(yRow, 2, 1, 1, 2);
+    grid->addLayout(yRow, 3, 1, 1, 2);
 
     m_confinerBox = box;
     root->addWidget(box);
@@ -925,6 +935,7 @@ void DetailsPanel::onAnyFieldChanged() {
     }
     if (m_confinerBox && m_confinerBox->isVisible()) {
         a.confinerEnabled = m_confinerEnabledChk->isChecked();
+        a.confinerActor   = m_confinerActorEdit->text().trimmed();
         a.confinerMinX    = (float)m_confinerMinXSpin->value();
         a.confinerMaxX    = (float)m_confinerMaxXSpin->value();
         a.confinerMinY    = (float)m_confinerMinYSpin->value();

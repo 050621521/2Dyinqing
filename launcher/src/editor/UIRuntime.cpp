@@ -19,7 +19,10 @@ UIInstance* UIRuntime::findByName(const QString& uiName) {
     return nullptr;
 }
 
-void UIRuntime::showByName   (const QString& n) { if (auto* i=findByName(n)) showInstance(i->instanceId); }
+void UIRuntime::showByName(const QString& n) {
+    if (!findByName(n)) createInstance(n);  // 不存在则自动创建
+    if (auto* i = findByName(n)) showInstance(i->instanceId);
+}
 void UIRuntime::hideByName   (const QString& n) { if (auto* i=findByName(n)) hideInstance(i->instanceId); }
 void UIRuntime::destroyByName(const QString& n) { if (auto* i=findByName(n)) destroyInstance(i->instanceId); }
 void UIRuntime::setTextByName(const QString& n, const QString& w, const QString& t) {
@@ -40,15 +43,59 @@ QString UIRuntime::createInstance(const QString& uiName) {
     UIDocument tmpl;
     if (!tmpl.load(path)) return {};
 
+    // 所有控件默认隐藏，由「显示UI」节点按需显示
+    for (const UIWidget& w : tmpl.widgets()) {
+        UIWidget hidden = w;
+        hidden.visible = false;
+        tmpl.updateWidget(hidden);
+    }
+
     auto* inst = new UIInstance;
     inst->instanceId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     inst->uiName     = uiName;
     inst->docCopy    = tmpl;
-    inst->shown      = true;
-    m_all  << inst;
+    inst->shown      = true;   // 实例始终在渲染列表，靠 widget.visible 控制显示
+    m_all   << inst;
     m_shown << inst;
     emit uiStateChanged();
     return inst->instanceId;
+}
+
+QString UIRuntime::showWidgetByName(const QString& uiName, const QString& widgetName) {
+    UIInstance* inst = findByName(uiName);
+    if (!inst) {
+        const QString id = createInstance(uiName);
+        inst = findInstance(id);
+        if (!inst) return {};
+    }
+    // 显示指定控件及其所有祖先容器
+    for (const UIWidget& w : inst->docCopy.widgets()) {
+        if (w.name != widgetName) continue;
+        UIWidget updated = w;
+        updated.visible = true;
+        inst->docCopy.updateWidget(updated);
+        QString parentId = updated.parentId;
+        while (!parentId.isEmpty()) {
+            bool found = false;
+            for (const UIWidget& pw : inst->docCopy.widgets()) {
+                if (pw.id != parentId) continue;
+                UIWidget pu = pw;
+                pu.visible = true;
+                inst->docCopy.updateWidget(pu);
+                parentId = pu.parentId;
+                found = true;
+                break;
+            }
+            if (!found) break;
+        }
+        break;
+    }
+    emit uiStateChanged();
+    return inst->instanceId;
+}
+
+void UIRuntime::hideWidgetByName(const QString& uiName, const QString& widgetName) {
+    setWidgetVisibleByName(uiName, widgetName, false);
 }
 
 void UIRuntime::showInstance(const QString& id) {
@@ -110,6 +157,14 @@ void UIRuntime::setPosition(const QString& id, float x, float y) {
     inst->screenX = x;
     inst->screenY = y;
     emit uiStateChanged();
+}
+
+void UIRuntime::notifyButtonClicked(const QString& instanceId, const QString& widgetName) {
+    emit buttonClicked(instanceId, widgetName);
+}
+
+void UIRuntime::notifyDropdownChanged(const QString& instanceId, const QString& widgetName, int index) {
+    emit dropdownChanged(instanceId, widgetName, index);
 }
 
 void UIRuntime::setWidgetVisible(const QString& id, const QString& widgetName, bool visible) {

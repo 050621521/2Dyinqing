@@ -3,6 +3,7 @@
 #include "models/ActorTypeUtils.h"
 #include <QPainter>
 #include <QPaintEvent>
+#include <QMouseEvent>
 #include <QFont>
 #include <cmath>
 
@@ -113,6 +114,7 @@ void GameViewport::drawScene(QPainter& p, const QList<ActorData>& actors,
 
     for (const ActorData& a : actors) {
         if (a.bpClass == "builtin/Camera" || a.components.contains("摄像机组件")) continue;
+        if (!a.active || !a.spriteVisible) continue;
 
         QPointF pos = cameraWorldToScreen({a.x, a.y}, camRect, cam);
 
@@ -198,6 +200,21 @@ void GameViewport::renderWidget(QPainter& p, const UIWidget& w,
     const QRectF r = widgetScreenRect(w, parentRect);
     const QString& t = w.type;
 
+    // 第一层：精灵图片（所有控件通用）
+    if (!w.imagePath.isEmpty()) {
+        if (!m_pixmapCache.contains(w.imagePath))
+            m_pixmapCache[w.imagePath] = QPixmap(w.imagePath);
+        const QPixmap& px = m_pixmapCache[w.imagePath];
+        if (!px.isNull()) {
+            p.save();
+            p.setOpacity(w.alpha);
+            p.drawPixmap(r.toRect(), px.scaled(r.size().toSize(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
+            p.setOpacity(1.0);
+            p.restore();
+        }
+    }
+
+    // 第二层：控件类型专属内容
     if (t == "UI.面板") {
         if (w.bgColor.alpha() > 0) p.fillRect(r, w.bgColor);
     } else if (t == "UI.文本") {
@@ -207,19 +224,9 @@ void GameViewport::renderWidget(QPainter& p, const UIWidget& w,
         p.setFont(f);
         p.drawText(r, Qt::AlignVCenter | Qt::AlignLeft | Qt::TextWordWrap, w.text);
         p.restore();
-    } else if (t == "UI.图片") {
-        if (!w.imagePath.isEmpty()) {
-            if (!m_pixmapCache.contains(w.imagePath))
-                m_pixmapCache[w.imagePath] = QPixmap(w.imagePath);
-            const QPixmap& px = m_pixmapCache[w.imagePath];
-            if (!px.isNull())
-                p.drawPixmap(r.toRect(),
-                             px.scaled(r.size().toSize(),
-                                       Qt::IgnoreAspectRatio,
-                                       Qt::SmoothTransformation));
-        }
     } else if (t == "UI.按钮") {
-        p.fillRect(r, w.bgColor.alpha() > 0 ? w.bgColor : QColor(60, 60, 80, 200));
+        if (w.imagePath.isEmpty())
+            p.fillRect(r, w.bgColor.alpha() > 0 ? w.bgColor : QColor(60, 60, 80, 200));
         p.save();
         p.setPen(w.color);
         QFont f; f.setPixelSize(qMax(6, w.fontSize));
@@ -227,12 +234,14 @@ void GameViewport::renderWidget(QPainter& p, const UIWidget& w,
         p.drawText(r, Qt::AlignCenter, w.text);
         p.restore();
     } else if (t == "UI.进度条") {
-        p.fillRect(r, w.bgColor.alpha() > 0 ? w.bgColor : QColor(50, 50, 50, 200));
+        if (w.imagePath.isEmpty())
+            p.fillRect(r, w.bgColor.alpha() > 0 ? w.bgColor : QColor(50, 50, 50, 200));
         QRectF fill = r;
         fill.setWidth(r.width() * qBound(0.0f, w.value, 1.0f));
         if (fill.width() > 0) p.fillRect(fill, w.fillColor);
     } else if (t == "UI.下拉菜单") {
-        p.fillRect(r, w.bgColor.alpha() > 0 ? w.bgColor : QColor(50, 50, 60, 200));
+        if (w.imagePath.isEmpty())
+            p.fillRect(r, w.bgColor.alpha() > 0 ? w.bgColor : QColor(50, 50, 60, 200));
         const QStringList opts = w.text.split('\n', Qt::SkipEmptyParts);
         const QString display = (w.selectedIndex < opts.size())
                                 ? opts[w.selectedIndex] : "(空)";
@@ -303,4 +312,98 @@ void GameViewport::renderUI(QPainter& p, const QRectF& camRect) const {
             renderWidget(p, root, camRect, doc);
         p.restore();
     }
+}
+
+void GameViewport::mousePressEvent(QMouseEvent* e) {
+    if (!m_uiRuntime || !m_runtimeMode) {
+        QWidget::mousePressEvent(e);
+        return;
+    }
+    const QList<ActorData>& actors = m_runtimeActors;
+    const ActorData* cam = nullptr;
+    for (const ActorData& a : actors) {
+        if (a.cameraIsMain && (a.bpClass == "builtin/Camera" || a.components.contains("摄像机组件"))) {
+            cam = &a;
+            break;
+        }
+    }
+    const float aspect = (cam && cam->cameraResH > 0)
+                         ? (float)cam->cameraResW / cam->cameraResH : 1.7778f;
+    const QRectF camRect = computeCameraRect(aspect);
+    const QPointF pos = e->pos();
+    for (const UIInstance* inst : m_uiRuntime->shownInstances()) {
+        const UIDocument& doc = inst->docCopy;
+        const QPointF localPos = pos - QPointF(inst->screenX, inst->screenY);
+        for (const UIWidget& root : doc.rootWidgets()) {
+            QString hitWidget;
+            if (hitTestWidget(localPos, root, camRect, doc, hitWidget)) {
+                m_uiRuntime->notifyButtonClicked(inst->instanceId, hitWidget);
+                e->accept();
+                return;
+            }
+        }
+    }
+    QWidget::mousePressEvent(e);
+}
+
+bool GameViewport::hitTestWidget(QPointF pos, const UIWidget& w, QRectF parentRect,
+                                  const UIDocument& doc, QString& outWidget) const {
+    if (!w.visible) return false;
+    const QRectF r = widgetScreenRect(w, parentRect);
+    if (w.type == "UI.按钮" && r.contains(pos)) {
+        outWidget = w.name;
+        return true;
+    }
+    const QString& t = w.type;
+    if (t == "UI.面板" || t == "UI.竖向布局" || t == "UI.横向布局" ||
+        t == "UI.网格布局" || t == "UI.滚动视图")
+        return hitTestChildren(pos, w.id, r, w, doc, outWidget);
+    return false;
+}
+
+bool GameViewport::hitTestChildren(QPointF pos, const QString& parentId, QRectF parentRect,
+                                    const UIWidget& parent, const UIDocument& doc, QString& outWidget) const {
+    const QList<UIWidget> children = doc.childrenOf(parentId);
+    if (parent.type == "UI.竖向布局") {
+        float y = parentRect.top();
+        for (const UIWidget& child : children) {
+            if (!child.visible) continue;
+            if (hitTestWidget(pos, child,
+                              QRectF(parentRect.left(), y - child.y, parentRect.width(), child.height + child.y),
+                              doc, outWidget))
+                return true;
+            y += child.height + parent.spacing;
+        }
+        return false;
+    }
+    if (parent.type == "UI.横向布局") {
+        float x = parentRect.left();
+        for (const UIWidget& child : children) {
+            if (!child.visible) continue;
+            if (hitTestWidget(pos, child,
+                              QRectF(x - child.x, parentRect.top(), child.width + child.x, parentRect.height()),
+                              doc, outWidget))
+                return true;
+            x += child.width + parent.spacing;
+        }
+        return false;
+    }
+    if (parent.type == "UI.网格布局") {
+        int col = 0, row = 0;
+        for (const UIWidget& child : children) {
+            if (!child.visible) { col++; if (col >= parent.columns) { col = 0; row++; } continue; }
+            const float cx = parentRect.left() + col * (parent.cellW + parent.spacing);
+            const float cy = parentRect.top()  + row * (parent.cellH + parent.spacing);
+            if (hitTestWidget(pos, child, QRectF(cx, cy, parent.cellW, parent.cellH), doc, outWidget))
+                return true;
+            col++;
+            if (col >= parent.columns) { col = 0; row++; }
+        }
+        return false;
+    }
+    for (const UIWidget& child : children) {
+        if (hitTestWidget(pos, child, parentRect, doc, outWidget))
+            return true;
+    }
+    return false;
 }

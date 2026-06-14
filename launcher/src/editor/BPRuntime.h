@@ -16,17 +16,21 @@ public:
 
     void triggerBeginPlay();
     void triggerKeyDown(const QString& key);
+    void triggerButtonClick(const QString& instanceId, const QString& widgetName);
+    void triggerDropdownChanged(const QString& instanceId, const QString& widgetName, int index);
 
     const QList<ActorData>& actors()   const { return m_actors; }
     // mutableActors() 只在运行时由 ActorBPRuntime 持有指针，运行期间不允许增删 Actor，列表不会重分配
     QList<ActorData>&       mutableActors()  { return m_actors; }
     float                   lastDt()   const { return m_lastDt; }
     const QStringList&      printLog() const { return m_printLog; }
+    void appendPrintLog(const QString& text) { m_printLog << text; }
 
-    void setUIRuntime(UIRuntime* ui) { m_uiRuntime = ui; }
+    void setUIRuntime(UIRuntime* ui);
 
 signals:
     void stateChanged();
+    void loadLevelRequested(const QString& levelName);
 
 private slots:
     void tick();
@@ -46,6 +50,7 @@ private:
     QList<BPConnection> m_connections;
     QList<ActorData>    m_actors;
     QStringList         m_printLog;
+    QMap<QString, QString> m_varStore;  // 运行时变量表（name → value）
 
     UIRuntime*             m_uiRuntime = nullptr;
     QMap<QString, QString> m_uiRefs;      // nodeId(UI.Create) → instanceId

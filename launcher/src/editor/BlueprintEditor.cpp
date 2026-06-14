@@ -1,4 +1,5 @@
 #include "BlueprintEditor.h"
+#include "models/UIDocument.h"
 #include <QPainter>
 #include <QPainterPath>
 #include <QWheelEvent>
@@ -51,6 +52,18 @@ static bool nodeHasUIPicker(const QString& type) {
     return type == "UI.Ref";
 }
 
+QStringList BlueprintEditor::loadWidgetNames(const QString& uiName) const {
+    if (uiName.isEmpty()) return {};
+    if (m_uiWidgetCache.contains(uiName)) return m_uiWidgetCache.value(uiName);
+    if (m_projectRoot.isEmpty()) return {};
+    UIDocument doc;
+    if (!doc.load(m_projectRoot + "/UI/" + uiName + ".ui")) return {};
+    QStringList names;
+    for (const UIWidget& w : doc.widgets()) names << w.name;
+    m_uiWidgetCache[uiName] = names;
+    return names;
+}
+
 const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
     static QList<NodeDef> defs = {
         {
@@ -91,6 +104,13 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
                 {"exec_out", "exec",   true,  true},
                 {"actorId",  "对象ID", false, false},
                 {"active",   "激活",   false, false}
+            }
+        },
+        {
+            "Action.LoadLevel", "跳转关卡", QColor("#5a3a1a"),
+            {
+                {"exec_in",   "exec",   true,  false},
+                {"levelName", "关卡名", false, false}
             }
         },
         {
@@ -186,102 +206,196 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
             {{"exec_in","exec",true,false},{"exec_out","exec",true,true},
              {"r","R",false,false},{"g","G",false,false},{"b","B",false,false}}
         },
+        {
+            "Self.Camera.SetFollow", "设置跟随目标", QColor("#1a2a4a"),
+            {{"exec_in","exec",true,false},{"exec_out","exec",true,true},
+             {"target","目标名称",false,false}}
+        },
+        {
+            "Self.Camera.SetFollowOffset", "设置跟随偏移", QColor("#1a2a4a"),
+            {{"exec_in","exec",true,false},{"exec_out","exec",true,true},
+             {"x","偏移X",false,false},{"y","偏移Y",false,false}}
+        },
+        {
+            "Self.Camera.SetSmooth", "设置跟随平滑度", QColor("#1a2a4a"),
+            {{"exec_in","exec",true,false},{"exec_out","exec",true,true},
+             {"speed","平滑速度",false,false}}
+        },
+        {
+            "Self.Camera.SetBoundary", "设置摄像机边界", QColor("#1a2a4a"),
+            {{"exec_in","exec",true,false},{"exec_out","exec",true,true},
+             {"minX","左",false,false},{"maxX","右",false,false},
+             {"minY","下",false,false},{"maxY","上",false,false}}
+        },
+        {
+            "Self.Camera.ClearFollow", "清除跟随目标", QColor("#1a2a4a"),
+            {{"exec_in","exec",true,false},{"exec_out","exec",true,true}}
+        },
+        {
+            "Self.Camera.ClearBoundary", "清除摄像机边界", QColor("#1a2a4a"),
+            {{"exec_in","exec",true,false},{"exec_out","exec",true,true}}
+        },
         // ── UI 节点 ──────────────────────────────────────────────────────────
         {
             "UI.Ref", "UI引用", QColor("#4a1a6a"),
-            {
-                {"uiRef", "UI引用", false, true},
-            }
+            {}  // 无静态引脚；动态控件引脚在渲染/命中检测时实时生成
         },
         {
             "UI.Create", "创建UI", QColor("#4a1a6a"),
             {
-                {"exec_in",  "exec",   true,  false},
-                {"exec_out", "exec",   true,  true},
-                {"uiRef",    "UI引用", false, false},
+                {"exec_in",   "exec",     true,  false},
+                {"exec_out",  "exec",     true,  true},
+                {"widgetRef", "控件引用", false, false},
             }
         },
         {
             "UI.Show", "显示UI", QColor("#1a4a6a"),
             {
-                {"exec_in",  "exec",   true,  false},
-                {"exec_out", "exec",   true,  true},
-                {"uiRef",    "UI引用", false, false},
+                {"exec_in",   "exec",     true,  false},
+                {"exec_out",  "exec",     true,  true},
+                {"widgetRef", "控件引用", false, false},
             }
         },
         {
             "UI.Hide", "隐藏UI", QColor("#1a4a6a"),
             {
-                {"exec_in",  "exec",   true,  false},
-                {"exec_out", "exec",   true,  true},
-                {"uiRef",    "UI引用", false, false},
+                {"exec_in",   "exec",     true,  false},
+                {"exec_out",  "exec",     true,  true},
+                {"widgetRef", "控件引用", false, false},
             }
         },
         {
             "UI.Destroy", "销毁UI", QColor("#6a1a1a"),
             {
-                {"exec_in",  "exec",   true,  false},
-                {"exec_out", "exec",   true,  true},
-                {"uiRef",    "UI引用", false, false},
+                {"exec_in",   "exec",     true,  false},
+                {"exec_out",  "exec",     true,  true},
+                {"widgetRef", "控件引用", false, false},
             }
         },
         {
             "UI.SetText", "设置文本", QColor("#1a4a6a"),
             {
-                {"exec_in",    "exec",     true,  false},
-                {"exec_out",   "exec",     true,  true},
-                {"uiRef",      "UI引用",   false, false},
-                {"widgetName", "控件名",   false, false},
-                {"text",       "文本内容", false, false},
+                {"exec_in",   "exec",     true,  false},
+                {"exec_out",  "exec",     true,  true},
+                {"widgetRef", "控件引用", false, false},
+                {"text",      "文本内容", false, false},
             }
         },
         {
             "UI.SetValue", "设置进度值", QColor("#1a4a6a"),
             {
-                {"exec_in",    "exec",   true,  false},
-                {"exec_out",   "exec",   true,  true},
-                {"uiRef",      "UI引用", false, false},
-                {"widgetName", "控件名", false, false},
-                {"value",      "数值",   false, false},
+                {"exec_in",   "exec",     true,  false},
+                {"exec_out",  "exec",     true,  true},
+                {"widgetRef", "控件引用", false, false},
+                {"value",     "数值",     false, false},
             }
         },
         {
             "UI.SetPosition", "设置UI位置", QColor("#1a4a6a"),
             {
-                {"exec_in",  "exec",   true,  false},
-                {"exec_out", "exec",   true,  true},
-                {"uiRef",    "UI引用", false, false},
-                {"x",        "X",      false, false},
-                {"y",        "Y",      false, false},
+                {"exec_in",   "exec",     true,  false},
+                {"exec_out",  "exec",     true,  true},
+                {"widgetRef", "控件引用", false, false},
+                {"x",         "X",        false, false},
+                {"y",         "Y",        false, false},
             }
         },
         {
             "UI.SetVisible", "设置控件可见", QColor("#1a4a6a"),
             {
-                {"exec_in",    "exec",   true,  false},
-                {"exec_out",   "exec",   true,  true},
-                {"uiRef",      "UI引用", false, false},
-                {"widgetName", "控件名", false, false},
-                {"visible",    "可见",   false, false},
+                {"exec_in",   "exec",     true,  false},
+                {"exec_out",  "exec",     true,  true},
+                {"widgetRef", "控件引用", false, false},
+                {"visible",   "可见",     false, false},
             }
         },
         {
             "UI.OnButtonClick", "按钮点击时", QColor("#6a2a8a"),
             {
-                {"uiRef",      "UI引用", false, false},
-                {"widgetName", "控件名", false, false},
-                {"exec_out",   "exec",   true,  true},
+                {"widgetRef", "控件引用", false, false},
+                {"exec_out",  "exec",     true,  true},
             }
         },
         {
             "UI.OnDropdownChanged", "下拉选项改变时", QColor("#6a2a8a"),
             {
-                {"uiRef",      "UI引用",   false, false},
-                {"widgetName", "控件名",   false, false},
-                {"exec_out",   "exec",     true,  true},
-                {"index",      "选中索引", false, true},
+                {"widgetRef", "控件引用", false, false},
+                {"exec_out",  "exec",     true,  true},
+                {"index",     "选中索引", false, true},
             }
-        }
+        },
+        // ── 运行时变量 ───────────────────────────────────────────────────
+        {
+            "Var.SetNumber", "设置数值变量", QColor("#2a4a2a"),
+            {{"exec_in","exec",true,false},{"exec_out","exec",true,true},
+             {"name","变量名",false,false},{"value","数值",false,false}}
+        },
+        {
+            "Var.GetNumber", "获取数值变量", QColor("#2a4a2a"),
+            {{"name","变量名",false,false},{"value","数值",false,true}}
+        },
+        {
+            "Var.SetBool", "设置布尔变量", QColor("#2a4a2a"),
+            {{"exec_in","exec",true,false},{"exec_out","exec",true,true},
+             {"name","变量名",false,false},{"value","布尔值",false,false}}
+        },
+        {
+            "Var.GetBool", "获取布尔变量", QColor("#2a4a2a"),
+            {{"name","变量名",false,false},{"value","布尔值",false,true}}
+        },
+        {
+            "Var.SetString", "设置字符串变量", QColor("#2a4a2a"),
+            {{"exec_in","exec",true,false},{"exec_out","exec",true,true},
+             {"name","变量名",false,false},{"value","字符串",false,false}}
+        },
+        {
+            "Var.GetString", "获取字符串变量", QColor("#2a4a2a"),
+            {{"name","变量名",false,false},{"value","字符串",false,true}}
+        },
+        {
+            "Var.NumberToString", "数值转字符串", QColor("#3a3a4a"),
+            {{"number","数值",false,false},{"text","文本",false,true}}
+        },
+        // ── 数学运算 ─────────────────────────────────────────────────────
+        {
+            "Math.Add", "加法", QColor("#1a2a5a"),
+            {{"a","A",false,false},{"b","B",false,false},{"result","结果",false,true}}
+        },
+        {
+            "Math.Sub", "减法", QColor("#1a2a5a"),
+            {{"a","A",false,false},{"b","B",false,false},{"result","结果",false,true}}
+        },
+        {
+            "Math.Mul", "乘法", QColor("#1a2a5a"),
+            {{"a","A",false,false},{"b","B",false,false},{"result","结果",false,true}}
+        },
+        {
+            "Math.Div", "除法", QColor("#1a2a5a"),
+            {{"a","A",false,false},{"b","B",false,false},{"result","结果",false,true}}
+        },
+        {
+            "Math.Clamp", "数值夹取", QColor("#1a2a5a"),
+            {{"value","数值",false,false},{"min","最小",false,false},
+             {"max","最大",false,false},{"result","结果",false,true}}
+        },
+        // ── 逻辑运算 ─────────────────────────────────────────────────────
+        {
+            "Logic.Compare", "数值比较", QColor("#3a2a5a"),
+            {{"a","A",false,false},{"op","运算符",false,false},
+             {"b","B",false,false},{"result","结果",false,true}}
+        },
+        {
+            "Logic.Not", "逻辑非", QColor("#3a2a5a"),
+            {{"value","布尔值",false,false},{"result","结果",false,true}}
+        },
+        {
+            "Logic.And", "逻辑与", QColor("#3a2a5a"),
+            {{"a","A",false,false},{"b","B",false,false},{"result","结果",false,true}}
+        },
+        {
+            "Logic.Or", "逻辑或", QColor("#3a2a5a"),
+            {{"a","A",false,false},{"b","B",false,false},{"result","结果",false,true}}
+        },
     };
     return defs;
 }
@@ -327,9 +441,14 @@ QPointF BlueprintEditor::screenToCanvas(QPointF s) const {
 // ── 节点几何 ──────────────────────────────────────────────────────────
 
 float BlueprintEditor::nodeHeight(const BPNode& node) const {
+    if (node.type == "UI.Ref") {
+        // 1行选择器按钮 + N行动态控件引脚
+        int n = loadWidgetNames(node.params.value("uiName")).size();
+        return kHeaderH + kRowH * (1 + n) + 4.0f;
+    }
     const NodeDef* def = findNodeDef(node.type);
     int pinCount = def ? def->pins.size() : 1;
-    int extraRows = (node.type == "Var.ActorRef" || nodeHasUIPicker(node.type)) ? 1 : 0;
+    int extraRows = (node.type == "Var.ActorRef") ? 1 : 0;
     return kHeaderH + kRowH * qMax(1, pinCount + extraRows) + 4.0f;
 }
 
@@ -338,18 +457,30 @@ QRectF BlueprintEditor::nodeRect(const BPNode& node) const {
 }
 
 QPointF BlueprintEditor::pinCenter(const BPNode& node, const QString& pinKey, bool isOutput) const {
+    QPointF tl = canvasToScreen({node.x, node.y});
+    float rightX = (float)(tl.x() + kNodeW * m_zoom - 10.0f);
+    float leftX  = (float)(tl.x() + 10.0f);
+
+    if (node.type == "UI.Ref" && isOutput) {
+        // rows 0..N-1: 动态控件引脚（紧接选择器按钮行）
+        const QStringList widgets = loadWidgetNames(node.params.value("uiName"));
+        for (int i = 0; i < widgets.size(); ++i) {
+            if (widgets[i] == pinKey) {
+                float cy = (float)(tl.y() + (kHeaderH + (1 + i) * kRowH + kRowH * 0.5f) * m_zoom);
+                return {rightX, cy};
+            }
+        }
+        return {};
+    }
+
     const NodeDef* def = findNodeDef(node.type);
     if (!def) return {};
-    QPointF topLeftScreen = canvasToScreen({node.x, node.y});
-    int extraRows = (node.type == "Var.ActorRef" || nodeHasUIPicker(node.type)) ? 1 : 0;
+    int extraRows = (node.type == "Var.ActorRef") ? 1 : 0;
     int row = 0;
     for (const PinDef& pd : def->pins) {
         if (pd.key == pinKey && pd.isOutput == isOutput) {
-            float cy = (float)(topLeftScreen.y() + (kHeaderH + (row + extraRows) * kRowH + kRowH * 0.5f) * m_zoom);
-            float cx = isOutput
-                ? (float)(topLeftScreen.x() + kNodeW * m_zoom - 10.0f)
-                : (float)(topLeftScreen.x() + 10.0f);
-            return {cx, cy};
+            float cy = (float)(tl.y() + (kHeaderH + (row + extraRows) * kRowH + kRowH * 0.5f) * m_zoom);
+            return {isOutput ? rightX : leftX, cy};
         }
         ++row;
     }
@@ -407,6 +538,24 @@ BlueprintEditor::Hit BlueprintEditor::hitTest(QPointF screenPos) const {
             }
             ++row;
         }
+        // UI.Ref：检测动态控件输出引脚
+        if (node.type == "UI.Ref") {
+            const QStringList widgets = loadWidgetNames(node.params.value("uiName"));
+            for (const QString& wName : widgets) {
+                QPointF pc = pinCenter(node, wName, true);
+                float hitR = kPinSq * m_zoom + 4.0f;
+                QPointF delta = screenPos - pc;
+                if (delta.x() * delta.x() + delta.y() * delta.y() <= hitR * hitR) {
+                    Hit h;
+                    h.type        = Hit::Pin;
+                    h.nodeId      = node.id;
+                    h.pinName     = wName;
+                    h.pinIsOutput = true;
+                    h.pinIsExec   = false;
+                    return h;
+                }
+            }
+        }
     }
     // PinValue 命中：ActorRef 选择器 + 普通数据输入引脚值区域
     const auto& nodes2 = activeNodes();
@@ -432,7 +581,7 @@ BlueprintEditor::Hit BlueprintEditor::hitTest(QPointF screenPos) const {
             continue; // ActorRef 无数据输入引脚，跳过后续检测
         }
 
-        // UI 选择器节点：选择器按钮占据第 0 行（紧接 header）
+        // UI.Ref：仅选择器按钮区域可编辑，其余为输出引脚无需值编辑
         if (nodeHasUIPicker(node.type)) {
             float rowY = tl.y() + kHeaderH * m_zoom;
             float rowH = kRowH * m_zoom;
@@ -444,11 +593,11 @@ BlueprintEditor::Hit BlueprintEditor::hitTest(QPointF screenPos) const {
                 h.pinName = "uiName";
                 return h;
             }
-            continue;
+            continue; // UI.Ref 无数据输入引脚，跳过后续值编辑检测
         }
 
         // 其他节点：检测未连接的非 actorId 数据输入引脚
-        int extraRows = (node.type == "Var.ActorRef" || nodeHasUIPicker(node.type)) ? 1 : 0;
+        int extraRows = (node.type == "Var.ActorRef") ? 1 : 0;
         int row = 0;
         for (const PinDef& pd : def->pins) {
             if (!pd.isExec && !pd.isOutput && pd.key != "actorId"
@@ -643,10 +792,11 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
         p.drawText(btnRc, Qt::AlignCenter, actorName);
     }
 
-    // UI 选择器节点：UI 资产选择器行
+    // UI.Ref：选择器按钮 + 固定 uiRef 引脚 + 动态控件引脚
     if (nodeHasUIPicker(node.type)) {
         const QString uiName = node.params.value("uiName");
         const bool hasName   = !uiName.isEmpty();
+        // 选择器按钮（row 0）
         QString btnText = hasName ? uiName + " ▾" : "(点击选择UI) ▾";
         float btnRowY = tl.y() + kHeaderH * (float)m_zoom;
         float btnRowH = kRowH * (float)m_zoom;
@@ -659,6 +809,26 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
         p.setFont(bf);
         p.setPen(hasName ? QColor(0x8a, 0x6a, 0xd4) : QColor(0x66, 0x55, 0x88));
         p.drawText(btnRc, Qt::AlignCenter, btnText);
+
+        // 动态控件输出引脚（紧接选择器按钮行）
+        const QStringList widgetNames = loadWidgetNames(uiName);
+        for (int i = 0; i < widgetNames.size(); ++i) {
+            const QString& wName = widgetNames[i];
+            QPointF pc = pinCenter(node, wName, true);
+            drawPin(p, pc, false, isPinConnected(node.id, wName, true));
+            float rowY = tl.y() + (kHeaderH + (1 + i) * kRowH) * (float)m_zoom;
+            p.setPen(QColor(0xcc, 0xcc, 0xcc));
+            p.setFont(bf);
+            QRectF labelRc(tl.x(), rowY, nw - 18.0f*(float)m_zoom, kRowH*(float)m_zoom);
+            p.drawText(labelRc, Qt::AlignVCenter | Qt::AlignRight, wName);
+        }
+        // 跳过通用 pin 循环（UI.Ref 无输入引脚，且输出引脚已手动绘制）
+        if (node.id == m_selectedNodeId) {
+            p.setPen(QPen(QColor(0xff, 0xff, 0xff), 2.0));
+            p.setBrush(Qt::NoBrush);
+            p.drawRoundedRect(nodeRc.adjusted(-3, -3, 3, 3), radius + 2, radius + 2);
+        }
+        return;
     }
 
     // Pin 行
@@ -667,7 +837,7 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
     font.setPointSizeF(pinFontSize);
     p.setFont(font);
 
-    int extraRows = (node.type == "Var.ActorRef" || nodeHasUIPicker(node.type)) ? 1 : 0;
+    int extraRows = (node.type == "Var.ActorRef") ? 1 : 0;
     int row = 0;
     for (const PinDef& pd : def->pins) {
         QPointF pc = pinCenter(node, pd.key, pd.isOutput);
@@ -1001,6 +1171,8 @@ void BlueprintEditor::contextMenuEvent(QContextMenuEvent* e) {
     auto* actionMenu = menu.addMenu("动作");
     auto* flowMenu   = menu.addMenu("流程控制");
     auto* varMenu    = menu.addMenu("变量");
+    auto* mathMenu   = menu.addMenu("数学");
+    auto* logicMenu  = menu.addMenu("逻辑");
     auto* selfMenu   = menu.addMenu("Self");
     auto* uiMenu     = menu.addMenu("UI");
 
@@ -1010,7 +1182,9 @@ void BlueprintEditor::contextMenuEvent(QContextMenuEvent* e) {
                         def.typeId.startsWith("Action.") ? actionMenu :
                         def.typeId.startsWith("Flow.")   ? flowMenu   :
                         def.typeId.startsWith("UI.")     ? uiMenu     :
-                        def.typeId.startsWith("Self.")   ? selfMenu   : varMenu;
+                        def.typeId.startsWith("Self.")   ? selfMenu   :
+                        def.typeId.startsWith("Math.")   ? mathMenu   :
+                        def.typeId.startsWith("Logic.")  ? logicMenu  : varMenu;
         const QString typeId = def.typeId;
         target->addAction(def.displayName, [this, typeId, canvasPos]() {
             if (!m_doc && !m_bpClass) return;
@@ -1163,7 +1337,9 @@ void BlueprintEditor::showWireDropPopup(QPoint screenPos) {
                           def.typeId.startsWith("Action.") ? "动作"    :
                           def.typeId.startsWith("Flow.")   ? "流程控制" :
                           def.typeId.startsWith("UI.")     ? "UI"      :
-                          def.typeId.startsWith("Self.")   ? "Self"    : "变量";
+                          def.typeId.startsWith("Self.")   ? "Self"    :
+                          def.typeId.startsWith("Math.")   ? "数学"    :
+                          def.typeId.startsWith("Logic.")  ? "逻辑"    : "变量";
         auto* ci  = getCat(catName);
         auto* ni  = new QTreeWidgetItem(ci, {def.displayName});
         ni->setData(0, Qt::UserRole,     def.typeId);
@@ -1589,6 +1765,7 @@ void BlueprintEditor::showUIAssetPicker(QPoint screenPos, const QString& nodeId)
             if (nid.isEmpty()) return;
             for (BPNode node : activeNodes()) {
                 if (node.id == nid) {
+                    m_uiWidgetCache.remove(name); // 切换 UI 文件时刷新缓存
                     node.params["uiName"] = name;
                     updateNodeInActive(m_bpClass, m_doc, node);
                     notifyModified();
@@ -1609,4 +1786,8 @@ void BlueprintEditor::showUIAssetPicker(QPoint screenPos, const QString& nodeId)
     m_uiAssetPopup->move(pos);
     m_uiAssetPopup->show();
     m_uiAssetPopup->raise();
+}
+
+QString BlueprintEditor::currentBpClassPath() const {
+    return m_bpClass ? m_bpClass->filePath : QString();
 }

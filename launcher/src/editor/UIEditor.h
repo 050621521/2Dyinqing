@@ -40,10 +40,11 @@ public:
     QString selectedId() const { return m_selectedId; }
 
     // 回调，由 UIEditor 赋值
-    std::function<void(const QString&)>           onSelectionChanged;
+    std::function<void(const QString&)>               onSelectionChanged;
     std::function<void(const QString&, float, float)> onWidgetMoved;
-    std::function<void(const QString&)>           onAddWidget;
-    std::function<void()>                         onDeleteSelected;
+    std::function<void(const QString&)>               onAddWidget;
+    std::function<void()>                             onDeleteSelected;
+    std::function<void(const QString&, const QString&)> onImageDropped; // widgetId, imagePath
 
 protected:
     void paintEvent(QPaintEvent*) override;
@@ -51,6 +52,8 @@ protected:
     void mouseMoveEvent(QMouseEvent*) override;
     void mouseReleaseEvent(QMouseEvent*) override;
     void contextMenuEvent(QContextMenuEvent*) override;
+    void dragEnterEvent(QDragEnterEvent*) override;
+    void dropEvent(QDropEvent*) override;
 
 private:
     QRectF  widgetScreenRect(const UIWidget& w, const QRectF& parentRect) const;
@@ -83,6 +86,7 @@ public:
     void loadDocument(UIDocument* doc);
     void setPreviewLevel(LevelDocument* level, float ppu);
     void setAvailableLevels(const QStringList& levelNames);
+    void setProjectRoot(const QString& root);
 
     UIDocument* document() const { return m_doc; }
 
@@ -93,6 +97,9 @@ signals:
 public slots:
     void onAddWidget(const QString& type);
     void onDeleteSelected();
+
+protected:
+    bool eventFilter(QObject* obj, QEvent* e) override;
 
 private slots:
     void onTreeSelectionChanged();
@@ -108,6 +115,7 @@ private:
     QScrollArea*     m_propScroll = nullptr;
     QComboBox*       m_bgCombo    = nullptr;
     QString          m_selectedId;
-    QStringList      m_levelNames;   // 可用关卡名列表
-    float            m_ppu = 100.0f; // 记住当前 PPU
+    QStringList      m_levelNames;
+    QString          m_projectRoot;
+    float            m_ppu = 100.0f;
 };

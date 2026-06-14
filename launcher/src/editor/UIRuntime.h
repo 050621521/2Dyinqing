@@ -27,6 +27,8 @@ public:
     void    setPosition    (const QString& instanceId, float x, float y);
     void    setWidgetVisible(const QString& instanceId, const QString& widgetName, bool visible);
 
+    QString showWidgetByName   (const QString& uiName, const QString& widgetName);
+    void hideWidgetByName      (const QString& uiName, const QString& widgetName);
     void showByName            (const QString& uiName);
     void hideByName            (const QString& uiName);
     void destroyByName         (const QString& uiName);
@@ -36,6 +38,9 @@ public:
     void setWidgetVisibleByName(const QString& uiName, const QString& widgetName, bool visible);
 
     const QList<UIInstance*>& shownInstances() const { return m_shown; }
+
+    void notifyButtonClicked(const QString& instanceId, const QString& widgetName);
+    void notifyDropdownChanged(const QString& instanceId, const QString& widgetName, int index);
 
 signals:
     void uiStateChanged();

@@ -28,9 +28,10 @@ QJsonObject ActorData::toJson() const {
     obj["spriteColor"] = spriteColor.name(QColor::HexArgb);
     obj["sortingLayer"]= sortingLayer;
     obj["orderInLayer"]= orderInLayer;
-    obj["flipX"]       = flipX;
-    obj["flipY"]       = flipY;
-    obj["drawMode"]    = drawMode;
+    obj["flipX"]         = flipX;
+    obj["flipY"]         = flipY;
+    obj["drawMode"]      = drawMode;
+    obj["spriteVisible"] = spriteVisible;
     obj["cameraSize"]         = cameraSize;
     obj["cameraIsMain"]       = cameraIsMain;
     obj["cameraResW"]         = cameraResW;
@@ -42,6 +43,7 @@ QJsonObject ActorData::toJson() const {
     obj["followOffsetX"]      = followOffsetX;
     obj["followOffsetY"]      = followOffsetY;
     obj["confinerEnabled"]    = confinerEnabled;
+    obj["confinerActor"]      = confinerActor;
     obj["confinerMinX"]       = confinerMinX;
     obj["confinerMaxX"]       = confinerMaxX;
     obj["confinerMinY"]       = confinerMinY;
@@ -75,9 +77,10 @@ ActorData ActorData::fromJson(const QJsonObject& obj) {
     a.spriteColor  = QColor(obj["spriteColor"].toString("#ffffffff"));
     a.sortingLayer = obj["sortingLayer"].toString("默认");
     a.orderInLayer = obj["orderInLayer"].toInt(0);
-    a.flipX        = obj["flipX"].toBool(false);
-    a.flipY        = obj["flipY"].toBool(false);
-    a.drawMode     = obj["drawMode"].toString("简单");
+    a.flipX          = obj["flipX"].toBool(false);
+    a.flipY          = obj["flipY"].toBool(false);
+    a.drawMode       = obj["drawMode"].toString("简单");
+    a.spriteVisible  = obj["spriteVisible"].toBool(true);
     a.cameraSize         = (float)obj["cameraSize"].toDouble(5.0);
     a.cameraIsMain = obj["cameraIsMain"].toBool(false);
     a.cameraResW   = obj["cameraResW"].toInt(1920);
@@ -89,6 +92,7 @@ ActorData ActorData::fromJson(const QJsonObject& obj) {
     a.followOffsetX      = (float)obj["followOffsetX"].toDouble(0.0);
     a.followOffsetY      = (float)obj["followOffsetY"].toDouble(0.0);
     a.confinerEnabled    = obj["confinerEnabled"].toBool(false);
+    a.confinerActor      = obj["confinerActor"].toString();
     a.confinerMinX       = (float)obj["confinerMinX"].toDouble(-500.0);
     a.confinerMaxX       = (float)obj["confinerMaxX"].toDouble(500.0);
     a.confinerMinY       = (float)obj["confinerMinY"].toDouble(-500.0);

@@ -6,6 +6,7 @@
 #include <QPointF>
 #include <QRectF>
 #include <QList>
+#include <QMap>
 #include <QString>
 
 class QPainter;
@@ -20,6 +21,7 @@ public:
     void loadBpClass(BPClass* bpClass);
     void saveBpClass();
     void setProjectRoot(const QString& root);
+    QString currentBpClassPath() const;
 
 signals:
     void documentModified();
@@ -87,6 +89,8 @@ private:
     QString  m_projectRoot;
     QFrame*  m_uiAssetPopup     = nullptr;
     QString  m_uiAssetNodeId;
+    mutable QMap<QString, QStringList> m_uiWidgetCache;
+    QStringList loadWidgetNames(const QString& uiName) const;
 
     LevelDocument* m_doc     = nullptr;
     BPClass*       m_bpClass = nullptr;

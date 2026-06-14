@@ -13,11 +13,21 @@
 #include <QCheckBox>
 #include <QPushButton>
 #include <QComboBox>
+#include <QColorDialog>
+#include <QDialog>
+#include <QListWidget>
+#include <QListWidgetItem>
+#include <QDirIterator>
 #include <QMenu>
 #include <QPainter>
 #include <QMouseEvent>
 #include <QContextMenuEvent>
+#include <QKeyEvent>
 #include <QUuid>
+#include <QMimeData>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QDataStream>
 
 // ── AnchorPicker ──────────────────────────────────────────────────────────
 
@@ -87,6 +97,7 @@ UIEditorCanvas::UIEditorCanvas(QWidget* parent) : QWidget(parent) {
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
     setAttribute(Qt::WA_OpaquePaintEvent);
+    setAcceptDrops(true);
 }
 
 void UIEditorCanvas::setDoc(UIDocument* doc) {
@@ -118,37 +129,49 @@ void UIEditorCanvas::renderWidget(QPainter& p, const UIWidget& w, const QRectF& 
     const QRectF r = widgetScreenRect(w, parentRect);
     const QString& t = w.type;
 
+    // ── 第一层：精灵图片（所有控件类型通用）──────────────────────────────
+    if (!w.imagePath.isEmpty()) {
+        if (!m_pixmapCache.contains(w.imagePath))
+            m_pixmapCache[w.imagePath] = QPixmap(w.imagePath);
+        const QPixmap& px = m_pixmapCache[w.imagePath];
+        if (!px.isNull()) {
+            p.save();
+            p.setOpacity(w.alpha);
+            p.drawPixmap(r.toRect(), px.scaled(r.size().toSize(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
+            p.setOpacity(1.0);
+            p.restore();
+        }
+    }
+
+    // ── 第二层：控件类型专属内容 ────────────────────────────────────────
     if (t == "UI.面板") {
         if (w.bgColor.alpha() > 0) p.fillRect(r, w.bgColor);
-        else { p.save(); p.setPen(QPen(QColor(80,80,120,120), 1, Qt::DashLine)); p.drawRect(r); p.restore(); }
+        else if (w.imagePath.isEmpty()) { p.save(); p.setPen(QPen(QColor(80,80,120,120), 1, Qt::DashLine)); p.drawRect(r); p.restore(); }
     } else if (t == "UI.文本") {
         p.save(); p.setPen(w.color);
         QFont f; f.setPixelSize(qMax(6, w.fontSize)); p.setFont(f);
         p.drawText(r, Qt::AlignVCenter | Qt::AlignLeft, w.text);
         p.restore();
     } else if (t == "UI.图片") {
-        if (!w.imagePath.isEmpty()) {
-            if (!m_pixmapCache.contains(w.imagePath))
-                m_pixmapCache[w.imagePath] = QPixmap(w.imagePath);
-            const QPixmap& px = m_pixmapCache[w.imagePath];
-            if (!px.isNull())
-                p.drawPixmap(r.toRect(), px.scaled(r.size().toSize(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
-        } else {
+        if (w.imagePath.isEmpty()) {
             p.save(); p.fillRect(r, QColor(60,60,80,120));
             p.setPen(QColor(150,150,200)); p.drawText(r, Qt::AlignCenter, "[图片]"); p.restore();
         }
     } else if (t == "UI.按钮") {
-        p.fillRect(r, w.bgColor.alpha() > 0 ? w.bgColor : QColor(60,60,100,200));
+        if (w.imagePath.isEmpty())
+            p.fillRect(r, w.bgColor.alpha() > 0 ? w.bgColor : QColor(60,60,100,200));
         p.save(); p.setPen(w.color);
         QFont f; f.setPixelSize(qMax(6, w.fontSize)); p.setFont(f);
         p.drawText(r, Qt::AlignCenter, w.text);
         p.restore();
     } else if (t == "UI.进度条") {
-        p.fillRect(r, w.bgColor.alpha() > 0 ? w.bgColor : QColor(40,40,40,200));
+        if (w.imagePath.isEmpty())
+            p.fillRect(r, w.bgColor.alpha() > 0 ? w.bgColor : QColor(40,40,40,200));
         QRectF fill = r; fill.setWidth(r.width() * qBound(0.0f, w.value, 1.0f));
         if (fill.width() > 0) p.fillRect(fill, w.fillColor);
     } else if (t == "UI.下拉菜单") {
-        p.fillRect(r, w.bgColor.alpha() > 0 ? w.bgColor : QColor(50,50,60,200));
+        if (w.imagePath.isEmpty())
+            p.fillRect(r, w.bgColor.alpha() > 0 ? w.bgColor : QColor(50,50,60,200));
         const QStringList opts = w.text.split('\n', Qt::SkipEmptyParts);
         const QString display = (w.selectedIndex < opts.size()) ? opts[w.selectedIndex] : "(空)";
         p.save(); p.setPen(w.color);
@@ -157,8 +180,10 @@ void UIEditorCanvas::renderWidget(QPainter& p, const UIWidget& w, const QRectF& 
         p.drawText(r.adjusted(0,0,-4,0),  Qt::AlignVCenter | Qt::AlignRight, "▾");
         p.restore();
     } else {
-        p.save(); p.setPen(QPen(QColor(100,100,180,100), 1, Qt::DotLine));
-        p.drawRect(r); p.restore();
+        if (w.imagePath.isEmpty()) {
+            p.save(); p.setPen(QPen(QColor(100,100,180,100), 1, Qt::DotLine));
+            p.drawRect(r); p.restore();
+        }
     }
 
     if (w.id == m_selectedId) {
@@ -420,6 +445,34 @@ void UIEditorCanvas::contextMenuEvent(QContextMenuEvent* e) {
     menu.exec(e->globalPos());
 }
 
+void UIEditorCanvas::dragEnterEvent(QDragEnterEvent* e) {
+    if (e->mimeData()->hasFormat("application/x-qabstractitemmodeldatalist"))
+        e->acceptProposedAction();
+}
+
+void UIEditorCanvas::dropEvent(QDropEvent* e) {
+    if (!m_doc) return;
+    const QByteArray encoded = e->mimeData()->data("application/x-qabstractitemmodeldatalist");
+    QDataStream stream(encoded);
+    QString imagePath;
+    while (!stream.atEnd()) {
+        int row, col; QMap<int, QVariant> d;
+        stream >> row >> col >> d;
+        if (d.value(Qt::UserRole).toString() == "image") {
+            imagePath = d.value(Qt::UserRole + 1).toString();
+            break;
+        }
+    }
+    if (imagePath.isEmpty()) return;
+
+    // 找命中的控件（所有类型都可接受精灵图片）
+    const QRectF vp = getViewportRect();
+    const QString hitId = hitTest(e->position(), {}, vp);
+    if (hitId.isEmpty()) return;
+    if (onImageDropped) onImageDropped(hitId, imagePath);
+    e->acceptProposedAction();
+}
+
 // ── UIEditor ──────────────────────────────────────────────────────────────
 
 UIEditor::UIEditor(QWidget* parent) : QWidget(parent) {
@@ -450,6 +503,14 @@ UIEditor::UIEditor(QWidget* parent) : QWidget(parent) {
     m_tree = new QTreeWidget;
     m_tree->setHeaderHidden(true);
     m_tree->setIndentation(14);
+    m_tree->installEventFilter(this);
+    m_tree->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_tree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        if (!m_tree->itemAt(pos) || m_selectedId.isEmpty()) return;
+        QMenu menu(m_tree);
+        menu.addAction("删除", this, &UIEditor::onDeleteSelected);
+        menu.exec(m_tree->viewport()->mapToGlobal(pos));
+    });
 
     leftLay->addWidget(treeHeader);
     leftLay->addWidget(m_tree);
@@ -556,6 +617,19 @@ UIEditor::UIEditor(QWidget* parent) : QWidget(parent) {
 
     m_canvas->onAddWidget = [this](const QString& type) { onAddWidget(type); };
     m_canvas->onDeleteSelected = [this]() { onDeleteSelected(); };
+    m_canvas->onImageDropped = [this](const QString& widgetId, const QString& imagePath) {
+        if (!m_doc) return;
+        for (const UIWidget& wi : m_doc->widgets()) {
+            if (wi.id == widgetId) {
+                UIWidget u = wi; u.imagePath = imagePath;
+                m_doc->updateWidget(u);
+                m_canvas->update();
+                if (m_selectedId == widgetId) rebuildPropsPanel(widgetId);
+                emit documentModified();
+                break;
+            }
+        }
+    };
 
     connect(addBtn, &QPushButton::clicked, this, [this]() {
         if (!m_doc) return;
@@ -581,6 +655,10 @@ void UIEditor::loadDocument(UIDocument* doc) {
 void UIEditor::setPreviewLevel(LevelDocument* level, float ppu) {
     m_ppu = ppu;
     m_canvas->setPreviewLevel(level, ppu);
+}
+
+void UIEditor::setProjectRoot(const QString& root) {
+    m_projectRoot = root;
 }
 
 void UIEditor::setAvailableLevels(const QStringList& levelNames) {
@@ -658,6 +736,17 @@ void UIEditor::onDeleteSelected() {
     rebuildTree();
     rebuildPropsPanel({});
     emit documentModified();
+}
+
+bool UIEditor::eventFilter(QObject* obj, QEvent* e) {
+    if (obj == m_tree && e->type() == QEvent::KeyPress) {
+        auto* ke = static_cast<QKeyEvent*>(e);
+        if (ke->key() == Qt::Key_Delete || ke->key() == Qt::Key_Backspace) {
+            onDeleteSelected();
+            return true;
+        }
+    }
+    return QWidget::eventFilter(obj, e);
 }
 
 void UIEditor::rebuildPropsPanel(const QString& widgetId) {
@@ -744,6 +833,143 @@ void UIEditor::rebuildPropsPanel(const QString& widgetId) {
         }
     });
 
+    // ── 样式属性 ─────────────────────────────────────────────────────────────
+    auto makeColorBtn = [&](const QColor& c) -> QPushButton* {
+        auto* btn = new QPushButton;
+        btn->setFixedHeight(22);
+        QString sty = QString("background:%1;border:1px solid #555;").arg(c.name(QColor::HexArgb));
+        btn->setStyleSheet(sty);
+        return btn;
+    };
+
+    auto* bgBtn = makeColorBtn(w.bgColor);
+    addRow("背景色", bgBtn);
+    connect(bgBtn, &QPushButton::clicked, this, [this, widgetId, bgBtn]() {
+        if (!m_doc) return;
+        for (const UIWidget& wi : m_doc->widgets()) {
+            if (wi.id != widgetId) continue;
+            QColor c = QColorDialog::getColor(wi.bgColor, this, "选择背景色",
+                                               QColorDialog::ShowAlphaChannel);
+            if (!c.isValid()) break;
+            UIWidget u = wi; u.bgColor = c; m_doc->updateWidget(u);
+            bgBtn->setStyleSheet(QString("background:%1;border:1px solid #555;").arg(c.name(QColor::HexArgb)));
+            m_canvas->update(); emit documentModified(); break;
+        }
+    });
+
+    if (w.type == "UI.文本" || w.type == "UI.按钮" || w.type == "UI.下拉菜单") {
+        auto* fgBtn = makeColorBtn(w.color);
+        addRow("文字颜色", fgBtn);
+        connect(fgBtn, &QPushButton::clicked, this, [this, widgetId, fgBtn]() {
+            if (!m_doc) return;
+            for (const UIWidget& wi : m_doc->widgets()) {
+                if (wi.id != widgetId) continue;
+                QColor c = QColorDialog::getColor(wi.color, this, "选择文字颜色");
+                if (!c.isValid()) break;
+                UIWidget u = wi; u.color = c; m_doc->updateWidget(u);
+                fgBtn->setStyleSheet(QString("background:%1;border:1px solid #555;").arg(c.name(QColor::HexArgb)));
+                m_canvas->update(); emit documentModified(); break;
+            }
+        });
+
+        auto* fsSb = new QSpinBox;
+        fsSb->setRange(6, 120); fsSb->setValue(w.fontSize);
+        addRow("字体大小", fsSb);
+        connect(fsSb, &QSpinBox::editingFinished, this, [this, widgetId, fsSb]() {
+            if (!m_doc) return;
+            for (const UIWidget& wi : m_doc->widgets()) {
+                if (wi.id == widgetId) { UIWidget u = wi; u.fontSize = fsSb->value(); m_doc->updateWidget(u); m_canvas->update(); emit documentModified(); break; }
+            }
+        });
+    }
+
+    {
+        auto* alphaSb = new QDoubleSpinBox;
+        alphaSb->setRange(0.0, 1.0); alphaSb->setSingleStep(0.05); alphaSb->setDecimals(2);
+        alphaSb->setValue(w.alpha);
+        addRow("透明度", alphaSb);
+        connect(alphaSb, &QDoubleSpinBox::editingFinished, this, [this, widgetId, alphaSb]() {
+            if (!m_doc) return;
+            for (const UIWidget& wi : m_doc->widgets()) {
+                if (wi.id == widgetId) { UIWidget u = wi; u.alpha = (float)alphaSb->value(); m_doc->updateWidget(u); m_canvas->update(); emit documentModified(); break; }
+            }
+        });
+    }
+
+    // 精灵图片（所有控件类型通用）
+    {
+        auto* imgEdit = new QLineEdit(w.imagePath);
+        imgEdit->setPlaceholderText("拖入图片或点击浏览...");
+        imgEdit->setReadOnly(true);
+        auto* browseBtn = new QPushButton("浏览");
+        browseBtn->setFixedWidth(44);
+        auto* imgRow = new QWidget;
+        auto* imgLay = new QHBoxLayout(imgRow);
+        imgLay->setContentsMargins(4, 1, 4, 1);
+        imgLay->addWidget(new QLabel("精灵图片"));
+        imgLay->addWidget(imgEdit, 1);
+        imgLay->addWidget(browseBtn);
+        lay->addWidget(imgRow);
+        connect(browseBtn, &QPushButton::clicked, this, [this, widgetId, imgEdit]() {
+            QDialog dlg(this);
+            dlg.setWindowTitle("选择精灵图片");
+            dlg.resize(500, 420);
+            auto* vl   = new QVBoxLayout(&dlg);
+            auto* grid = new QListWidget(&dlg);
+            grid->setViewMode(QListWidget::IconMode);
+            grid->setIconSize({64, 56});
+            grid->setGridSize({88, 88});
+            grid->setResizeMode(QListWidget::Adjust);
+            grid->setMovement(QListWidget::Static);
+            grid->setWrapping(true);
+            grid->setSpacing(4);
+
+            if (!m_projectRoot.isEmpty()) {
+                QDirIterator it(m_projectRoot,
+                    {"*.png","*.jpg","*.jpeg","*.bmp","*.svg","*.webp"},
+                    QDir::Files, QDirIterator::Subdirectories);
+                while (it.hasNext()) {
+                    const QString path = it.next();
+                    const QString name = QFileInfo(path).fileName();
+                    QPixmap bg(64, 56); bg.fill(QColor(35, 35, 35));
+                    QPixmap src(path);
+                    if (!src.isNull()) {
+                        QPixmap scaled = src.scaled(60, 52, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                        QPainter p(&bg);
+                        p.drawPixmap((64 - scaled.width()) / 2, (56 - scaled.height()) / 2, scaled);
+                    }
+                    auto* item = new QListWidgetItem(QIcon(bg), name, grid);
+                    item->setData(Qt::UserRole, path);
+                    item->setSizeHint({88, 88});
+                    item->setTextAlignment(Qt::AlignHCenter | Qt::AlignBottom);
+                }
+            }
+
+            auto* hl        = new QHBoxLayout;
+            auto* okBtn     = new QPushButton("确定", &dlg);
+            auto* cancelBtn = new QPushButton("取消", &dlg);
+            hl->addStretch();
+            hl->addWidget(okBtn);
+            hl->addWidget(cancelBtn);
+            vl->addWidget(grid);
+            vl->addLayout(hl);
+
+            connect(grid, &QListWidget::itemDoubleClicked, &dlg, &QDialog::accept);
+            connect(okBtn,     &QPushButton::clicked, &dlg, &QDialog::accept);
+            connect(cancelBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
+
+            if (dlg.exec() != QDialog::Accepted) return;
+            auto* sel = grid->currentItem();
+            if (!sel) return;
+            const QString path = sel->data(Qt::UserRole).toString();
+            imgEdit->setText(path);
+            if (!m_doc) return;
+            for (const UIWidget& wi : m_doc->widgets()) {
+                if (wi.id == widgetId) { UIWidget u = wi; u.imagePath = path; m_doc->updateWidget(u); m_canvas->update(); emit documentModified(); break; }
+            }
+        });
+    }
+
     if (w.type == "UI.文本" || w.type == "UI.按钮") {
         auto* te = new QLineEdit(w.text);
         addRow("文本", te);
@@ -762,6 +988,19 @@ void UIEditor::rebuildPropsPanel(const QString& widgetId) {
             if (!m_doc) return;
             for (const UIWidget& wi : m_doc->widgets()) {
                 if (wi.id == widgetId) { UIWidget u = wi; u.value = (float)valSb->value(); m_doc->updateWidget(u); m_canvas->update(); emit documentModified(); break; }
+            }
+        });
+        auto* fillBtn = makeColorBtn(w.fillColor);
+        addRow("填充色", fillBtn);
+        connect(fillBtn, &QPushButton::clicked, this, [this, widgetId, fillBtn]() {
+            if (!m_doc) return;
+            for (const UIWidget& wi : m_doc->widgets()) {
+                if (wi.id != widgetId) continue;
+                QColor c = QColorDialog::getColor(wi.fillColor, this, "选择填充色");
+                if (!c.isValid()) break;
+                UIWidget u = wi; u.fillColor = c; m_doc->updateWidget(u);
+                fillBtn->setStyleSheet(QString("background:%1;border:1px solid #555;").arg(c.name(QColor::HexArgb)));
+                m_canvas->update(); emit documentModified(); break;
             }
         });
     }

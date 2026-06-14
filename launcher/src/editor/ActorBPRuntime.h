@@ -23,6 +23,9 @@ public:
     void triggerButtonClick(const QString& instanceId, const QString& widgetName);
     void triggerDropdownChanged(const QString& instanceId, const QString& widgetName, int index);
 
+signals:
+    void printOutput(const QString& text);
+
 private:
     void    triggerEvent(const QString& eventType, const QString& eventParam = {});
     void    executeChain(const QString& fromNodeId, const QString& fromPin,

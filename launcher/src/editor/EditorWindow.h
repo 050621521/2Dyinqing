@@ -3,6 +3,7 @@
 #include "models/LevelDocument.h"
 #include <QMainWindow>
 #include <QMap>
+#include <QSet>
 #include <QButtonGroup>
 #include <QStackedWidget>
 
@@ -121,5 +122,6 @@ private:
     float m_ppu = 100.0f;
 
     QMap<QString, LevelDocument*> m_openLevels;
+    QSet<QString>                 m_dirtyBpClasses; // 记录已修改但未保存的 .bp 路径
     QList<QMetaObject::Connection> m_tabConnections;
 };

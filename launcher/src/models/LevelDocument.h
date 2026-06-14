@@ -28,6 +28,7 @@ struct ActorData {
     bool    flipX        = false;
     bool    flipY        = false;
     QString drawMode     = "简单";
+    bool    spriteVisible = true;
 
     // 摄像机组件属性
     float   cameraSize         = 540.0f;
@@ -45,6 +46,7 @@ struct ActorData {
 
     // 边界限制组件属性
     bool    confinerEnabled    = false;
+    QString confinerActor;           // 绑定 Trigger Actor 名称（优先于手填）
     float   confinerMinX       = -500.0f;
     float   confinerMaxX       =  500.0f;
     float   confinerMinY       = -500.0f;

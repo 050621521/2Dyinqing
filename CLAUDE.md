@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Brainstorming 优先原则
+
+**每次对话开始时，在做任何功能开发、组件创建、行为修改之前，必须先调用 `/brainstorming` 技能**，探索用户意图、需求和设计方案，再进入实现阶段。
+
 ## 编译与运行
 
 修改任何 `.cpp` / `.h` / `.qss` / `.qrc` 文件后，**必须重新编译**再运行：

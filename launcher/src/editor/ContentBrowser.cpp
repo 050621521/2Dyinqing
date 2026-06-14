@@ -26,6 +26,7 @@
 #include <QIcon>
 #include <QFileDialog>
 #include <QUuid>
+#include <QKeyEvent>
 
 ContentBrowser::ContentBrowser(const QString& projectRoot, QWidget* parent)
     : QWidget(parent), m_projectRoot(projectRoot), m_currentPath(projectRoot)
@@ -119,6 +120,7 @@ ContentBrowser::ContentBrowser(const QString& projectRoot, QWidget* parent)
     m_assetGrid->setContextMenuPolicy(Qt::CustomContextMenu);
     m_assetGrid->setDragEnabled(true);
     m_assetGrid->setDragDropMode(QAbstractItemView::DragOnly);
+    m_assetGrid->installEventFilter(this);
     rightLay->addWidget(m_assetGrid, 1);
 
     // 面包屑
@@ -521,6 +523,38 @@ void ContentBrowser::onNewFolder() {
     }
     buildFolderTree();
     populateFolder(m_currentPath);
+}
+
+bool ContentBrowser::eventFilter(QObject* obj, QEvent* e) {
+    if (obj == m_assetGrid && e->type() == QEvent::KeyPress) {
+        auto* ke = static_cast<QKeyEvent*>(e);
+        if (ke->key() == Qt::Key_Delete || ke->key() == Qt::Key_Backspace) {
+            QListWidgetItem* item = m_assetGrid->currentItem();
+            if (!item) return true;
+            const QString type = item->data(Qt::UserRole).toString();
+            const QString path = item->data(Qt::UserRole + 1).toString();
+            const QString name = QFileInfo(path).fileName();
+            if (type == "level") {
+                if (QMessageBox::question(this, "删除", QString("确定删除「%1」？").arg(name),
+                        QMessageBox::Yes | QMessageBox::Cancel) != QMessageBox::Yes) return true;
+                QFile::remove(path);
+                populateFolder(m_currentPath);
+                emit levelFileDeleted(path);
+            } else if (type == "bp") {
+                if (QMessageBox::question(this, "删除蓝图", QString("确定删除「%1」？").arg(name),
+                        QMessageBox::Yes | QMessageBox::Cancel) != QMessageBox::Yes) return true;
+                QFile::remove(path);
+                populateFolder(m_currentPath);
+            } else if (type == "ui") {
+                if (QMessageBox::question(this, "删除UI", QString("确定删除「%1」？").arg(name),
+                        QMessageBox::Yes | QMessageBox::Cancel) != QMessageBox::Yes) return true;
+                QFile::remove(path);
+                populateFolder(m_currentPath);
+            }
+            return true;
+        }
+    }
+    return QWidget::eventFilter(obj, e);
 }
 
 void ContentBrowser::showGridContextMenu(const QPoint& pos) {
