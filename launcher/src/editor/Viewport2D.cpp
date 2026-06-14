@@ -28,7 +28,50 @@ void Viewport2D::loadLevel(LevelDocument* doc) {
 
 void Viewport2D::setSelectedId(const QString& id) {
     m_selectedId = id;
+    m_selectedIds.clear();
+    if (!id.isEmpty()) m_selectedIds.insert(id);
     update();
+}
+
+void Viewport2D::setGridSnap(bool enabled, float size) {
+    m_gridSnapEnabled = enabled;
+    m_gridSnapSize    = qMax(1.0f, size);
+}
+
+void Viewport2D::setRotSnap(bool enabled, float angle) {
+    m_rotSnapEnabled = enabled;
+    m_rotSnapAngle   = qMax(1.0f, angle);
+}
+
+void Viewport2D::alignSelected(int type) {
+    if (!m_doc || m_selectedIds.size() < 2) return;
+    QList<ActorData> sel;
+    for (const ActorData& a : m_doc->actors())
+        if (m_selectedIds.contains(a.id)) sel << a;
+    if (sel.isEmpty()) return;
+
+    float minX = sel[0].x, maxX = sel[0].x;
+    float minY = sel[0].y, maxY = sel[0].y;
+    for (const ActorData& a : sel) {
+        minX = qMin(minX, a.x); maxX = qMax(maxX, a.x);
+        minY = qMin(minY, a.y); maxY = qMax(maxY, a.y);
+    }
+
+    QList<ActorData> updated;
+    for (ActorData a : sel) {
+        switch (type) {
+            case 0: a.x = minX; break;
+            case 1: a.x = maxX; break;
+            case 2: a.x = (minX + maxX) * 0.5f; break;
+            case 3: a.y = minY; break;
+            case 4: a.y = maxY; break;
+            case 5: a.y = (minY + maxY) * 0.5f; break;
+        }
+        m_doc->updateActor(a);
+        updated << a;
+    }
+    update();
+    emit actorsAligned(updated);
 }
 
 void Viewport2D::setToolMode(ToolMode mode) {
@@ -47,6 +90,7 @@ void Viewport2D::setRuntimeMode(bool on, const QList<ActorData>& actors) {
     if (on) {
         m_runtimeActors = actors;
         m_selectedId.clear();
+        m_selectedIds.clear();
         setCursor(Qt::ArrowCursor);
     } else {
         m_runtimeActors.clear();
@@ -105,6 +149,7 @@ void Viewport2D::paintEvent(QPaintEvent*) {
     drawAxes(p);
     drawOriginMark(p);
     drawActors(p);
+    drawSelectionOverlay(p);
 
     if (m_runtimeMode) {
         // 运行时：红色边框提示
@@ -177,12 +222,13 @@ void Viewport2D::drawActors(QPainter& p) {
             : szBase * qMax(0.05f, qAbs(a.scaleY));
         const float sz  = (szW + szH) * 0.5f;
         QRectF rect(pos.x() - szW / 2, pos.y() - szH / 2, szW, szH);
-        const bool selected = (a.id == m_selectedId);
+        const bool isSelected = m_selectedIds.contains(a.id);
+        const bool isPrimary  = (a.id == m_selectedId);
 
         QColor fill = bpClassColor(a.bpClass);
 
-        QPen outline(selected ? QColor(255, 255, 255) : fill.darker(160),
-                     selected ? 2.5 : 1.0);
+        QPen outline(isSelected ? QColor(255, 255, 255) : fill.darker(160),
+                     isSelected ? 2.5 : 1.0);
 
         // 旋转变换（选中框也随之旋转）
         p.save();
@@ -234,7 +280,7 @@ void Viewport2D::drawActors(QPainter& p) {
             if (a.cameraIsMain)
                 p.setPen(QPen(QColor(255, 255, 255, 220), 1.5f, Qt::SolidLine));
             else
-                p.setPen(QPen(QColor(80, 160, 240, selected ? 200 : 70), 1.5f, Qt::DashLine));
+                p.setPen(QPen(QColor(80, 160, 240, isSelected ? 200 : 70), 1.5f, Qt::DashLine));
             p.setBrush(Qt::NoBrush);
             p.drawRect(frustum);
         }
@@ -243,7 +289,7 @@ void Viewport2D::drawActors(QPainter& p) {
         if (!drewPixmap) {
             if (a.bpClass == "builtin/Empty") {
                 const float cs = sz * 0.28f;
-                p.setPen(QPen(fill, selected ? 2.0f : 1.5f));
+                p.setPen(QPen(fill, isSelected ? 2.0f : 1.5f));
                 p.setBrush(Qt::NoBrush);
                 p.drawLine(QPointF(pos.x() - cs, pos.y()), QPointF(pos.x() + cs, pos.y()));
                 p.drawLine(QPointF(pos.x(), pos.y() - cs), QPointF(pos.x(), pos.y() + cs));
@@ -288,7 +334,7 @@ void Viewport2D::drawActors(QPainter& p) {
         }
 
         // 选中外框（随旋转）
-        if (selected) {
+        if (isSelected) {
             p.setPen(QPen(QColor(255, 200, 50), 1.5, Qt::SolidLine));
             p.setBrush(Qt::NoBrush);
             if (a.bpClass == "builtin/Empty" && !drewPixmap) {
@@ -313,7 +359,7 @@ void Viewport2D::drawActors(QPainter& p) {
         }
 
         // Gizmo 在屏幕坐标绘制（不受旋转影响）
-        if (selected) drawGizmo(p, a, rect, pos);
+        if (isPrimary) drawGizmo(p, a, rect, pos);
     }
 }
 
@@ -421,6 +467,57 @@ void Viewport2D::drawPrintLog(QPainter& p) {
     }
 }
 
+// ── 辅助：Actor 屏幕矩形 ──────────────────────────────────────────────
+
+QRectF Viewport2D::actorScreenRect(const ActorData& a) const {
+    QPointF pos = worldToScreen({a.x, a.y});
+    if (!a.spritePath.isEmpty() && !m_pixmapCache.contains(a.spritePath))
+        m_pixmapCache[a.spritePath] = QPixmap(a.spritePath);
+    const bool hasPx = !a.spritePath.isEmpty() && !m_pixmapCache[a.spritePath].isNull();
+    const float szBase = qMax(24.0f, 40.0f * m_zoom);
+    const float szW = hasPx
+        ? m_pixmapCache[a.spritePath].width()  / m_ppu * m_zoom * qMax(0.05f, qAbs(a.scaleX))
+        : szBase * qMax(0.05f, qAbs(a.scaleX));
+    const float szH = hasPx
+        ? m_pixmapCache[a.spritePath].height() / m_ppu * m_zoom * qMax(0.05f, qAbs(a.scaleY))
+        : szBase * qMax(0.05f, qAbs(a.scaleY));
+    return QRectF(pos.x() - szW / 2, pos.y() - szH / 2, szW, szH);
+}
+
+// ── 多选 / 框选 覆盖层 ───────────────────────────────────────────────
+
+void Viewport2D::drawSelectionOverlay(QPainter& p) {
+    // 框选矩形（蓝色半透明）
+    if (m_rubberBanding && !m_rubberRect.isNull()) {
+        p.setPen(QPen(QColor(100, 150, 255, 200), 1, Qt::DashLine));
+        p.setBrush(QColor(100, 150, 255, 30));
+        p.drawRect(m_rubberRect);
+    }
+
+    // 多选整体 bounding box（白色虚线）
+    if (m_selectedIds.size() >= 2 && m_doc) {
+        bool first = true;
+        float minX = 0, minY = 0, maxX = 0, maxY = 0;
+        for (const ActorData& a : m_doc->actors()) {
+            if (!m_selectedIds.contains(a.id)) continue;
+            QRectF r = actorScreenRect(a);
+            if (first) {
+                minX = (float)r.left(); minY = (float)r.top();
+                maxX = (float)r.right(); maxY = (float)r.bottom();
+                first = false;
+            } else {
+                minX = qMin(minX, (float)r.left()); minY = qMin(minY, (float)r.top());
+                maxX = qMax(maxX, (float)r.right()); maxY = qMax(maxY, (float)r.bottom());
+            }
+        }
+        if (!first) {
+            p.setPen(QPen(Qt::white, 1, Qt::DashLine));
+            p.setBrush(Qt::NoBrush);
+            p.drawRect(QRectF(minX - 8, minY - 8, maxX - minX + 16, maxY - minY + 16));
+        }
+    }
+}
+
 // ── 交互 ──────────────────────────────────────────────────────────────
 
 static QString qtKeyToId(int k) {
@@ -471,15 +568,16 @@ void Viewport2D::wheelEvent(QWheelEvent* e) {
 
 void Viewport2D::mousePressEvent(QMouseEvent* e) {
     if (m_runtimeMode) return;
+    const bool ctrl = (e->modifiers() & Qt::ControlModifier) != 0;
+
     if (e->button() == Qt::LeftButton) {
         if (m_doc) {
-            // Move 模式：先检测已选 Actor 的箭头端点
-            if (m_toolMode == ToolMode::Move && !m_selectedId.isEmpty()) {
+            // Move 模式：先检测主选 Actor 的箭头端点（Gizmo 轴拖拽）
+            if (m_toolMode == ToolMode::Move && !m_selectedId.isEmpty() && !ctrl) {
                 for (const ActorData& a : m_doc->actors()) {
                     if (a.id != m_selectedId) continue;
                     QPointF pos = worldToScreen({a.x, a.y});
-                    const float len = 60.0f;
-                    const float hs  = 12.0f;
+                    const float len = 60.0f, hs = 12.0f;
                     QRectF xHandle(pos.x() + len - hs + 5, pos.y() - hs, hs * 2, hs * 2);
                     QRectF yHandle(pos.x() - hs, pos.y() - len - hs - 5, hs * 2, hs * 2);
                     ScaleHandle hit = ScaleHandle::None;
@@ -489,7 +587,11 @@ void Viewport2D::mousePressEvent(QMouseEvent* e) {
                         m_scaleHandle = hit;
                         m_dragging    = true;
                         m_dragActorId = a.id;
-                        m_dragStart   = screenToWorld(e->pos());
+                        m_dragMouseStartWorld = screenToWorld(e->pos());
+                        m_dragStartPositions.clear();
+                        for (const ActorData& b : m_doc->actors())
+                            if (m_selectedIds.contains(b.id))
+                                m_dragStartPositions[b.id] = {b.x, b.y};
                         update();
                         return;
                     }
@@ -497,13 +599,12 @@ void Viewport2D::mousePressEvent(QMouseEvent* e) {
                 }
             }
 
-            // Scale 模式：先检测已选 Actor 的 Gizmo 轴端点
-            if (m_toolMode == ToolMode::Scale && !m_selectedId.isEmpty()) {
+            // Scale 模式：先检测主选 Actor 的 Gizmo 端点
+            if (m_toolMode == ToolMode::Scale && !m_selectedId.isEmpty() && !ctrl) {
                 for (const ActorData& a : m_doc->actors()) {
                     if (a.id != m_selectedId) continue;
                     QPointF pos = worldToScreen({a.x, a.y});
-                    const float len = 60.0f;
-                    const float hs  = 10.0f;
+                    const float len = 60.0f, hs = 10.0f;
                     QRectF xHandle(pos.x() + len - hs, pos.y() - hs,       hs * 2, hs * 2);
                     QRectF yHandle(pos.x() - hs,       pos.y() - len - hs, hs * 2, hs * 2);
                     QRectF cHandle(pos.x() - hs,       pos.y() - hs,       hs * 2, hs * 2);
@@ -525,20 +626,26 @@ void Viewport2D::mousePressEvent(QMouseEvent* e) {
                 }
             }
 
+            // 命中测试 Actor
             for (const ActorData& a : m_doc->actors()) {
-                QPointF pos = worldToScreen({a.x, a.y});
-                if (!a.spritePath.isEmpty() && !m_pixmapCache.contains(a.spritePath))
-                    m_pixmapCache[a.spritePath] = QPixmap(a.spritePath);
-                const bool hasPxH = !a.spritePath.isEmpty() && !m_pixmapCache[a.spritePath].isNull();
-                const float szBaseH = qMax(24.0f, 40.0f * m_zoom);
-                const float szW = hasPxH
-                    ? m_pixmapCache[a.spritePath].width()  / m_ppu * m_zoom * qMax(0.05f, qAbs(a.scaleX))
-                    : szBaseH * qMax(0.05f, qAbs(a.scaleX));
-                const float szH = hasPxH
-                    ? m_pixmapCache[a.spritePath].height() / m_ppu * m_zoom * qMax(0.05f, qAbs(a.scaleY))
-                    : szBaseH * qMax(0.05f, qAbs(a.scaleY));
-                QRectF hit(pos.x() - szW / 2, pos.y() - szH / 2, szW, szH);
-                if (hit.contains(e->pos())) {
+                if (!actorScreenRect(a).contains(e->pos())) continue;
+
+                if (ctrl) {
+                    // Ctrl+点击：切换选中状态
+                    if (m_selectedIds.contains(a.id))
+                        m_selectedIds.remove(a.id);
+                    else
+                        m_selectedIds.insert(a.id);
+                    m_selectedId = m_selectedIds.isEmpty() ? QString() : a.id;
+                    emit selectionChanged(m_selectedIds.values());
+                } else {
+                    // 普通点击：如果未选中则单选；如果已在选区则保持选区，准备拖拽
+                    if (!m_selectedIds.contains(a.id)) {
+                        m_selectedIds.clear();
+                        m_selectedIds.insert(a.id);
+                        emit selectionChanged({a.id});
+                        emit actorSelected(a);
+                    }
                     m_selectedId  = a.id;
                     m_dragging    = true;
                     m_dragActorId = a.id;
@@ -552,15 +659,27 @@ void Viewport2D::mousePressEvent(QMouseEvent* e) {
                         m_dragScaleStartY = a.scaleY;
                     } else {
                         m_scaleHandle = ScaleHandle::Center;
-                        m_dragStart   = screenToWorld(e->pos());
+                        m_dragMouseStartWorld = screenToWorld(e->pos());
+                        m_dragStartPositions.clear();
+                        for (const ActorData& b : m_doc->actors())
+                            if (m_selectedIds.contains(b.id))
+                                m_dragStartPositions[b.id] = {b.x, b.y};
                     }
-                    emit actorSelected(a);
-                    update();
-                    return;
                 }
+                update();
+                return;
             }
-            m_selectedId.clear();
-            m_dragging = false;
+
+            // 点击空白区域
+            if (!ctrl) {
+                m_selectedId.clear();
+                m_selectedIds.clear();
+                m_dragging = false;
+                emit selectionChanged({});
+            }
+            m_rubberBanding = true;
+            m_rubberStart   = e->pos();
+            m_rubberRect    = QRect();
             update();
         }
 
@@ -569,19 +688,8 @@ void Viewport2D::mousePressEvent(QMouseEvent* e) {
 
         // 判断是否点在某个 Actor 上
         for (const ActorData& a : m_doc->actors()) {
-            QPointF pos = worldToScreen({a.x, a.y});
-            if (!a.spritePath.isEmpty() && !m_pixmapCache.contains(a.spritePath))
-                m_pixmapCache[a.spritePath] = QPixmap(a.spritePath);
-            const bool hasPxR = !a.spritePath.isEmpty() && !m_pixmapCache[a.spritePath].isNull();
-            const float szBaseR = qMax(24.0f, 40.0f * m_zoom);
-            const float szW2 = hasPxR
-                ? m_pixmapCache[a.spritePath].width()  / m_ppu * m_zoom * qMax(0.05f, qAbs(a.scaleX))
-                : szBaseR * qMax(0.05f, qAbs(a.scaleX));
-            const float szH2 = hasPxR
-                ? m_pixmapCache[a.spritePath].height() / m_ppu * m_zoom * qMax(0.05f, qAbs(a.scaleY))
-                : szBaseR * qMax(0.05f, qAbs(a.scaleY));
-            QRectF hit(pos.x() - szW2 / 2, pos.y() - szH2 / 2, szW2, szH2);
-            if (hit.contains(e->pos())) {
+            if (!actorScreenRect(a).contains(e->pos())) continue;
+            {
                 // 右键点在 Actor 上：弹出操作菜单
                 const QString actorId   = a.id;
                 const QString actorName = a.name;
@@ -589,7 +697,11 @@ void Viewport2D::mousePressEvent(QMouseEvent* e) {
                 menu.addAction("删除 "" + actorName + """, [this, actorId]() {
                     if (!m_doc) return;
                     m_doc->removeActor(actorId);
-                    if (m_selectedId == actorId) m_selectedId.clear();
+                    if (m_selectedId == actorId) {
+                        m_selectedId.clear();
+                        m_selectedIds.clear();
+                        emit selectionChanged({});
+                    }
                     update();
                     emit actorRemoved(actorId);
                 });
@@ -614,6 +726,8 @@ void Viewport2D::mousePressEvent(QMouseEvent* e) {
                 a.y    = (float)worldPos.y();
                 m_doc->addActor(a);
                 m_selectedId = a.id;
+                m_selectedIds.clear();
+                m_selectedIds.insert(a.id);
                 update();
                 emit actorCreated(a);
             });
@@ -629,9 +743,19 @@ void Viewport2D::mousePressEvent(QMouseEvent* e) {
 
 void Viewport2D::mouseMoveEvent(QMouseEvent* e) {
     if (m_runtimeMode) return;
+
+    // 框选拖拽
+    if (m_rubberBanding) {
+        m_rubberRect = QRect(m_rubberStart, e->pos()).normalized();
+        update();
+        return;
+    }
+
     if (m_dragging && m_doc) {
         if (m_toolMode == ToolMode::Rotate) {
             float newRot = m_dragRotStart + (e->pos().x() - m_dragAnchor.x()) * 0.4f;
+            if (m_rotSnapEnabled)
+                newRot = std::round(newRot / m_rotSnapAngle) * m_rotSnapAngle;
             for (ActorData a : m_doc->actors()) {
                 if (a.id == m_dragActorId) {
                     a.rotation = newRot;
@@ -659,23 +783,36 @@ void Viewport2D::mouseMoveEvent(QMouseEvent* e) {
                 break;
             }
         } else {
-            QPointF cur   = screenToWorld(e->pos());
-            QPointF delta = cur - m_dragStart;
+            // Move 模式：以绝对起始位置 + 总偏移量计算（避免吸附漂移）
+            QPointF totalDelta = screenToWorld(e->pos()) - m_dragMouseStartWorld;
+            ActorData primaryActor;
+            bool foundPrimary = false;
             for (ActorData a : m_doc->actors()) {
-                if (a.id != m_dragActorId) continue;
-                if (m_toolMode == ToolMode::Move && m_scaleHandle == ScaleHandle::AxisX) {
-                    a.x += (float)delta.x();
-                } else if (m_toolMode == ToolMode::Move && m_scaleHandle == ScaleHandle::AxisY) {
-                    a.y += (float)delta.y();
-                } else {
-                    a.x += (float)delta.x();
-                    a.y += (float)delta.y();
+                if (!m_selectedIds.contains(a.id)) continue;
+                QPointF start = m_dragStartPositions.value(a.id, {a.x, a.y});
+                float newX = (float)start.x();
+                float newY = (float)start.y();
+                // 轴约束
+                if (m_scaleHandle == ScaleHandle::AxisX)
+                    newX = (float)(start.x() + totalDelta.x());
+                else if (m_scaleHandle == ScaleHandle::AxisY)
+                    newY = (float)(start.y() + totalDelta.y());
+                else {
+                    newX = (float)(start.x() + totalDelta.x());
+                    newY = (float)(start.y() + totalDelta.y());
                 }
+                // 网格吸附
+                if (m_gridSnapEnabled) {
+                    if (m_scaleHandle != ScaleHandle::AxisY)
+                        newX = std::round(newX / m_gridSnapSize) * m_gridSnapSize;
+                    if (m_scaleHandle != ScaleHandle::AxisX)
+                        newY = std::round(newY / m_gridSnapSize) * m_gridSnapSize;
+                }
+                a.x = newX; a.y = newY;
                 m_doc->updateActor(a);
-                emit actorDragging(a);
-                break;
+                if (a.id == m_dragActorId) { primaryActor = a; foundPrimary = true; }
             }
-            m_dragStart = cur;
+            if (foundPrimary) emit actorDragging(primaryActor);
         }
         update();
     } else if (m_panning) {
@@ -688,6 +825,25 @@ void Viewport2D::mouseMoveEvent(QMouseEvent* e) {
 
 void Viewport2D::mouseReleaseEvent(QMouseEvent* e) {
     if (m_runtimeMode) return;
+
+    if (e->button() == Qt::LeftButton && m_rubberBanding) {
+        m_rubberBanding = false;
+        // 框选结束：选中矩形内所有 Actor
+        const bool ctrl = (e->modifiers() & Qt::ControlModifier) != 0;
+        if (!ctrl) m_selectedIds.clear();
+        if (m_doc && !m_rubberRect.isNull()) {
+            for (const ActorData& a : m_doc->actors()) {
+                if (m_rubberRect.contains(actorScreenRect(a).center().toPoint()))
+                    m_selectedIds.insert(a.id);
+            }
+        }
+        m_selectedId = m_selectedIds.isEmpty() ? QString() : *m_selectedIds.begin();
+        m_rubberRect = QRect();
+        emit selectionChanged(m_selectedIds.values());
+        update();
+        return;
+    }
+
     if (e->button() == Qt::LeftButton && m_dragging) {
         m_dragging = false;
         if (m_doc) {
@@ -699,6 +855,7 @@ void Viewport2D::mouseReleaseEvent(QMouseEvent* e) {
             }
         }
         m_dragActorId.clear();
+        m_dragStartPositions.clear();
     }
     if (e->button() == Qt::MiddleButton || e->button() == Qt::RightButton) {
         m_panning = false;

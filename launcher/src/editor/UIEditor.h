@@ -6,9 +6,12 @@
 #include <QScrollArea>
 #include <QComboBox>
 #include <QHash>
+#include <QSet>
 #include <QPixmap>
 #include <QSplitter>
 #include <functional>
+
+class QToolButton;
 
 // ── AnchorPicker（3×3 锚点选择器）────────────────────────────────────────
 class AnchorPicker : public QWidget {
@@ -38,13 +41,21 @@ public:
     void setPreviewLevel(LevelDocument* level, float ppu);
     void setSelectedId(const QString& id);
     QString selectedId() const { return m_selectedId; }
+    QStringList selectedIds() const { return m_selectedIds.values(); }
+
+    void setPixelSnap(bool enabled, int grid);
+    void alignSelected(int type);     // 0=左 1=右 2=水平居中 3=上 4=下 5=垂直居中
+    void distributeSelected(bool horizontal);
+    void makeSameSize(bool width);
 
     // 回调，由 UIEditor 赋值
-    std::function<void(const QString&)>               onSelectionChanged;
-    std::function<void(const QString&, float, float)> onWidgetMoved;
-    std::function<void(const QString&)>               onAddWidget;
-    std::function<void()>                             onDeleteSelected;
-    std::function<void(const QString&, const QString&)> onImageDropped; // widgetId, imagePath
+    std::function<void(const QString&)>                    onSelectionChanged;
+    std::function<void(QStringList)>                       onMultiSelectionChanged;
+    std::function<void(const QString&, float, float)>      onWidgetMoved;
+    std::function<void(QHash<QString,QPointF>)>            onWidgetsMoved;
+    std::function<void(const QString&)>                    onAddWidget;
+    std::function<void()>                                  onDeleteSelected;
+    std::function<void(const QString&, const QString&)>    onImageDropped;
 
 protected:
     void paintEvent(QPaintEvent*) override;
@@ -65,11 +76,22 @@ private:
     UIDocument*    m_doc       = nullptr;
     LevelDocument* m_level     = nullptr;
     float          m_ppu       = 100.0f;
-    QString        m_selectedId;
+    QString        m_selectedId;             // 主选（单选兼容）
+    QSet<QString>  m_selectedIds;            // 完整选区
     bool           m_dragging  = false;
     QPointF        m_dragStart;
     float          m_dragInitX = 0, m_dragInitY = 0;
+    QHash<QString, QPointF> m_dragStartPositions; // 多选拖拽起始位置
     mutable QHash<QString, QPixmap> m_pixmapCache;
+
+    // 像素吸附
+    bool m_pixelSnapEnabled = true;
+    int  m_snapGrid         = 1;
+
+    // 框选
+    bool   m_rubberBanding = false;
+    QPoint m_rubberStart;
+    QRect  m_rubberRect;
 
     QRectF  getViewportRect() const;
     QRectF  computeCameraRect(float aspect) const;
@@ -118,4 +140,6 @@ private:
     QStringList      m_levelNames;
     QString          m_projectRoot;
     float            m_ppu = 100.0f;
+
+    QList<QToolButton*> m_alignBtns; // 对齐/分布/等尺寸按钮（多选时启用）
 };

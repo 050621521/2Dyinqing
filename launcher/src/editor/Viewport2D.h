@@ -2,6 +2,7 @@
 #include "models/LevelDocument.h"
 #include <QWidget>
 #include <QHash>
+#include <QSet>
 #include <QPixmap>
 
 class Viewport2D : public QWidget {
@@ -14,6 +15,11 @@ public:
     void loadLevel(LevelDocument* doc);
     void setSelectedId(const QString& id);
     void setToolMode(ToolMode mode);
+    void setGridSnap(bool enabled, float size);
+    void setRotSnap(bool enabled, float angle);
+    void alignSelected(int type); // 0=左 1=右 2=水平居中 3=上 4=下 5=垂直居中
+
+    int  selectionCount() const { return m_selectedIds.size(); }
 
     void setRuntimeMode(bool on, const QList<ActorData>& actors = {});
     void updateRuntimeActors(const QList<ActorData>& actors);
@@ -23,6 +29,8 @@ public:
 
 signals:
     void actorSelected(const ActorData& actor);
+    void selectionChanged(QStringList ids);
+    void actorsAligned(QList<ActorData> actors);
     void actorTransformed(const ActorData& actor);
     void actorDragging(const ActorData& actor);
     void actorCreated(const ActorData& actor);
@@ -59,12 +67,28 @@ private:
     float       m_dragScaleStartY = 1.0f;
 
     LevelDocument* m_doc = nullptr;
-    QString        m_selectedId;
+    QString        m_selectedId;    // 主选（Gizmo 绘制目标）
+    QSet<QString>  m_selectedIds;   // 完整选区
     mutable QHash<QString, QPixmap> m_pixmapCache;
 
     bool             m_runtimeMode = false;
     QList<ActorData> m_runtimeActors;
     QStringList      m_printLog;
+
+    // 吸附
+    bool  m_gridSnapEnabled = true;
+    float m_gridSnapSize    = 50.0f;
+    bool  m_rotSnapEnabled  = true;
+    float m_rotSnapAngle    = 15.0f;
+
+    // 框选
+    bool   m_rubberBanding = false;
+    QPoint m_rubberStart;
+    QRect  m_rubberRect;
+
+    // 多 Actor 拖拽起始位置
+    QHash<QString, QPointF> m_dragStartPositions;
+    QPointF                 m_dragMouseStartWorld;
 
     void applyToolCursor();
     void drawGrid(QPainter& p);
@@ -73,7 +97,9 @@ private:
     void drawActors(QPainter& p);
     void drawGizmo(QPainter& p, const ActorData& a, const QRectF& rect, const QPointF& pos);
     void drawPrintLog(QPainter& p);
+    void drawSelectionOverlay(QPainter& p);
 
+    QRectF  actorScreenRect(const ActorData& a) const;
     QPointF worldToScreen(QPointF world) const;
     QPointF screenToWorld(QPointF screen) const;
 };

@@ -21,6 +21,7 @@ public:
     explicit DetailsPanel(QWidget* parent = nullptr);
     void showActor(const ActorData& actor);
     void clearActor();
+    void showMultiSelection(int count);
     void assignSpritePath(const QString& path);
     void setProjectRoot(const QString& root);
 
@@ -103,6 +104,7 @@ private:
     QDoubleSpinBox* m_confinerMaxYSpin   = nullptr;
 
     ActorData       m_currentActor;
-    QStackedWidget* m_stack = nullptr;
+    QStackedWidget* m_stack     = nullptr;
+    QLabel*         m_emptyHint = nullptr;
     QString         m_projectRoot;
 };

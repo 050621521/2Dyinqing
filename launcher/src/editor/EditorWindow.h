@@ -113,6 +113,9 @@ private:
     QToolButton*  m_stopBtn      = nullptr;
     QLabel*       m_saveLabel    = nullptr;
 
+    // 视口辅助功能控件
+    QList<QToolButton*> m_viewportAlignBtns;
+
     BPRuntime* m_runtime = nullptr;
     UIRuntime* m_uiRuntime = nullptr;
     UIEditor*  m_uiEditor  = nullptr;

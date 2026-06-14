@@ -43,6 +43,7 @@
 #include <QShortcut>
 #include <QKeySequence>
 #include <QButtonGroup>
+#include <QComboBox>
 
 EditorWindow::EditorWindow(const ProjectInfo& project, QWidget* parent)
     : QMainWindow(parent), m_project(project)
@@ -484,6 +485,86 @@ QWidget* EditorWindow::buildViewportToolBar(QWidget* parent) {
     sep();
     auto* bpBtn = vBtn("关卡蓝图", "打开关卡蓝图（可视化脚本）");
     connect(bpBtn, &QToolButton::clicked, this, &EditorWindow::openBlueprintTab);
+
+    // ── 网格吸附 ──
+    sep();
+    auto* snapGridBtn = new QToolButton(bar);
+    snapGridBtn->setText("⊞"); snapGridBtn->setToolTip("网格吸附");
+    snapGridBtn->setObjectName("vpTBBtn");
+    snapGridBtn->setCheckable(true); snapGridBtn->setChecked(true);
+    hl->addWidget(snapGridBtn);
+
+    auto* snapGridCombo = new QComboBox(bar);
+    snapGridCombo->setObjectName("vpSnapCombo");
+    snapGridCombo->addItems({"25", "50", "100", "250"});
+    snapGridCombo->setCurrentIndex(1);
+    snapGridCombo->setFixedWidth(48);
+    hl->addWidget(snapGridCombo);
+
+    // ── 旋转吸附 ──
+    auto* snapRotBtn = new QToolButton(bar);
+    snapRotBtn->setText("⟳"); snapRotBtn->setToolTip("旋转吸附");
+    snapRotBtn->setObjectName("vpTBBtn");
+    snapRotBtn->setCheckable(true); snapRotBtn->setChecked(true);
+    hl->addWidget(snapRotBtn);
+
+    auto* snapRotCombo = new QComboBox(bar);
+    snapRotCombo->setObjectName("vpSnapCombo");
+    snapRotCombo->addItems({"5°", "15°", "45°", "90°"});
+    snapRotCombo->setCurrentIndex(1);
+    snapRotCombo->setFixedWidth(44);
+    hl->addWidget(snapRotCombo);
+
+    connect(snapGridBtn, &QToolButton::toggled, this, [this, snapGridCombo](bool on) {
+        snapGridCombo->setEnabled(on);
+        if (m_viewport) {
+            static const float sizes[] = {25, 50, 100, 250};
+            m_viewport->setGridSnap(on, sizes[snapGridCombo->currentIndex()]);
+        }
+    });
+    connect(snapGridCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this, snapGridBtn](int idx) {
+        if (m_viewport && snapGridBtn->isChecked()) {
+            static const float sizes[] = {25, 50, 100, 250};
+            m_viewport->setGridSnap(true, sizes[idx]);
+        }
+    });
+    connect(snapRotBtn, &QToolButton::toggled, this, [this, snapRotCombo](bool on) {
+        snapRotCombo->setEnabled(on);
+        if (m_viewport) {
+            static const float angles[] = {5, 15, 45, 90};
+            m_viewport->setRotSnap(on, angles[snapRotCombo->currentIndex()]);
+        }
+    });
+    connect(snapRotCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this, snapRotBtn](int idx) {
+        if (m_viewport && snapRotBtn->isChecked()) {
+            static const float angles[] = {5, 15, 45, 90};
+            m_viewport->setRotSnap(true, angles[idx]);
+        }
+    });
+
+    // ── 对齐按钮（多选 ≥2 时启用）──
+    sep();
+    static const struct { const char* icon; const char* tip; int type; } kAlignDefs[] = {
+        {"←|", "左对齐",   0}, {"|·|", "水平居中", 2}, {"|→", "右对齐",   1},
+        {"↑—", "上对齐",   3}, {"—·—","垂直居中", 5}, {"—↓", "下对齐",   4}
+    };
+    m_viewportAlignBtns.clear();
+    for (const auto& d : kAlignDefs) {
+        auto* b = new QToolButton(bar);
+        b->setText(QString::fromUtf8(d.icon));
+        b->setToolTip(QString::fromUtf8(d.tip));
+        b->setObjectName("vpTBBtn");
+        b->setEnabled(false);
+        const int alignType = d.type;
+        connect(b, &QToolButton::clicked, this, [this, alignType]() {
+            if (m_viewport) m_viewport->alignSelected(alignType);
+        });
+        hl->addWidget(b);
+        m_viewportAlignBtns << b;
+    }
+
     hl->addStretch();
     auto* zl = new QLabel("1×", bar); zl->setObjectName("vpZoomLabel");
     hl->addWidget(zl);
@@ -688,6 +769,7 @@ void EditorWindow::onTabChanged(int index) {
         m_blueprintEditor->loadLevel(doc);
 
     m_detailsPanel->clearActor();
+    for (auto* btn : m_viewportAlignBtns) btn->setEnabled(false);
 
     m_tabConnections << connect(m_sceneOutliner, &SceneOutliner::actorSelected,
                                 this, [this](const ActorData& a) {
@@ -699,6 +781,25 @@ void EditorWindow::onTabChanged(int index) {
         m_tabConnections << connect(m_viewport, &Viewport2D::actorSelected,
                                     this, [this](const ActorData& a) {
             m_detailsPanel->showActor(a);
+        });
+        m_tabConnections << connect(m_viewport, &Viewport2D::selectionChanged,
+                                    this, [this](QStringList ids) {
+            const int n = ids.size();
+            for (auto* btn : m_viewportAlignBtns)
+                btn->setEnabled(n >= 2);
+            if (n == 0)
+                m_detailsPanel->clearActor();
+            else if (n > 1)
+                m_detailsPanel->showMultiSelection(n);
+        });
+        m_tabConnections << connect(m_viewport, &Viewport2D::actorsAligned,
+                                    this, [this](QList<ActorData> actors) {
+            LevelDocument* doc = m_openLevels.value(m_activeLevelPath, nullptr);
+            if (!doc) return;
+            for (const ActorData& a : actors) doc->updateActor(a);
+            if (m_viewport) m_viewport->update();
+            updateTabTitle(m_docTabBar->currentIndex());
+            updateSaveLabel();
         });
         m_tabConnections << connect(m_viewport, &Viewport2D::actorDragging,
                                     m_detailsPanel, &DetailsPanel::showActor);

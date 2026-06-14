@@ -28,6 +28,8 @@
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QDataStream>
+#include <QToolButton>
+#include <algorithm>
 
 // ── AnchorPicker ──────────────────────────────────────────────────────────
 
@@ -101,7 +103,102 @@ UIEditorCanvas::UIEditorCanvas(QWidget* parent) : QWidget(parent) {
 }
 
 void UIEditorCanvas::setDoc(UIDocument* doc) {
-    m_doc = doc; m_selectedId.clear(); update();
+    m_doc = doc;
+    m_selectedId.clear();
+    m_selectedIds.clear();
+    update();
+}
+
+void UIEditorCanvas::setPixelSnap(bool enabled, int grid) {
+    m_pixelSnapEnabled = enabled;
+    m_snapGrid = qMax(1, grid);
+}
+
+void UIEditorCanvas::alignSelected(int type) {
+    if (!m_doc || m_selectedIds.size() < 2) return;
+    QList<UIWidget> sel;
+    for (const UIWidget& w : m_doc->widgets())
+        if (m_selectedIds.contains(w.id)) sel << w;
+    if (sel.isEmpty()) return;
+
+    float minX = sel[0].x, maxX = sel[0].x + sel[0].width;
+    float minY = sel[0].y, maxY = sel[0].y + sel[0].height;
+    for (const UIWidget& w : sel) {
+        minX = qMin(minX, w.x); maxX = qMax(maxX, w.x + w.width);
+        minY = qMin(minY, w.y); maxY = qMax(maxY, w.y + w.height);
+    }
+    float cx = (minX + maxX) * 0.5f;
+    float cy = (minY + maxY) * 0.5f;
+
+    QHash<QString, QPointF> positions;
+    for (UIWidget w : sel) {
+        switch (type) {
+            case 0: w.x = minX; break;
+            case 1: w.x = maxX - w.width; break;
+            case 2: w.x = cx - w.width * 0.5f; break;
+            case 3: w.y = minY; break;
+            case 4: w.y = maxY - w.height; break;
+            case 5: w.y = cy - w.height * 0.5f; break;
+        }
+        m_doc->updateWidget(w);
+        positions[w.id] = {w.x, w.y};
+    }
+    update();
+    if (onWidgetsMoved) onWidgetsMoved(positions);
+}
+
+void UIEditorCanvas::distributeSelected(bool horizontal) {
+    if (!m_doc || m_selectedIds.size() < 3) return;
+    QList<UIWidget> sel;
+    for (const UIWidget& w : m_doc->widgets())
+        if (m_selectedIds.contains(w.id)) sel << w;
+
+    QHash<QString, QPointF> positions;
+    if (horizontal) {
+        std::sort(sel.begin(), sel.end(), [](const UIWidget& a, const UIWidget& b){ return a.x < b.x; });
+        float totalW = 0; for (const UIWidget& w : sel) totalW += w.width;
+        float span = sel.last().x + sel.last().width - sel.first().x;
+        float gap = (span - totalW) / (sel.size() - 1);
+        float x = sel.first().x;
+        for (UIWidget w : sel) {
+            w.x = x; m_doc->updateWidget(w);
+            positions[w.id] = {w.x, w.y};
+            x += w.width + gap;
+        }
+    } else {
+        std::sort(sel.begin(), sel.end(), [](const UIWidget& a, const UIWidget& b){ return a.y < b.y; });
+        float totalH = 0; for (const UIWidget& w : sel) totalH += w.height;
+        float span = sel.last().y + sel.last().height - sel.first().y;
+        float gap = (span - totalH) / (sel.size() - 1);
+        float y = sel.first().y;
+        for (UIWidget w : sel) {
+            w.y = y; m_doc->updateWidget(w);
+            positions[w.id] = {w.x, w.y};
+            y += w.height + gap;
+        }
+    }
+    update();
+    if (onWidgetsMoved) onWidgetsMoved(positions);
+}
+
+void UIEditorCanvas::makeSameSize(bool useWidth) {
+    if (!m_doc || m_selectedIds.size() < 2) return;
+    UIWidget first; bool found = false;
+    for (const UIWidget& w : m_doc->widgets())
+        if (m_selectedIds.contains(w.id) && !found) { first = w; found = true; }
+    if (!found) return;
+
+    QHash<QString, QPointF> positions;
+    for (const UIWidget& w : m_doc->widgets()) {
+        if (!m_selectedIds.contains(w.id)) continue;
+        UIWidget u = w;
+        if (useWidth) u.width = first.width;
+        else          u.height = first.height;
+        m_doc->updateWidget(u);
+        positions[u.id] = {u.x, u.y};
+    }
+    update();
+    if (onWidgetsMoved) onWidgetsMoved(positions);
 }
 
 void UIEditorCanvas::setPreviewLevel(LevelDocument* level, float ppu) {
@@ -109,7 +206,10 @@ void UIEditorCanvas::setPreviewLevel(LevelDocument* level, float ppu) {
 }
 
 void UIEditorCanvas::setSelectedId(const QString& id) {
-    m_selectedId = id; update();
+    m_selectedId = id;
+    m_selectedIds.clear();
+    if (!id.isEmpty()) m_selectedIds.insert(id);
+    update();
 }
 
 QRectF UIEditorCanvas::widgetScreenRect(const UIWidget& w, const QRectF& parentRect) const {
@@ -186,13 +286,16 @@ void UIEditorCanvas::renderWidget(QPainter& p, const UIWidget& w, const QRectF& 
         }
     }
 
-    if (w.id == m_selectedId) {
+    if (m_selectedIds.contains(w.id)) {
+        const bool isPrimary = (w.id == m_selectedId);
         p.save();
-        p.setPen(QPen(QColor("#38bdf8"), 2));
+        p.setPen(QPen(QColor("#38bdf8"), isPrimary ? 2 : 1));
         p.setBrush(Qt::NoBrush);
         p.drawRect(r);
-        for (const QPointF& pt : {r.topLeft(), r.topRight(), r.bottomLeft(), r.bottomRight()})
-            p.fillRect(QRectF(pt.x()-4, pt.y()-4, 8, 8), QColor("#38bdf8"));
+        if (isPrimary) {
+            for (const QPointF& pt : {r.topLeft(), r.topRight(), r.bottomLeft(), r.bottomRight()})
+                p.fillRect(QRectF(pt.x()-4, pt.y()-4, 8, 8), QColor("#38bdf8"));
+        }
         p.restore();
     }
 
@@ -249,6 +352,30 @@ void UIEditorCanvas::paintEvent(QPaintEvent*) {
         const QRectF vp = getViewportRect();
         for (const UIWidget& w : m_doc->rootWidgets())
             renderWidget(p, w, vp);
+
+        // 多选整体 bounding box
+        if (m_selectedIds.size() >= 2) {
+            bool first = true;
+            float minX = 0, minY = 0, maxX = 0, maxY = 0;
+            for (const UIWidget& w : m_doc->widgets()) {
+                if (!m_selectedIds.contains(w.id)) continue;
+                QRectF r = widgetScreenRect(w, vp);
+                if (first) { minX=(float)r.left(); minY=(float)r.top(); maxX=(float)r.right(); maxY=(float)r.bottom(); first=false; }
+                else { minX=qMin(minX,(float)r.left()); minY=qMin(minY,(float)r.top()); maxX=qMax(maxX,(float)r.right()); maxY=qMax(maxY,(float)r.bottom()); }
+            }
+            if (!first) {
+                p.setPen(QPen(Qt::white, 1, Qt::DashLine));
+                p.setBrush(Qt::NoBrush);
+                p.drawRect(QRectF(minX-6, minY-6, maxX-minX+12, maxY-minY+12));
+            }
+        }
+    }
+
+    // 框选矩形
+    if (m_rubberBanding && !m_rubberRect.isNull()) {
+        p.setPen(QPen(QColor(100, 150, 255, 200), 1, Qt::DashLine));
+        p.setBrush(QColor(100, 150, 255, 30));
+        p.drawRect(m_rubberRect);
     }
 }
 
@@ -400,35 +527,114 @@ QString UIEditorCanvas::hitTest(QPointF pos, const QString& parentId, const QRec
 
 void UIEditorCanvas::mousePressEvent(QMouseEvent* e) {
     if (e->button() != Qt::LeftButton) return;
+    const bool ctrl = (e->modifiers() & Qt::ControlModifier) != 0;
     const QRectF vp = getViewportRect();
     const QString hit = hitTest(e->position(), {}, vp);
-    if (hit != m_selectedId) {
-        m_selectedId = hit;
-        if (onSelectionChanged) onSelectionChanged(hit);
-        update();
-    }
-    if (!hit.isEmpty() && m_doc) {
-        m_dragging = true;
-        for (const UIWidget& w : m_doc->widgets()) {
-            if (w.id == hit) {
-                m_dragStart = e->position();
-                m_dragInitX = w.x;
-                m_dragInitY = w.y;
-                break;
+
+    if (!hit.isEmpty()) {
+        if (ctrl) {
+            // Ctrl+点击：切换选中状态
+            if (m_selectedIds.contains(hit)) m_selectedIds.remove(hit);
+            else m_selectedIds.insert(hit);
+            m_selectedId = m_selectedIds.isEmpty() ? QString() : hit;
+            const QStringList ids = m_selectedIds.values();
+            if (onMultiSelectionChanged) onMultiSelectionChanged(ids);
+            else if (onSelectionChanged) onSelectionChanged(m_selectedId);
+        } else {
+            if (!m_selectedIds.contains(hit)) {
+                m_selectedIds.clear();
+                m_selectedIds.insert(hit);
+                m_selectedId = hit;
+                if (onSelectionChanged) onSelectionChanged(hit);
+            } else {
+                m_selectedId = hit;
             }
+            // 开始拖拽：记录所有选中控件的起始位置
+            m_dragging = true;
+            m_dragStart = e->position();
+            m_dragStartPositions.clear();
+            for (const UIWidget& w : m_doc->widgets())
+                if (m_selectedIds.contains(w.id))
+                    m_dragStartPositions[w.id] = {w.x, w.y};
         }
+        update();
+    } else {
+        // 点击空白
+        if (!ctrl) {
+            m_selectedIds.clear();
+            m_selectedId.clear();
+            if (onSelectionChanged) onSelectionChanged({});
+        }
+        m_rubberBanding = true;
+        m_rubberStart   = e->pos();
+        m_rubberRect    = QRect();
+        update();
     }
 }
 
 void UIEditorCanvas::mouseMoveEvent(QMouseEvent* e) {
-    if (!m_dragging || m_selectedId.isEmpty() || !m_doc) return;
-    const QPointF delta = e->position() - m_dragStart;
-    if (onWidgetMoved) onWidgetMoved(m_selectedId, m_dragInitX + (float)delta.x(), m_dragInitY + (float)delta.y());
+    if (m_rubberBanding) {
+        m_rubberRect = QRect(m_rubberStart, e->pos()).normalized();
+        update();
+        return;
+    }
+    if (!m_dragging || m_selectedIds.isEmpty() || !m_doc) return;
+
+    const QPointF totalDelta = e->position() - m_dragStart;
+    const QRectF  vp = getViewportRect();
+
+    if (m_selectedIds.size() == 1) {
+        // 单选：使用原有 onWidgetMoved 回调
+        QPointF start = m_dragStartPositions.value(m_selectedId, {});
+        float newX = (float)(start.x() + totalDelta.x());
+        float newY = (float)(start.y() + totalDelta.y());
+        if (m_pixelSnapEnabled) {
+            newX = std::round(newX / m_snapGrid) * m_snapGrid;
+            newY = std::round(newY / m_snapGrid) * m_snapGrid;
+        }
+        if (onWidgetMoved) onWidgetMoved(m_selectedId, newX, newY);
+    } else {
+        // 多选：批量移动
+        QHash<QString, QPointF> positions;
+        for (const UIWidget& w : m_doc->widgets()) {
+            if (!m_selectedIds.contains(w.id)) continue;
+            QPointF start = m_dragStartPositions.value(w.id, {w.x, w.y});
+            float newX = (float)(start.x() + totalDelta.x());
+            float newY = (float)(start.y() + totalDelta.y());
+            if (m_pixelSnapEnabled) {
+                newX = std::round(newX / m_snapGrid) * m_snapGrid;
+                newY = std::round(newY / m_snapGrid) * m_snapGrid;
+            }
+            positions[w.id] = {newX, newY};
+        }
+        if (onWidgetsMoved) onWidgetsMoved(positions);
+    }
     update();
 }
 
-void UIEditorCanvas::mouseReleaseEvent(QMouseEvent*) {
+void UIEditorCanvas::mouseReleaseEvent(QMouseEvent* e) {
+    if (m_rubberBanding && e->button() == Qt::LeftButton) {
+        m_rubberBanding = false;
+        const bool ctrl = (e->modifiers() & Qt::ControlModifier) != 0;
+        if (!ctrl) m_selectedIds.clear();
+        if (m_doc && !m_rubberRect.isNull()) {
+            const QRectF vp = getViewportRect();
+            for (const UIWidget& w : m_doc->widgets()) {
+                QRectF r = widgetScreenRect(w, vp);
+                if (m_rubberRect.intersects(r.toRect()))
+                    m_selectedIds.insert(w.id);
+            }
+        }
+        m_selectedId = m_selectedIds.isEmpty() ? QString() : *m_selectedIds.begin();
+        m_rubberRect = QRect();
+        const QStringList ids = m_selectedIds.values();
+        if (onMultiSelectionChanged) onMultiSelectionChanged(ids);
+        else if (onSelectionChanged) onSelectionChanged(m_selectedId);
+        update();
+        return;
+    }
     m_dragging = false;
+    m_dragStartPositions.clear();
 }
 
 void UIEditorCanvas::contextMenuEvent(QContextMenuEvent* e) {
@@ -440,7 +646,7 @@ void UIEditorCanvas::contextMenuEvent(QContextMenuEvent* e) {
     };
     for (const QString& t : types)
         addMenu->addAction(t, [this, t]() { if (onAddWidget) onAddWidget(t); });
-    if (!m_selectedId.isEmpty())
+    if (!m_selectedIds.isEmpty())
         menu.addAction("删除选中", [this]() { if (onDeleteSelected) onDeleteSelected(); });
     menu.exec(e->globalPos());
 }
@@ -516,11 +722,86 @@ UIEditor::UIEditor(QWidget* parent) : QWidget(parent) {
     leftLay->addWidget(m_tree);
     leftWrap->setFixedWidth(180);
 
-    // 中间：画布 + 底部工具栏
+    // 中间：对齐工具栏 + 画布 + 底部工具栏
     auto* centerWrap = new QWidget;
     auto* centerLay  = new QVBoxLayout(centerWrap);
     centerLay->setContentsMargins(0, 0, 0, 0);
     centerLay->setSpacing(0);
+
+    // ── 对齐工具栏 ──
+    auto* alignBar = new QWidget;
+    alignBar->setFixedHeight(28);
+    alignBar->setObjectName("viewportToolBar");
+    auto* alignLay = new QHBoxLayout(alignBar);
+    alignLay->setContentsMargins(6, 2, 6, 2);
+    alignLay->setSpacing(2);
+
+    auto aBtn = [&](const QString& icon, const QString& tip) {
+        auto* b = new QToolButton(alignBar);
+        b->setText(icon); b->setToolTip(tip);
+        b->setObjectName("vpTBBtn");
+        b->setEnabled(false);
+        alignLay->addWidget(b);
+        m_alignBtns << b;
+        return b;
+    };
+    auto aSep = [&]() {
+        auto* f = new QFrame(alignBar);
+        f->setFrameShape(QFrame::VLine);
+        f->setObjectName("vpSep");
+        alignLay->addSpacing(3); alignLay->addWidget(f); alignLay->addSpacing(3);
+    };
+
+    auto* bAlignL = aBtn("←|",  "左对齐");
+    auto* bAlignHC= aBtn("|·|", "水平居中");
+    auto* bAlignR = aBtn("|→",  "右对齐");
+    aSep();
+    auto* bAlignT = aBtn("↑—",  "上对齐");
+    auto* bAlignVC= aBtn("—·—", "垂直居中");
+    auto* bAlignB = aBtn("—↓",  "下对齐");
+    aSep();
+    auto* bDistH  = aBtn("⇔",   "水平等间距");
+    auto* bDistV  = aBtn("⇕",   "垂直等间距");
+    aSep();
+    auto* bSameW  = aBtn("↔=",  "等宽");
+    auto* bSameH  = aBtn("↕=",  "等高");
+
+    alignLay->addSpacing(8);
+    // 像素吸附控件
+    auto* snapBtn = new QToolButton(alignBar);
+    snapBtn->setText("⊡"); snapBtn->setToolTip("像素吸附");
+    snapBtn->setObjectName("vpTBBtn");
+    snapBtn->setCheckable(true); snapBtn->setChecked(true);
+    alignLay->addWidget(snapBtn);
+    auto* snapCombo = new QComboBox(alignBar);
+    snapCombo->setObjectName("vpSnapCombo");
+    snapCombo->addItems({"1px", "5px", "10px"});
+    snapCombo->setFixedWidth(48);
+    alignLay->addWidget(snapCombo);
+    alignLay->addStretch();
+
+    connect(bAlignL,  &QToolButton::clicked, this, [this](){ m_canvas->alignSelected(0); emit documentModified(); });
+    connect(bAlignR,  &QToolButton::clicked, this, [this](){ m_canvas->alignSelected(1); emit documentModified(); });
+    connect(bAlignHC, &QToolButton::clicked, this, [this](){ m_canvas->alignSelected(2); emit documentModified(); });
+    connect(bAlignT,  &QToolButton::clicked, this, [this](){ m_canvas->alignSelected(3); emit documentModified(); });
+    connect(bAlignB,  &QToolButton::clicked, this, [this](){ m_canvas->alignSelected(4); emit documentModified(); });
+    connect(bAlignVC, &QToolButton::clicked, this, [this](){ m_canvas->alignSelected(5); emit documentModified(); });
+    connect(bDistH,   &QToolButton::clicked, this, [this](){ m_canvas->distributeSelected(true);  emit documentModified(); });
+    connect(bDistV,   &QToolButton::clicked, this, [this](){ m_canvas->distributeSelected(false); emit documentModified(); });
+    connect(bSameW,   &QToolButton::clicked, this, [this](){ m_canvas->makeSameSize(true);  emit documentModified(); });
+    connect(bSameH,   &QToolButton::clicked, this, [this](){ m_canvas->makeSameSize(false); emit documentModified(); });
+
+    connect(snapBtn, &QToolButton::toggled, this, [this, snapCombo](bool on) {
+        snapCombo->setEnabled(on);
+        static const int grids[] = {1, 5, 10};
+        m_canvas->setPixelSnap(on, grids[snapCombo->currentIndex()]);
+    });
+    connect(snapCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, snapBtn](int idx) {
+        static const int grids[] = {1, 5, 10};
+        if (snapBtn->isChecked()) m_canvas->setPixelSnap(true, grids[idx]);
+    });
+
+    centerLay->addWidget(alignBar);
 
     m_canvas = new UIEditorCanvas(this);
 
@@ -588,10 +869,20 @@ UIEditor::UIEditor(QWidget* parent) : QWidget(parent) {
         emit previewLevelChanged(name);
     });
 
-    // 注册画布回调
-    m_canvas->onSelectionChanged = [this](const QString& id) {
+    // ── 注册画布回调 ──
+    auto updateAlignBtns = [this](int selCount) {
+        const bool canAlign = selCount >= 2;
+        const bool canDist  = selCount >= 3;
+        for (int i = 0; i < m_alignBtns.size(); ++i) {
+            // 按钮 6-7 是分布按钮（需≥3），其余需≥2
+            m_alignBtns[i]->setEnabled(i >= 6 && i <= 7 ? canDist : canAlign);
+        }
+    };
+
+    m_canvas->onSelectionChanged = [this, updateAlignBtns](const QString& id) {
         m_selectedId = id;
         rebuildPropsPanel(id);
+        updateAlignBtns(id.isEmpty() ? 0 : 1);
         QTreeWidgetItemIterator it(m_tree);
         while (*it) {
             if ((*it)->data(0, Qt::UserRole).toString() == id) {
@@ -599,6 +890,30 @@ UIEditor::UIEditor(QWidget* parent) : QWidget(parent) {
                 break;
             }
             ++it;
+        }
+    };
+
+    m_canvas->onMultiSelectionChanged = [this, updateAlignBtns](QStringList ids) {
+        const int n = ids.size();
+        updateAlignBtns(n);
+        if (n == 1) {
+            m_selectedId = ids.first();
+            rebuildPropsPanel(m_selectedId);
+        } else {
+            m_selectedId = ids.isEmpty() ? QString() : ids.first();
+            if (n == 0) rebuildPropsPanel({});
+            // 多选时不展示属性（保持现有空状态）
+        }
+        // 树中高亮第一个选中项
+        if (!m_selectedId.isEmpty()) {
+            QTreeWidgetItemIterator it(m_tree);
+            while (*it) {
+                if ((*it)->data(0, Qt::UserRole).toString() == m_selectedId) {
+                    m_tree->setCurrentItem(*it);
+                    break;
+                }
+                ++it;
+            }
         }
     };
 
@@ -613,6 +928,18 @@ UIEditor::UIEditor(QWidget* parent) : QWidget(parent) {
                 break;
             }
         }
+    };
+
+    m_canvas->onWidgetsMoved = [this](QHash<QString,QPointF> positions) {
+        if (!m_doc) return;
+        for (const UIWidget& w : m_doc->widgets()) {
+            if (!positions.contains(w.id)) continue;
+            UIWidget u = w;
+            u.x = (float)positions[w.id].x();
+            u.y = (float)positions[w.id].y();
+            m_doc->updateWidget(u);
+        }
+        emit documentModified();
     };
 
     m_canvas->onAddWidget = [this](const QString& type) { onAddWidget(type); };

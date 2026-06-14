@@ -39,10 +39,10 @@ DetailsPanel::DetailsPanel(QWidget* parent) : QWidget(parent) {
     // 第 0 页：空状态
     auto* emptyPage = new QWidget(stack);
     auto* elay = new QVBoxLayout(emptyPage);
-    auto* hint = new QLabel("请在大纲或视口中\n选中一个 Actor", emptyPage);
-    hint->setObjectName("detailEmptyHint");
-    hint->setAlignment(Qt::AlignCenter);
-    elay->addWidget(hint);
+    m_emptyHint = new QLabel("请在大纲或视口中\n选中一个 Actor", emptyPage);
+    m_emptyHint->setObjectName("detailEmptyHint");
+    m_emptyHint->setAlignment(Qt::AlignCenter);
+    elay->addWidget(m_emptyHint);
     stack->addWidget(emptyPage);
 
     // 第 1 页：Inspector 内容
@@ -430,7 +430,14 @@ void DetailsPanel::showActor(const ActorData& actor) {
 
 void DetailsPanel::clearActor() {
     m_currentActor = ActorData{};
-    m_stack->setCurrentIndex(0);  // 显示空状态
+    if (m_emptyHint) m_emptyHint->setText("请在大纲或视口中\n选中一个 Actor");
+    m_stack->setCurrentIndex(0);
+}
+
+void DetailsPanel::showMultiSelection(int count) {
+    m_currentActor = ActorData{};
+    if (m_emptyHint) m_emptyHint->setText(QString("已选中 %1 个对象").arg(count));
+    m_stack->setCurrentIndex(0);
 }
 
 void DetailsPanel::setProjectRoot(const QString& root) {
