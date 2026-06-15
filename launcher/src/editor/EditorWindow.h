@@ -63,8 +63,8 @@ private:
     void     updateTabTooltip(int index);
     void     updateSaveLabel();
     void openBlueprintTab();
-    void floatBlueprint(QPoint globalPos);
-    void embedBlueprint();
+    void floatBp(const QString& tabId);
+    void embedBp(const QString& tabId);
     void openBpClassTab(const QString& bpClassPath);
     void openUIDocTab(const QString& uiFilePath);
 
@@ -88,7 +88,6 @@ private:
     QLabel*          m_gvResLabel     = nullptr;
     SceneOutliner*   m_sceneOutliner   = nullptr;
     DetailsPanel*    m_detailsPanel    = nullptr;
-    BlueprintEditor* m_blueprintEditor = nullptr;
 
     ads::CDockManager* m_dockManager  = nullptr;
     ads::CDockWidget*  m_viewportDock = nullptr;
@@ -99,11 +98,27 @@ private:
 
     QStackedWidget* m_centralStack    = nullptr;
     QWidget*        m_viewportPage    = nullptr;
-    QWidget*        m_bpWrapper       = nullptr;
-    ads::CDockWidget* m_bpDockW          = nullptr;
+    QString           m_activeLevelPath;
+
+    // ── 多蓝图编辑器实例（关卡蓝图 + Actor .bp 蓝图统一管理）──────────────
+    // 每个打开的蓝图各自拥有一个 BlueprintEditor 实例，常驻直到关闭。
+    struct BpInstance {
+        BlueprintEditor*  editor    = nullptr;  // 独立编辑器实例
+        bool              isLevelBp = false;    // true=关卡蓝图，false=Actor .bp 蓝图
+        QString           dataPath;             // 关卡蓝图=关卡路径；Actor 蓝图=.bp 路径
+        ads::CDockWidget* dock      = nullptr;  // 非空=已浮动；nullptr=嵌入中央 stack
+    };
+    QMap<QString, BpInstance> m_bpInstances;    // key = tabId
     QTimer*           m_bpDropCheckTimer = nullptr;
     bool              m_bpDropFirstDone  = false;
-    QString           m_activeLevelPath;
+
+    // 蓝图实例 helper
+    static bool      isLevelBlueprintTab(const QString& tabData);
+    static QString   levelPathOfBlueprintTab(const QString& tabData);
+    static bool      isAnyBlueprintTab(const QString& tabData);  // 关卡蓝图 或 .bp
+    BlueprintEditor* ensureBpInstance(const QString& tabId);     // 不存在则创建
+    BlueprintEditor* activeBpEditor() const;                     // 当前聚焦/显示的蓝图
+    void             destroyBpInstance(const QString& tabId);
 
     LayoutManager* m_layoutManager = nullptr;
     QMenu*         m_windowMenu    = nullptr;

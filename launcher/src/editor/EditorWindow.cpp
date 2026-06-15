@@ -107,11 +107,12 @@ EditorWindow::EditorWindow(const ProjectInfo& project, QWidget* parent)
     });
 
     // F 帧居中（视口：聚焦选中；蓝图：居中所有节点）
+    // ApplicationShortcut：浮动蓝图窗口聚焦时也能触发，路由由 activeBpEditor 决定
     auto* fSc = new QShortcut(QKeySequence("F"), this);
+    fSc->setContext(Qt::ApplicationShortcut);
     connect(fSc, &QShortcut::activated, this, [this]() {
-        const int idx = m_centralStack->currentIndex();
-        if (idx == 0 && m_viewport) m_viewport->frameSelected();
-        else if (idx == 1 && m_blueprintEditor) m_blueprintEditor->frameAll();
+        if (auto* be = activeBpEditor()) { be->frameAll(); return; }
+        if (m_centralStack->currentIndex() == 0 && m_viewport) m_viewport->frameSelected();
     });
 
     // Escape 取消选中（视口；蓝图内的弹窗关闭由 BlueprintEditor 内部处理）
@@ -121,16 +122,18 @@ EditorWindow::EditorWindow(const ProjectInfo& project, QWidget* parent)
             m_viewport->clearSelection();
     });
 
-    // Delete / Backspace 删除（按当前 tab 路由）
+    // Delete / Backspace 删除（按聚焦/当前 tab 路由）
     auto deleteAction = [this]() {
-        const int idx = m_centralStack->currentIndex();
-        if (idx == 0 && m_viewport) m_viewport->deleteSelected();
-        else if (idx == 1 && m_blueprintEditor) m_blueprintEditor->deleteSelected();
-        else if (idx == 3 && m_uiEditor) m_uiEditor->onDeleteSelected();
+        if (isTextInputFocused()) return;
+        if (auto* be = activeBpEditor()) { be->deleteSelected(); return; }
+        if (m_centralStack->currentIndex() == 0 && m_viewport) m_viewport->deleteSelected();
+        else if (m_centralStack->currentWidget() == m_uiEditor) m_uiEditor->onDeleteSelected();
     };
     auto* delSc = new QShortcut(QKeySequence::Delete, this);
+    delSc->setContext(Qt::ApplicationShortcut);
     connect(delSc, &QShortcut::activated, this, deleteAction);
     auto* bsSc = new QShortcut(Qt::Key_Backspace, this);
+    bsSc->setContext(Qt::ApplicationShortcut);
     connect(bsSc, &QShortcut::activated, this, deleteAction);
 
     // Ctrl+A 全选
@@ -142,12 +145,12 @@ EditorWindow::EditorWindow(const ProjectInfo& project, QWidget* parent)
 
     // Ctrl+D 原位复制
     auto* dupSc = new QShortcut(QKeySequence("Ctrl+D"), this);
+    dupSc->setContext(Qt::ApplicationShortcut);
     connect(dupSc, &QShortcut::activated, this, [this]() {
         if (isTextInputFocused()) return;
-        const int idx = m_centralStack->currentIndex();
-        if (idx == 0 && m_viewport) m_viewport->duplicateSelected();
-        else if (idx == 1 && m_blueprintEditor) m_blueprintEditor->duplicateSelectedNode();
-        else if (idx == 3 && m_uiEditor) m_uiEditor->duplicateSelected();
+        if (auto* be = activeBpEditor()) { be->duplicateSelectedNode(); return; }
+        if (m_centralStack->currentIndex() == 0 && m_viewport) m_viewport->duplicateSelected();
+        else if (m_centralStack->currentWidget() == m_uiEditor) m_uiEditor->duplicateSelected();
     });
 
     // Ctrl+C 复制
@@ -216,7 +219,7 @@ void EditorWindow::setupDocTabBar() {
     connect(tabBar, &QTabBar::currentChanged,    this, &EditorWindow::onTabChanged);
     connect(tabBar, &QTabBar::tabCloseRequested, this, &EditorWindow::onTabClosed);
     connect(tabBar, &DocTabBar::blueprintDraggedOut,
-            this, &EditorWindow::floatBlueprint);
+            this, &EditorWindow::floatBp);
 }
 
 // ── 3. 主工具栏 ──────────────────────────────────────────────────────
@@ -288,26 +291,10 @@ void EditorWindow::setupCentralArea() {
     leftLay->addWidget(m_viewport, 1);
     m_viewportPage = leftWrap;
 
-    m_blueprintEditor = new BlueprintEditor();
-    m_blueprintEditor->setProjectRoot(m_project.path);
-    connect(m_blueprintEditor, &BlueprintEditor::documentModified, this, [this]() {
-        updateTabTitle(m_docTabBar->currentIndex());
-        updateSaveLabel();
-    });
-    connect(m_blueprintEditor, &BlueprintEditor::bpClassModified, this, [this]() {
-        if (m_blueprintEditor->currentBpClassPath().isEmpty()) return;
-        m_dirtyBpClasses.insert(m_blueprintEditor->currentBpClassPath());
-    });
-
-    m_bpWrapper = new QWidget();
-    auto* bpLay = new QVBoxLayout(m_bpWrapper);
-    bpLay->setContentsMargins(0, 0, 0, 0);
-    bpLay->setSpacing(0);
-    bpLay->addWidget(m_blueprintEditor);
+    // 蓝图编辑器实例按需创建（见 ensureBpInstance），不再有单例编辑器。
 
     m_centralStack = new QStackedWidget();
-    m_centralStack->addWidget(m_viewportPage);  // index 0
-    m_centralStack->addWidget(m_bpWrapper);     // index 1
+    m_centralStack->addWidget(m_viewportPage);  // index 0；蓝图实例页按需动态加入
 
     // ── 游戏视图页面 ──────────────────────────────────────────────────────
     auto* gvWrap = new QWidget();
@@ -411,34 +398,20 @@ void EditorWindow::setupCentralArea() {
     m_dockManager->addDockWidget(ads::BottomDockWidgetArea, m_cbDockW);
     m_cbDockW->closeDockWidget();
 
-    // ── 关卡蓝图（ADS 浮动 Dock，默认隐藏）──────────────────────────
-    m_bpDockW = new ads::CDockWidget("关卡蓝图");
-    m_bpDockW->setWidget(new QWidget());  // 占位符，浮起时换成 m_bpWrapper
-    m_dockManager->addDockWidgetFloating(m_bpDockW);
-    m_bpDockW->closeDockWidget();
-    connect(m_bpDockW, &ads::CDockWidget::viewToggled,
-            this, [this](bool open) {
-        if (!open) QTimer::singleShot(0, this, &EditorWindow::embedBlueprint);
-    });
-    // 拖入 ADS 区域（停止浮动）时也回嵌到 Tab 栏
-    connect(m_bpDockW, &ads::CDockWidget::topLevelChanged,
-            this, [this](bool isTopLevel) {
-        if (!isTopLevel && m_bpDockW->widget() == m_bpWrapper)
-            QTimer::singleShot(0, this, &EditorWindow::embedBlueprint);
-    });
+    // ── 蓝图浮动窗口：每个实例按需创建独立 Dock（见 floatBp）──────────────
 
-    // ── 拖回 Tab 栏检测定时器 ─────────────────────────────────────────
+    // ── 拖回 Tab 栏检测定时器（遍历所有浮动蓝图实例）────────────────────
     m_bpDropCheckTimer = new QTimer(this);
     m_bpDropCheckTimer->setInterval(50);
     connect(m_bpDropCheckTimer, &QTimer::timeout, this, [this]() {
-        if (!m_bpDockW || !m_bpDockW->isFloating()) {
-            m_bpDropCheckTimer->stop();
-            return;
-        }
-        auto* container = m_bpDockW->floatingDockContainer();
-        if (!container) return;
+        // 收集仍在浮动的蓝图实例
+        QStringList floating;
+        for (auto it = m_bpInstances.begin(); it != m_bpInstances.end(); ++it)
+            if (it.value().dock && it.value().dock->isFloating())
+                floating << it.key();
+        if (floating.isEmpty()) { m_bpDropCheckTimer->stop(); return; }
 
-        // 等待 floatBlueprint 触发的那次初始鼠标释放，避免立即误嵌
+        // 等待 floatBp 触发的那次初始鼠标释放，避免立即误嵌
         if (!m_bpDropFirstDone) {
             if (QGuiApplication::mouseButtons() == Qt::NoButton)
                 m_bpDropFirstDone = true;
@@ -447,28 +420,36 @@ void EditorWindow::setupCentralArea() {
 
         auto* tb = findChild<QToolBar*>("docTabToolBar");
         if (!tb) return;
-
         const QRect tbGlobal(tb->mapToGlobal(QPoint(0, 0)), tb->size());
-        const QRect cRect = container->frameGeometry();
-        // 给 Tab 栏上下各留 20px 容差
-        const bool nearTabBar = cRect.intersects(tbGlobal.adjusted(0, -20, 0, 20));
+
+        QString hitId;          // 鼠标松开且覆盖 Tab 栏的实例
+        bool    anyNear = false;
+        for (const QString& id : floating) {
+            auto* container = m_bpInstances[id].dock->floatingDockContainer();
+            if (!container) continue;
+            const QRect cRect = container->frameGeometry();
+            // 给 Tab 栏上下各留 20px 容差
+            if (cRect.intersects(tbGlobal.adjusted(0, -20, 0, 20))) {
+                anyNear = true;
+                if (QGuiApplication::mouseButtons() == Qt::NoButton) { hitId = id; break; }
+            }
+        }
 
         // 高亮反馈
-        if (tb->property("bpDropHighlight").toBool() != nearTabBar) {
-            tb->setProperty("bpDropHighlight", nearTabBar);
+        if (tb->property("bpDropHighlight").toBool() != anyNear) {
+            tb->setProperty("bpDropHighlight", anyNear);
             tb->style()->unpolish(tb);
             tb->style()->polish(tb);
             tb->update();
         }
 
-        // 鼠标已松开且覆盖 Tab 栏 → 嵌回
-        if (nearTabBar && QGuiApplication::mouseButtons() == Qt::NoButton) {
-            m_bpDropCheckTimer->stop();
+        // 鼠标已松开且覆盖 Tab 栏 → 嵌回该实例
+        if (!hitId.isEmpty()) {
             tb->setProperty("bpDropHighlight", false);
             tb->style()->unpolish(tb);
             tb->style()->polish(tb);
             tb->update();
-            QTimer::singleShot(0, this, &EditorWindow::embedBlueprint);
+            QTimer::singleShot(0, this, [this, hitId]() { embedBp(hitId); });
         }
     });
 
@@ -799,14 +780,19 @@ void EditorWindow::onTabChanged(int index) {
     for (auto& conn : m_tabConnections) disconnect(conn);
     m_tabConnections.clear();
 
-    // 蓝图 Tab
-    if (path == DocTabBar::kBlueprintTabData) {
-        if (m_centralStack->indexOf(m_bpWrapper) < 0)
-            m_centralStack->addWidget(m_bpWrapper);
-        m_centralStack->setCurrentWidget(m_bpWrapper);
-        LevelDocument* doc = m_openLevels.value(m_activeLevelPath, nullptr);
-        if (m_blueprintEditor) m_blueprintEditor->loadLevel(doc);
-        m_activeUndoStack = m_blueprintEditor ? m_blueprintEditor->bpUndoStack() : nullptr;
+    // 蓝图 Tab（关卡蓝图 或 Actor .bp 蓝图）——显示对应实例页
+    if (isAnyBlueprintTab(path)) {
+        BlueprintEditor* ed = ensureBpInstance(path);
+        m_centralStack->setCurrentWidget(ed);
+        // 关卡蓝图：上下文关卡跟随，刷新大纲（蓝图需看到对应 Actor）
+        if (isLevelBlueprintTab(path)) {
+            const QString levelPath = levelPathOfBlueprintTab(path);
+            if (m_openLevels.contains(levelPath)) {
+                m_activeLevelPath = levelPath;
+                m_sceneOutliner->loadLevel(m_openLevels.value(levelPath));
+            }
+        }
+        m_activeUndoStack = ed->bpUndoStack();
         return;
     }
 
@@ -819,18 +805,6 @@ void EditorWindow::onTabChanged(int index) {
             updateGameViewToolbar(doc);
         }
         m_activeUndoStack = nullptr;
-        return;
-    }
-
-    // .bp 蓝图类 Tab
-    if (path.endsWith(".bp")) {
-        if (m_centralStack->indexOf(m_bpWrapper) < 0)
-            m_centralStack->addWidget(m_bpWrapper);
-        m_centralStack->setCurrentWidget(m_bpWrapper);
-        BPClass* bc = m_openBpClasses.value(path, nullptr);
-        if (bc && m_blueprintEditor)
-            m_blueprintEditor->loadBpClass(bc);
-        m_activeUndoStack = m_blueprintEditor ? m_blueprintEditor->bpUndoStack() : nullptr;
         return;
     }
 
@@ -893,9 +867,6 @@ void EditorWindow::onTabChanged(int index) {
 
     m_sceneOutliner->loadLevel(doc);
     if (m_viewport) m_viewport->loadLevel(doc);
-
-    if (m_bpDockW && !m_bpDockW->isClosed() && m_blueprintEditor)
-        m_blueprintEditor->loadLevel(doc);
 
     m_detailsPanel->clearActor();
     for (auto* btn : m_viewportAlignBtns) btn->setEnabled(false);
@@ -1000,23 +971,17 @@ void EditorWindow::onTabClosed(int index) {
 
     if (path == DocTabBar::kGameViewTabData) return;
 
-    if (path == DocTabBar::kBlueprintTabData) {
+    // 蓝图 Tab（关卡蓝图 或 Actor .bp）——销毁该编辑器实例
+    if (isAnyBlueprintTab(path)) {
+        // Actor 蓝图：关闭前保存（BPClass 对象本身在 closeEvent 统一释放，
+        // 因 ActorBPRuntime 可能仍引用它，此处只销毁 editor 实例）
+        if (path.endsWith(".bp")) {
+            BlueprintEditor* ed = m_bpInstances.value(path).editor;
+            if (ed) ed->saveBpClass();
+        }
+        destroyBpInstance(path);
         m_docTabBar->removeTab(index);
         if (m_centralStack) m_centralStack->setCurrentWidget(m_viewportPage);
-        return;
-    }
-
-    // .bp 蓝图类 Tab
-    if (path.endsWith(".bp")) {
-        // 保存：若当前显示的正是该 bp，通知编辑器保存
-        if (m_blueprintEditor && m_docTabBar->currentIndex() == index)
-            m_blueprintEditor->saveBpClass();
-        // 不立即释放 m_openBpClasses 中的 BPClass —— ActorBPRuntime 可能仍在引用它。
-        // BPClass 对象在 closeEvent() 中通过 qDeleteAll(m_openBpClasses) 统一释放。
-        m_docTabBar->removeTab(index);
-        // 若没有其他 Tab，回到视口
-        if (m_docTabBar->count() == 0 && m_centralStack)
-            m_centralStack->setCurrentWidget(m_viewportPage);
         return;
     }
 
@@ -1049,12 +1014,29 @@ void EditorWindow::onTabClosed(int index) {
         if (ret == QMessageBox::Save) doc->save();
     }
 
+    // 连带关闭该关卡的关卡蓝图（嵌入 Tab 或浮动窗口），避免悬空 doc
+    {
+        const QString bpTabId = DocTabBar::kBlueprintTabData + path;
+        for (int i = 0; i < m_docTabBar->count(); ++i) {
+            if (m_docTabBar->tabData(i).toString() == bpTabId) {
+                QSignalBlocker b(m_docTabBar);
+                m_docTabBar->removeTab(i);
+                break;
+            }
+        }
+        destroyBpInstance(bpTabId);  // 销毁实例（含其浮动 dock）
+    }
+
     if (!path.isEmpty())
         delete m_openLevels.take(path);
 
     for (auto& conn : m_tabConnections) disconnect(conn);
     m_tabConnections.clear();
 
+    // 蓝图 Tab 可能已被移除导致索引偏移，按 path 重新定位关卡 Tab
+    for (int i = 0; i < m_docTabBar->count(); ++i) {
+        if (m_docTabBar->tabData(i).toString() == path) { index = i; break; }
+    }
     m_docTabBar->removeTab(index);
 
     if (m_docTabBar->count() == 0) {
@@ -1160,22 +1142,110 @@ void EditorWindow::saveAllLevels() {
 
 void EditorWindow::updateTabTitle(int index) {
     if (index < 0 || index >= m_docTabBar->count()) return;
-    const QString path = m_docTabBar->tabData(index).toString();
-    const QString baseName = QFileInfo(path).baseName();
-    LevelDocument* doc = m_openLevels.value(path);
+    const QString data = m_docTabBar->tabData(index).toString();
+    // 关卡蓝图 tab：标题「关卡名 蓝图」，脏标记取所属关卡
+    if (isLevelBlueprintTab(data)) {
+        const QString levelPath = levelPathOfBlueprintTab(data);
+        LevelDocument* doc = m_openLevels.value(levelPath, nullptr);
+        const bool dirty = doc && doc->isDirty();
+        const QString name = QFileInfo(levelPath).baseName() + " 蓝图";
+        m_docTabBar->setTabText(index, dirty ? "● " + name : "  " + name);
+        return;
+    }
+    const QString baseName = QFileInfo(data).baseName();
+    LevelDocument* doc = m_openLevels.value(data);
     const bool dirty = doc && doc->isDirty();
     m_docTabBar->setTabText(index, dirty ? "● " + baseName : "  " + baseName);
 }
 
-// 根据 tabData 设置标签的悬停提示：特殊 tab 显示完整中文名，关卡/文档 tab 显示完整路径
+// 根据 tabData 设置标签的悬停提示：特殊 tab 显示中文名，关卡/文档 tab 显示完整路径
 void EditorWindow::updateTabTooltip(int index) {
     if (index < 0 || index >= m_docTabBar->count()) return;
     const QString data = m_docTabBar->tabData(index).toString();
     QString tip;
-    if (data == DocTabBar::kBlueprintTabData)      tip = "关卡蓝图";
-    else if (data == DocTabBar::kGameViewTabData)  tip = "游戏视图";
-    else                                           tip = data;  // 文件绝对路径
+    if (isLevelBlueprintTab(data))
+        tip = QFileInfo(levelPathOfBlueprintTab(data)).baseName() + " 蓝图";
+    else if (data == DocTabBar::kGameViewTabData)
+        tip = "游戏视图";
+    else
+        tip = data;  // 文件绝对路径（含 .bp / .ui / 关卡）
     m_docTabBar->setTabToolTip(index, tip);
+}
+
+// ── 多蓝图实例 helper ─────────────────────────────────────────────────
+bool EditorWindow::isLevelBlueprintTab(const QString& tabData) {
+    return tabData.startsWith(DocTabBar::kBlueprintTabData);
+}
+QString EditorWindow::levelPathOfBlueprintTab(const QString& tabData) {
+    return tabData.mid(DocTabBar::kBlueprintTabData.size());
+}
+bool EditorWindow::isAnyBlueprintTab(const QString& tabData) {
+    return isLevelBlueprintTab(tabData) || tabData.endsWith(".bp");
+}
+
+// 取得或创建某蓝图 tabId 对应的编辑器实例（首次创建时加载数据并入中央 stack）
+BlueprintEditor* EditorWindow::ensureBpInstance(const QString& tabId) {
+    auto it = m_bpInstances.find(tabId);
+    if (it != m_bpInstances.end()) return it.value().editor;
+
+    BpInstance inst;
+    inst.isLevelBp = isLevelBlueprintTab(tabId);
+    inst.editor = new BlueprintEditor();
+    inst.editor->setProjectRoot(m_project.path);
+
+    if (inst.isLevelBp) {
+        inst.dataPath = levelPathOfBlueprintTab(tabId);
+        inst.editor->loadLevel(m_openLevels.value(inst.dataPath, nullptr));
+        const QString levelPath = inst.dataPath;
+        connect(inst.editor, &BlueprintEditor::documentModified, this, [this, levelPath]() {
+            updateSaveLabel();
+            const QString bpTabId = DocTabBar::kBlueprintTabData + levelPath;
+            for (int i = 0; i < m_docTabBar->count(); ++i) {
+                const QString d = m_docTabBar->tabData(i).toString();
+                if (d == bpTabId || d == levelPath) updateTabTitle(i);
+            }
+        });
+    } else {
+        inst.dataPath = tabId;  // .bp 路径
+        inst.editor->loadBpClass(m_openBpClasses.value(tabId, nullptr));
+        const QString bpPath = tabId;
+        connect(inst.editor, &BlueprintEditor::bpClassModified, this, [this, bpPath]() {
+            m_dirtyBpClasses.insert(bpPath);
+        });
+    }
+
+    m_centralStack->addWidget(inst.editor);
+    m_bpInstances.insert(tabId, inst);
+    return inst.editor;
+}
+
+// 当前应响应快捷键的蓝图编辑器：优先焦点链（浮动窗口），否则中央 stack 当前蓝图页
+BlueprintEditor* EditorWindow::activeBpEditor() const {
+    QWidget* w = QApplication::focusWidget();
+    while (w) {
+        if (auto* be = qobject_cast<BlueprintEditor*>(w)) return be;
+        w = w->parentWidget();
+    }
+    QWidget* cur = m_centralStack ? m_centralStack->currentWidget() : nullptr;
+    for (const auto& inst : m_bpInstances)
+        if (inst.editor == cur) return inst.editor;
+    return nullptr;
+}
+
+// 销毁某蓝图实例（嵌入或浮动），释放其编辑器
+void EditorWindow::destroyBpInstance(const QString& tabId) {
+    auto it = m_bpInstances.find(tabId);
+    if (it == m_bpInstances.end()) return;
+    BpInstance inst = it.value();
+    m_bpInstances.erase(it);
+    if (inst.dock) {
+        inst.dock->setWidget(new QWidget());  // 占位，避免 ADS 持有悬空指针
+        inst.dock->closeDockWidget();
+        inst.dock->deleteLater();
+    } else if (m_centralStack) {
+        m_centralStack->removeWidget(inst.editor);
+    }
+    delete inst.editor;
 }
 
 void EditorWindow::updateSaveLabel() {
@@ -1203,9 +1273,9 @@ void EditorWindow::startRuntime() {
     const int index = m_docTabBar->currentIndex();
     if (index < 0) return;
     const QString tabPath = m_docTabBar->tabData(index).toString();
-    // 蓝图 tab / 游戏视图 tab 都用最近激活的关卡
+    // 关卡蓝图 tab / 游戏视图 tab 都用最近激活的关卡
     const bool useActive = (tabPath == DocTabBar::kGameViewTabData
-                         || tabPath == DocTabBar::kBlueprintTabData);
+                         || isLevelBlueprintTab(tabPath));
     const QString path = useActive ? m_activeLevelPath : tabPath;
     LevelDocument* doc = m_openLevels.value(path);
     if (!doc || !m_viewport) return;
@@ -1360,27 +1430,29 @@ void EditorWindow::stopRuntime() {
 }
 
 void EditorWindow::openBlueprintTab() {
-    // 已嵌入：切换到蓝图 Tab
+    if (m_activeLevelPath.isEmpty()) return;  // 无活动关卡，不开蓝图
+    const QString tabId = DocTabBar::kBlueprintTabData + m_activeLevelPath;
+
+    // 已浮动：置顶浮动窗口
+    auto it = m_bpInstances.find(tabId);
+    if (it != m_bpInstances.end() && it.value().dock) {
+        it.value().dock->raise();
+        return;
+    }
+    // 已嵌入：切换到该蓝图 Tab
     for (int i = 0; i < m_docTabBar->count(); ++i) {
-        if (m_docTabBar->tabData(i).toString() == DocTabBar::kBlueprintTabData) {
+        if (m_docTabBar->tabData(i).toString() == tabId) {
             m_docTabBar->setCurrentIndex(i);
             return;
         }
     }
-    // 已浮动：置顶浮动窗口
-    if (m_bpDockW && !m_bpDockW->isClosed()) {
-        m_bpDockW->raise();
-        return;
-    }
-    // 首次打开：确保 wrapper 在 stack 中
-    if (m_centralStack->indexOf(m_bpWrapper) < 0)
-        m_centralStack->addWidget(m_bpWrapper);
-
+    // 首次打开：创建实例 + Tab
+    ensureBpInstance(tabId);
     int idx;
     {
         QSignalBlocker b(m_docTabBar);
-        idx = m_docTabBar->addTab("  关卡蓝图");
-        m_docTabBar->setTabData(idx, DocTabBar::kBlueprintTabData);
+        idx = m_docTabBar->addTab("  " + QFileInfo(m_activeLevelPath).baseName() + " 蓝图");
+        m_docTabBar->setTabData(idx, tabId);
         updateTabTooltip(idx);
     }
     if (m_docTabBar->currentIndex() == idx)
@@ -1389,27 +1461,43 @@ void EditorWindow::openBlueprintTab() {
         m_docTabBar->setCurrentIndex(idx);
 }
 
-void EditorWindow::floatBlueprint(QPoint globalPos) {
-    // 移除 Tab
+// 把某蓝图 tab 拖出为独立浮动窗口（可同时浮动多个）
+void EditorWindow::floatBp(const QString& tabId) {
+    auto it = m_bpInstances.find(tabId);
+    if (it == m_bpInstances.end()) { ensureBpInstance(tabId); it = m_bpInstances.find(tabId); }
+    BpInstance& inst = it.value();
+    if (inst.dock) { inst.dock->raise(); return; }  // 已浮动
+
+    // 移除对应 Tab
     for (int i = 0; i < m_docTabBar->count(); ++i) {
-        if (m_docTabBar->tabData(i).toString() == DocTabBar::kBlueprintTabData) {
+        if (m_docTabBar->tabData(i).toString() == tabId) {
             QSignalBlocker b(m_docTabBar);
             m_docTabBar->removeTab(i);
             break;
         }
     }
-    // 切换到视口
+    // editor 从中央 stack 移入 ADS 浮动 Dock
     m_centralStack->setCurrentWidget(m_viewportPage);
-    // 将 wrapper 从 stack 移入 ADS 浮动 Dock
-    m_centralStack->removeWidget(m_bpWrapper);   // 从 stack 注销（会 hide）
-    m_bpDockW->setWidget(m_bpWrapper);           // ADS 接管（reparent）
-    m_bpWrapper->show();                         // 抵消 removeWidget 的 hide
-    m_bpDockW->toggleView(true);
-    if (!m_bpDockW->isFloating())
-        m_bpDockW->setFloating();
-    // 加载关卡数据（修复浮起后蓝图为空的问题）
-    LevelDocument* doc = m_openLevels.value(m_activeLevelPath, nullptr);
-    if (m_blueprintEditor) m_blueprintEditor->loadLevel(doc);
+    m_centralStack->removeWidget(inst.editor);
+
+    const QString title = inst.isLevelBp
+        ? QFileInfo(inst.dataPath).baseName() + " 蓝图"
+        : QFileInfo(inst.dataPath).baseName();
+    auto* dock = new ads::CDockWidget(title);
+    dock->setWidget(inst.editor);
+    inst.editor->show();
+    m_dockManager->addDockWidgetFloating(dock);
+    inst.dock = dock;
+
+    // 关闭浮动窗口 / 拖入 ADS 区域 → 嵌回
+    connect(dock, &ads::CDockWidget::viewToggled, this, [this, tabId](bool open) {
+        if (!open) QTimer::singleShot(0, this, [this, tabId]() { embedBp(tabId); });
+    });
+    connect(dock, &ads::CDockWidget::topLevelChanged, this, [this, tabId, dock](bool isTopLevel) {
+        auto i2 = m_bpInstances.find(tabId);
+        if (!isTopLevel && i2 != m_bpInstances.end() && dock->widget() == i2.value().editor)
+            QTimer::singleShot(0, this, [this, tabId]() { embedBp(tabId); });
+    });
 
     // 启动拖回 Tab 栏检测
     m_bpDropFirstDone = false;
@@ -1417,7 +1505,13 @@ void EditorWindow::floatBlueprint(QPoint globalPos) {
 }
 
 void EditorWindow::openBpClassTab(const QString& bpFilePath) {
-    // 已打开 → 激活
+    // 已浮动：置顶
+    auto it = m_bpInstances.find(bpFilePath);
+    if (it != m_bpInstances.end() && it.value().dock) {
+        it.value().dock->raise();
+        return;
+    }
+    // 已嵌入 → 激活
     for (int i = 0; i < m_docTabBar->count(); ++i) {
         if (m_docTabBar->tabData(i).toString() == bpFilePath) {
             m_docTabBar->setCurrentIndex(i);
@@ -1430,6 +1524,7 @@ void EditorWindow::openBpClassTab(const QString& bpFilePath) {
         auto* bc = new BPClass(BPClass::load(bpFilePath));
         m_openBpClasses[bpFilePath] = bc;
     }
+    ensureBpInstance(bpFilePath);
 
     // 添加 Tab（阻断信号，等 tabData 设好再触发 onTabChanged）
     int idx;
@@ -1475,12 +1570,18 @@ void EditorWindow::openUIDocTab(const QString& uiFilePath) {
         m_docTabBar->setCurrentIndex(idx);
 }
 
-void EditorWindow::embedBlueprint() {
-    if (!m_bpDockW || !m_bpWrapper) return;
-    if (m_bpDockW->widget() != m_bpWrapper) return;
+// 把某浮动蓝图窗口嵌回 Tab 栏
+void EditorWindow::embedBp(const QString& tabId) {
+    auto it = m_bpInstances.find(tabId);
+    if (it == m_bpInstances.end()) return;
+    BpInstance& inst = it.value();
+    if (!inst.dock) return;  // 已嵌入，防重入
 
-    // 停止拖回检测，清除高亮
-    if (m_bpDropCheckTimer) m_bpDropCheckTimer->stop();
+    ads::CDockWidget* dock = inst.dock;
+    BlueprintEditor*  ed   = inst.editor;
+    inst.dock = nullptr;     // 先标记，避免 closeDockWidget 的 viewToggled 重入
+
+    // 清拖回高亮
     if (auto* tb = findChild<QToolBar*>("docTabToolBar")) {
         if (tb->property("bpDropHighlight").toBool()) {
             tb->setProperty("bpDropHighlight", false);
@@ -1490,20 +1591,21 @@ void EditorWindow::embedBlueprint() {
         }
     }
 
-    // 先给 ADS 一个占位符，再把 wrapper 接回 stack
-    // （避免 ADS 持有悬空指针）
-    m_bpDockW->setWidget(new QWidget());
-    // 若是拖入 ADS 区域触发（topLevelChanged），需主动关闭 dock；
-    // 若是关闭浮动窗口触发（viewToggled），dock 已在关闭中，closeDockWidget 为 no-op。
-    // 下一轮 viewToggled(false) 会再次触发 embedBlueprint，但 widget != m_bpWrapper 的守卫会拦截。
-    m_bpDockW->closeDockWidget();
-    m_centralStack->addWidget(m_bpWrapper);  // reparent 到 stack
+    // 占位避免 ADS 持有悬空指针，把 editor 接回 stack
+    dock->setWidget(new QWidget());
+    dock->closeDockWidget();
+    dock->deleteLater();
+    m_centralStack->addWidget(ed);
 
+    // 重建 Tab
+    const QString title = inst.isLevelBp
+        ? QFileInfo(inst.dataPath).baseName() + " 蓝图"
+        : QFileInfo(inst.dataPath).baseName();
     int idx;
     {
         QSignalBlocker b(m_docTabBar);
-        idx = m_docTabBar->addTab("  关卡蓝图");
-        m_docTabBar->setTabData(idx, DocTabBar::kBlueprintTabData);
+        idx = m_docTabBar->addTab("  " + title);
+        m_docTabBar->setTabData(idx, tabId);
         updateTabTooltip(idx);
     }
     if (m_docTabBar->currentIndex() == idx)

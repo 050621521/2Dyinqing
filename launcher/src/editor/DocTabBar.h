@@ -1,5 +1,6 @@
 #pragma once
 #include <QTabBar>
+#include <QString>
 
 class DocTabBar : public QTabBar {
     Q_OBJECT
@@ -10,7 +11,8 @@ public:
     static const QString kGameViewTabData;
 
 signals:
-    void blueprintDraggedOut(QPoint globalPos);
+    // 任意蓝图 tab（关卡蓝图或 .bp Actor 蓝图）被拖出 tab 栏，携带其 tabId
+    void blueprintDraggedOut(const QString& tabId);
 
 protected:
     void mousePressEvent(QMouseEvent* e) override;
@@ -18,6 +20,7 @@ protected:
     void mouseReleaseEvent(QMouseEvent* e) override;
 
 private:
-    bool   m_bpDragActive = false;
-    QPoint m_bpDragStart;
+    bool    m_bpDragActive = false;
+    QPoint  m_bpDragStart;
+    QString m_bpDragTabId;
 };
