@@ -206,6 +206,9 @@ void EditorWindow::setupDocTabBar() {
     tabBar->setObjectName("docTabBar");
     tabBar->setTabsClosable(true);
     tabBar->setExpanding(false);
+    tabBar->setElideMode(Qt::ElideNone);   // 不截断，标签按文字自适应宽度
+    tabBar->setUsesScrollButtons(true);    // 放不下时出现左右滚动按钮
+    tabBar->setMovable(true);              // 允许拖动排序
     m_docTabBar = tabBar;
     tb->addWidget(tabBar);
     addToolBar(Qt::TopToolBarArea, tb);
@@ -350,6 +353,7 @@ void EditorWindow::setupCentralArea() {
         m_docTabBar->setTabData(gvIdx, DocTabBar::kGameViewTabData);
         m_docTabBar->setTabButton(gvIdx, QTabBar::RightSide, nullptr);
         m_docTabBar->setTabButton(gvIdx, QTabBar::LeftSide,  nullptr);
+        updateTabTooltip(gvIdx);
     }
 
     m_viewportDock = new ads::CDockWidget("视口");
@@ -1073,6 +1077,7 @@ void EditorWindow::openLevelTab(const QString& path) {
         QSignalBlocker b(m_docTabBar);
         idx = m_docTabBar->addTab("  " + QFileInfo(path).baseName());
         m_docTabBar->setTabData(idx, path);
+        updateTabTooltip(idx);
     }
     if (m_docTabBar->currentIndex() == idx)
         onTabChanged(idx);
@@ -1160,6 +1165,17 @@ void EditorWindow::updateTabTitle(int index) {
     LevelDocument* doc = m_openLevels.value(path);
     const bool dirty = doc && doc->isDirty();
     m_docTabBar->setTabText(index, dirty ? "● " + baseName : "  " + baseName);
+}
+
+// 根据 tabData 设置标签的悬停提示：特殊 tab 显示完整中文名，关卡/文档 tab 显示完整路径
+void EditorWindow::updateTabTooltip(int index) {
+    if (index < 0 || index >= m_docTabBar->count()) return;
+    const QString data = m_docTabBar->tabData(index).toString();
+    QString tip;
+    if (data == DocTabBar::kBlueprintTabData)      tip = "关卡蓝图";
+    else if (data == DocTabBar::kGameViewTabData)  tip = "游戏视图";
+    else                                           tip = data;  // 文件绝对路径
+    m_docTabBar->setTabToolTip(index, tip);
 }
 
 void EditorWindow::updateSaveLabel() {
@@ -1365,6 +1381,7 @@ void EditorWindow::openBlueprintTab() {
         QSignalBlocker b(m_docTabBar);
         idx = m_docTabBar->addTab("  关卡蓝图");
         m_docTabBar->setTabData(idx, DocTabBar::kBlueprintTabData);
+        updateTabTooltip(idx);
     }
     if (m_docTabBar->currentIndex() == idx)
         onTabChanged(idx);
@@ -1420,6 +1437,7 @@ void EditorWindow::openBpClassTab(const QString& bpFilePath) {
         QSignalBlocker b(m_docTabBar);
         idx = m_docTabBar->addTab("  " + QFileInfo(bpFilePath).baseName());
         m_docTabBar->setTabData(idx, bpFilePath);
+        updateTabTooltip(idx);
     }
     if (m_docTabBar->currentIndex() == idx)
         onTabChanged(idx);
@@ -1449,6 +1467,7 @@ void EditorWindow::openUIDocTab(const QString& uiFilePath) {
         QSignalBlocker b(m_docTabBar);
         idx = m_docTabBar->addTab("  " + QFileInfo(uiFilePath).baseName());
         m_docTabBar->setTabData(idx, uiFilePath);
+        updateTabTooltip(idx);
     }
     if (m_docTabBar->currentIndex() == idx)
         onTabChanged(idx);
@@ -1485,6 +1504,7 @@ void EditorWindow::embedBlueprint() {
         QSignalBlocker b(m_docTabBar);
         idx = m_docTabBar->addTab("  关卡蓝图");
         m_docTabBar->setTabData(idx, DocTabBar::kBlueprintTabData);
+        updateTabTooltip(idx);
     }
     if (m_docTabBar->currentIndex() == idx)
         onTabChanged(idx);

@@ -68,6 +68,16 @@ QString UIRuntime::showWidgetByName(const QString& uiName, const QString& widget
         inst = findInstance(id);
         if (!inst) return {};
     }
+    // widgetName 为空 → 显示整个 UI 的所有控件
+    if (widgetName.isEmpty()) {
+        for (const UIWidget& w : inst->docCopy.widgets()) {
+            UIWidget updated = w;
+            updated.visible = true;
+            inst->docCopy.updateWidget(updated);
+        }
+        emit uiStateChanged();
+        return inst->instanceId;
+    }
     // 显示指定控件及其所有祖先容器
     for (const UIWidget& w : inst->docCopy.widgets()) {
         if (w.name != widgetName) continue;

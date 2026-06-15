@@ -60,6 +60,7 @@ private:
     void     saveCurrentLevel();
     void     saveAllLevels();
     void     updateTabTitle(int index);
+    void     updateTabTooltip(int index);
     void     updateSaveLabel();
     void openBlueprintTab();
     void floatBlueprint(QPoint globalPos);

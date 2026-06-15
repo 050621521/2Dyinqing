@@ -99,7 +99,7 @@ void GameViewport::paintEvent(QPaintEvent*) {
     const QRectF camRect = computeCameraRect(aspect);
     p.fillRect(camRect, cam->cameraBackground);
     drawScene(p, *actorsList, *cam, camRect);
-    renderUI(p, camRect);
+    renderUI(p, camRect, cam);
 }
 
 QRectF GameViewport::computeCameraRect(float aspect) const {
@@ -334,16 +334,26 @@ void GameViewport::renderChildren(QPainter& p, const QString& parentId,
         renderWidget(p, child, parentRect, doc);
 }
 
-void GameViewport::renderUI(QPainter& p, const QRectF& camRect) const {
+void GameViewport::renderUI(QPainter& p, const QRectF& camRect, const ActorData* cam) const {
     if (!m_uiRuntime) return;
+    const float canonicalW = (cam && cam->cameraResW > 0) ? (float)cam->cameraResW : 1920.0f;
+    const float canonicalH = (cam && cam->cameraResH > 0) ? (float)cam->cameraResH : 1080.0f;
+    const float sx = camRect.width()  / canonicalW;
+    const float sy = camRect.height() / canonicalH;
+    const QRectF canonicalRect(0, 0, canonicalW, canonicalH);
+
+    p.save();
+    p.setClipRect(camRect);
     for (const UIInstance* inst : m_uiRuntime->shownInstances()) {
         p.save();
-        p.translate(inst->screenX, inst->screenY);
+        p.translate(camRect.left() + inst->screenX, camRect.top() + inst->screenY);
+        p.scale(sx, sy);
         const UIDocument& doc = inst->docCopy;
         for (const UIWidget& root : doc.rootWidgets())
-            renderWidget(p, root, camRect, doc);
+            renderWidget(p, root, canonicalRect, doc);
         p.restore();
     }
+    p.restore();
 }
 
 void GameViewport::mousePressEvent(QMouseEvent* e) {
@@ -362,13 +372,22 @@ void GameViewport::mousePressEvent(QMouseEvent* e) {
     const float aspect = (cam && cam->cameraResH > 0)
                          ? (float)cam->cameraResW / cam->cameraResH : 1.7778f;
     const QRectF camRect = computeCameraRect(aspect);
+    const float canonicalW = (cam && cam->cameraResW > 0) ? (float)cam->cameraResW : 1920.0f;
+    const float canonicalH = (cam && cam->cameraResH > 0) ? (float)cam->cameraResH : 1080.0f;
+    const float sx = camRect.width()  / canonicalW;
+    const float sy = camRect.height() / canonicalH;
+    const QRectF canonicalRect(0, 0, canonicalW, canonicalH);
     const QPointF pos = e->pos();
     for (const UIInstance* inst : m_uiRuntime->shownInstances()) {
         const UIDocument& doc = inst->docCopy;
-        const QPointF localPos = pos - QPointF(inst->screenX, inst->screenY);
+        // 将屏幕坐标转换回规范坐标系（1920×1080）
+        const QPointF localPos = QPointF(
+            (pos.x() - camRect.left() - inst->screenX) / sx,
+            (pos.y() - camRect.top()  - inst->screenY) / sy
+        );
         for (const UIWidget& root : doc.rootWidgets()) {
             QString hitWidget;
-            if (hitTestWidget(localPos, root, camRect, doc, hitWidget)) {
+            if (hitTestWidget(localPos, root, canonicalRect, doc, hitWidget)) {
                 m_uiRuntime->notifyButtonClicked(inst->instanceId, hitWidget);
                 e->accept();
                 return;
