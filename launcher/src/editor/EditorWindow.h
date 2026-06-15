@@ -134,6 +134,7 @@ private:
     QList<QToolButton*> m_viewportAlignBtns;
 
     BPRuntime* m_runtime = nullptr;
+    QStringList m_levelNavStack;   // 运行期关卡历史栈：跳转关卡时压栈，返回上一关时弹栈
     UIRuntime* m_uiRuntime = nullptr;
     UIEditor*  m_uiEditor  = nullptr;
     QList<ActorBPRuntime*>   m_actorRuntimes;

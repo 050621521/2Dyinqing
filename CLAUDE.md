@@ -171,7 +171,10 @@ Actor 类型定义在 `src/models/ActorTypeUtils.h`（跨文件共享，避免�
 | Action.Print | 打印字符串 |
 | Action.MoveActor | 移动对象 |
 | Action.SetActive | 设置激活 |
+| Action.LoadLevel | 跳转关卡 |
+| Action.BackLevel | 返回上一关 |
 | Flow.Branch | 条件分支 |
+| Flow.Switch | 分支控制 |
 | Var.GetActorPos | 获取位置 |
 | Var.ActorRef | Actor引用 |
 | Self.GetPosition | 获取自身位置 |

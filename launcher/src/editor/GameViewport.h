@@ -16,6 +16,8 @@ public:
     void setRuntimeMode(bool on);
     void setUIRuntime(UIRuntime* ui);
     void setPixelsPerUnit(float ppu);
+    void syncPrintLog(const QStringList& log);
+    void clearPrintLog();
 
 signals:
     void keyPressed(const QString& key);
@@ -28,6 +30,7 @@ protected:
     void keyReleaseEvent(QKeyEvent* e) override;
 
 private:
+    void    drawPrintLog(QPainter& p) const;
     QRectF  computeCameraRect(float aspect) const;
     QPointF cameraWorldToScreen(QPointF world, const QRectF& camRect,
                                 const ActorData& cam) const;
@@ -50,5 +53,6 @@ private:
     LevelDocument*   m_doc         = nullptr;
     QList<ActorData> m_runtimeActors;
     bool             m_runtimeMode = false;
+    QStringList      m_printLog;
     mutable QHash<QString, QPixmap> m_pixmapCache;
 };

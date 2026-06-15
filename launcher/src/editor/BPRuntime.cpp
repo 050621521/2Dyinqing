@@ -3,6 +3,9 @@
 #include <QSet>
 #include <QDebug>
 #include <QRegularExpression>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <algorithm>
 #include <cmath>
 
@@ -178,6 +181,11 @@ QString BPRuntime::executeNode(const QString& nodeId) {
         return {};
     }
 
+    if (node->type == "Action.BackLevel") {
+        emit backLevelRequested();
+        return {};
+    }
+
     if (node->type == "Action.SetActive") {
         QString actorId = resolveDataPin(nodeId, "actorId");
         QString val     = resolveDataPin(nodeId, "active").toLower();
@@ -192,6 +200,24 @@ QString BPRuntime::executeNode(const QString& nodeId) {
         QString cond = resolveDataPin(nodeId, "condition").toLower();
         bool truthy = !cond.isEmpty() && cond != "0" && cond != "false";
         return truthy ? "true" : "false";
+    }
+
+    if (node->type == "Flow.Switch") {
+        // 取「值」输入，逐个分支全等比较；命中走 case_<id>，否则 default 或不继续
+        const QString v = resolveDataPin(nodeId, "value");
+        const QJsonDocument d = QJsonDocument::fromJson(node->params.value("branches").toUtf8());
+        if (d.isArray()) {
+            for (const QJsonValue& bv : d.array()) {
+                const QJsonObject o = bv.toObject();
+                const QString id = o.value("id").toString();
+                if (id.isEmpty()) continue;
+                if (o.value("value").toString() == v)
+                    return "case_" + id;
+            }
+        }
+        const QString hd = node->params.value("hasDefault").toLower();
+        if (hd == "true" || hd == "1") return "default";
+        return {};
     }
 
     auto uiRef = [&](const QString& pinKey) -> QString {

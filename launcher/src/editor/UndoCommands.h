@@ -163,6 +163,22 @@ public:
     void undo() override { bpAddConn(m_bc, m_doc, m_conn);       m_refresh(); }
 };
 
+// 修改节点（params 变化，如分支控制的分支增删/改值/默认开关）
+class BPNodeModifyCmd : public QUndoCommand {
+    BPClass*       m_bc;
+    LevelDocument* m_doc;
+    BPNode         m_before;
+    BPNode         m_after;
+    UndoRefresh    m_refresh;
+public:
+    BPNodeModifyCmd(BPClass* bc, LevelDocument* doc, BPNode before, BPNode after,
+                    const QString& text, UndoRefresh refresh, QUndoCommand* p = nullptr)
+        : QUndoCommand(text, p), m_bc(bc), m_doc(doc),
+          m_before(std::move(before)), m_after(std::move(after)), m_refresh(std::move(refresh)) {}
+    void redo() override { bpUpdateNode(m_bc, m_doc, m_after);  m_refresh(); }
+    void undo() override { bpUpdateNode(m_bc, m_doc, m_before); m_refresh(); }
+};
+
 class BPNodeMoveCmd : public QUndoCommand {
     BPClass*       m_bc;
     LevelDocument* m_doc;

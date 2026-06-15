@@ -32,6 +32,7 @@ public:
 signals:
     void stateChanged();
     void loadLevelRequested(const QString& levelName);
+    void backLevelRequested();   // 返回上一关：由 EditorWindow 弹关卡历史栈处理
 
 private slots:
     void tick();

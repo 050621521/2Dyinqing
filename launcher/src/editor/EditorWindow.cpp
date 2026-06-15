@@ -253,7 +253,10 @@ void EditorWindow::setupMainToolBar() {
     m_stopBtn = tbBtn("⏹",  "停止");
     tbBtn("⏭",  "跳帧");
     tb->addSeparator();
-    connect(m_runBtn,   &QToolButton::clicked, this, &EditorWindow::startRuntime);
+    connect(m_runBtn,   &QToolButton::clicked, this, [this]() {
+        m_levelNavStack.clear();   // 全新运行会话：清空关卡历史栈（跳转内部的重启不清）
+        startRuntime();
+    });
     connect(m_pauseBtn, &QToolButton::clicked, this, &EditorWindow::togglePauseRuntime);
     connect(m_stopBtn,  &QToolButton::clicked, this, &EditorWindow::stopRuntime);
     m_pauseBtn->setEnabled(false);
@@ -1304,8 +1307,10 @@ void EditorWindow::startRuntime() {
             ar->triggerTick(dt);
         m_viewport->updateRuntimeActors(m_runtime->actors());
         m_viewport->syncPrintLog(m_runtime->printLog());
-        if (m_gameViewport)
+        if (m_gameViewport) {
             m_gameViewport->setRuntimeActors(m_runtime->actors());
+            m_gameViewport->syncPrintLog(m_runtime->printLog());
+        }
     });
     // 暂停时屏蔽按键事件
     connect(m_viewport, &Viewport2D::keyPressed, this, [this](const QString& key) {
@@ -1325,7 +1330,20 @@ void EditorWindow::startRuntime() {
             [this](const QString& levelName) {
         const QString levelPath = m_project.path + "/Levels/" + levelName + ".level";
         if (!QFileInfo::exists(levelPath)) return;
+        // 跳转前把当前关卡压入历史栈，供「返回上一关」精确回溯
+        const QString cur = QFileInfo(m_activeLevelPath).baseName();
+        if (!cur.isEmpty()) m_levelNavStack.append(cur);
         stopRuntime();
+        openLevelTab(levelPath);
+        startRuntime();
+    }, Qt::QueuedConnection);
+
+    connect(m_runtime, &BPRuntime::backLevelRequested, this, [this]() {
+        if (m_levelNavStack.isEmpty()) return;   // 栈空：保持当前关卡，不动作
+        const QString target = m_levelNavStack.takeLast();
+        const QString levelPath = m_project.path + "/Levels/" + target + ".level";
+        if (!QFileInfo::exists(levelPath)) return;
+        stopRuntime();           // 返回是弹栈，不再压栈
         openLevelTab(levelPath);
         startRuntime();
     }, Qt::QueuedConnection);
@@ -1370,6 +1388,7 @@ void EditorWindow::startRuntime() {
         m_gameViewport->setRuntimeMode(true);
         m_gameViewport->setUIRuntime(m_uiRuntime);
         m_gameViewport->setRuntimeActors(m_runtime->actors());
+        m_gameViewport->syncPrintLog(m_runtime->printLog());
     }
     // 自动跳转到游戏视图 Tab
     for (int i = 0; i < m_docTabBar->count(); ++i) {
@@ -1423,6 +1442,7 @@ void EditorWindow::stopRuntime() {
     if (m_gameViewport) {
         m_gameViewport->setRuntimeMode(false);
         m_gameViewport->setUIRuntime(nullptr);
+        m_gameViewport->clearPrintLog();
     }
     if (m_runBtn)   m_runBtn->setEnabled(true);
     if (m_pauseBtn) { m_pauseBtn->setChecked(false); m_pauseBtn->setEnabled(false); }

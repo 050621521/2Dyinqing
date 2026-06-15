@@ -90,6 +90,7 @@ void GameViewport::paintEvent(QPaintEvent*) {
         p.setPen(QColor(180, 180, 180));
         p.setFont(QFont("PingFang SC", 14));
         p.drawText(rect(), Qt::AlignCenter, "场景中无主摄像机");
+        drawPrintLog(p);
         return;
     }
 
@@ -100,6 +101,51 @@ void GameViewport::paintEvent(QPaintEvent*) {
     p.fillRect(camRect, cam->cameraBackground);
     drawScene(p, *actorsList, *cam, camRect);
     renderUI(p, camRect, cam);
+    drawPrintLog(p);
+}
+
+void GameViewport::syncPrintLog(const QStringList& log) {
+    m_printLog = log;
+    while (m_printLog.size() > 8)
+        m_printLog.removeFirst();
+    update();
+}
+
+void GameViewport::clearPrintLog() {
+    m_printLog.clear();
+    update();
+}
+
+void GameViewport::drawPrintLog(QPainter& p) const {
+    if (m_printLog.isEmpty()) return;
+    p.setClipping(false);
+
+    const int lineH = 22;
+    const int padX  = 10;
+    const int rows  = m_printLog.size();
+
+    QFont font("Menlo", 13);
+    p.setFont(font);
+    QFontMetrics fm(font);
+
+    int maxW = 60;
+    QStringList display;
+    for (const QString& s : m_printLog) {
+        QString d = s.isEmpty() ? "(空)" : s;
+        display << d;
+        maxW = qMax(maxW, fm.horizontalAdvance(d));
+    }
+
+    const int bgH = rows * lineH + 10;
+    const int bgY = height() - bgH - 10;
+    QRect bg(padX - 4, bgY - 4, maxW + 20, bgH);
+    p.fillRect(bg, QColor(0, 0, 0, 200));
+
+    p.setPen(QColor(80, 230, 80, 230)); // 绿色，UE4 风格
+    for (int i = 0; i < rows; ++i) {
+        int y = bgY + i * lineH + lineH - 4;
+        p.drawText(padX + 4, y, display[i]);
+    }
 }
 
 QRectF GameViewport::computeCameraRect(float aspect) const {
