@@ -7,6 +7,7 @@
 #include <QRectF>
 #include <QList>
 #include <QMap>
+#include <QSet>
 #include <QString>
 #include <QUndoStack>
 
@@ -39,7 +40,7 @@ protected:
     void mouseMoveEvent(QMouseEvent* e) override;
     void mouseReleaseEvent(QMouseEvent* e) override;
     void keyPressEvent(QKeyEvent* e) override;
-    void contextMenuEvent(QContextMenuEvent* e) override;
+    void showContextMenu(const QPoint& pos, const QPoint& globalPos);
     bool eventFilter(QObject* obj, QEvent* e) override;
 
 private:
@@ -74,13 +75,24 @@ private:
     QPoint  m_lastMouse;
     QPoint  m_panStartPos;
     bool    m_panning = false;
+    bool    m_panIsRight = false;   // 平移是否由右键发起（右键未拖动则弹菜单）
 
     // 交互状态机
     enum class DragState { None, DraggingNode, DraggingWire };
     DragState m_dragState     = DragState::None;
-    QString   m_selectedNodeId;
+    QString   m_selectedNodeId;      // 主选中（细节展示 / 分支等单节点操作）
     QString   m_draggingNodeId;
-    QPointF   m_dragOffset;
+
+    // 多选 + 框选
+    QSet<QString> m_selectedNodeIds; // 全部选中（含主选中）
+    bool          m_marquee = false; // 正在框选
+    QPoint        m_marqueeStart;
+    QPoint        m_marqueeCur;
+    bool          m_marqueeAdditive = false;
+    QList<BPNode> m_groupBefore;      // 整组拖拽起始快照（Undo 用）
+    QPointF       m_groupDragLast;    // 上次画布坐标（增量移动）
+    void selectSingleNode(const QString& id);
+    void clearNodeSelection();
 
     // 连线拖拽
     QString  m_wireFromNode;
@@ -114,7 +126,6 @@ private:
     LevelDocument* m_doc     = nullptr;
     BPClass*       m_bpClass = nullptr;
     QUndoStack*    m_bpUndoStack = nullptr;
-    BPNode         m_nodeBeforeDrag;
 
     const QList<BPNode>&       activeNodes() const;
     const QList<BPConnection>& activeConns() const;

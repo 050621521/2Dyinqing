@@ -495,13 +495,15 @@ BlueprintEditor::BlueprintEditor(QWidget* parent) : QWidget(parent) {
     setFocusPolicy(Qt::StrongFocus);
     setAttribute(Qt::WA_OpaquePaintEvent);
     setMouseTracking(true);
+    // 禁用自动右键菜单：右键拖拽=平移，右键单击=手动弹菜单
+    setContextMenuPolicy(Qt::PreventContextMenu);
     m_bpUndoStack = new QUndoStack(this);
 }
 
 void BlueprintEditor::loadLevel(LevelDocument* doc) {
     m_bpClass = nullptr;
     m_doc = doc;
-    m_selectedNodeId.clear();
+    clearNodeSelection();
     m_selectedConnId.clear();
     m_dragState = DragState::None;
     hideWireDropPopup();
@@ -822,6 +824,14 @@ void BlueprintEditor::paintEvent(QPaintEvent*) {
     drawConnections(p);
     drawNodes(p);
     drawDanglingWire(p);
+
+    // 框选矩形
+    if (m_marquee) {
+        const QRect r = QRect(m_marqueeStart, m_marqueeCur).normalized();
+        p.setPen(QPen(QColor(0x5a, 0x9f, 0xd4), 1.0, Qt::DashLine));
+        p.setBrush(QColor(0x5a, 0x9f, 0xd4, 40));
+        p.drawRect(r);
+    }
 }
 
 void BlueprintEditor::drawBackground(QPainter& p) {
@@ -1026,7 +1036,7 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
                 QRectF labelRc(tl.x(), rowY, nw - 18.0f*(float)m_zoom, kRowH*(float)m_zoom);
                 p.drawText(labelRc, Qt::AlignVCenter | Qt::AlignRight, wName);
             }
-            if (node.id == m_selectedNodeId) {
+            if (m_selectedNodeIds.contains(node.id)) {
                 p.setPen(QPen(QColor(0xff, 0xff, 0xff), 2.0));
                 p.setBrush(Qt::NoBrush);
                 p.drawRoundedRect(nodeRc.adjusted(-3, -3, 3, 3), radius + 2, radius + 2);
@@ -1162,7 +1172,7 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
     }
 
     // 选中高亮（最后绘制，保证在所有内容上方）
-    if (node.id == m_selectedNodeId) {
+    if (m_selectedNodeIds.contains(node.id)) {
         p.setPen(QPen(QColor(0xff, 0xff, 0xff), 2.0));
         p.setBrush(Qt::NoBrush);
         p.drawRoundedRect(nodeRc.adjusted(-3, -3, 3, 3), radius + 2, radius + 2);
@@ -1203,6 +1213,20 @@ void BlueprintEditor::wheelEvent(QWheelEvent* e) {
     update();
 }
 
+// ── 选中辅助 ──────────────────────────────────────────────────────────
+
+void BlueprintEditor::selectSingleNode(const QString& id) {
+    m_selectedNodeId = id;
+    m_selectedNodeIds.clear();
+    if (!id.isEmpty()) m_selectedNodeIds.insert(id);
+    m_selectedConnId.clear();
+}
+
+void BlueprintEditor::clearNodeSelection() {
+    m_selectedNodeId.clear();
+    m_selectedNodeIds.clear();
+}
+
 // ── 鼠标事件 ──────────────────────────────────────────────────────────
 
 void BlueprintEditor::mousePressEvent(QMouseEvent* e) {
@@ -1232,20 +1256,28 @@ void BlueprintEditor::mousePressEvent(QMouseEvent* e) {
             hideUIAssetPicker();
     }
     setFocus();
+    // 右键/中键拖拽 = 平移画布（右键未拖动则在松开时弹菜单；左键空白拖拽=框选）
+    if (e->button() == Qt::RightButton || e->button() == Qt::MiddleButton) {
+        m_panning     = true;
+        m_panIsRight  = (e->button() == Qt::RightButton);
+        m_lastMouse   = e->pos();
+        m_panStartPos = e->pos();
+        setCursor(Qt::ClosedHandCursor);
+        return;
+    }
     if (e->button() != Qt::LeftButton) return;
 
     Hit hit = hitTest(e->position());
 
-    // 点中节点上的任意位置（含 pin/value 区域）都算选中该节点
-    if (hit.type == Hit::Pin || hit.type == Hit::Node || hit.type == Hit::PinValue) {
-        m_selectedNodeId = hit.nodeId;
-        m_selectedConnId.clear();
+    // 点中引脚/值区域：单选该节点（节点本体的选中在下面 Hit::Node 处理，含整组拖拽）
+    if (hit.type == Hit::Pin || hit.type == Hit::PinValue) {
+        selectSingleNode(hit.nodeId);
     }
 
     // 点击连接线
     if (hit.type == Hit::Wire) {
         m_selectedConnId = hit.connId;
-        m_selectedNodeId.clear();
+        clearNodeSelection();
         update();
         return;
     }
@@ -1281,16 +1313,16 @@ void BlueprintEditor::mousePressEvent(QMouseEvent* e) {
 
     // 分支控制可点区域
     if (hit.type == Hit::SwitchAdd) {
-        m_selectedNodeId = hit.nodeId; addSwitchBranch(hit.nodeId); return;
+        selectSingleNode(hit.nodeId); addSwitchBranch(hit.nodeId); return;
     }
     if (hit.type == Hit::SwitchDel) {
-        m_selectedNodeId = hit.nodeId; removeSwitchBranch(hit.nodeId, hit.pinName); return;
+        selectSingleNode(hit.nodeId); removeSwitchBranch(hit.nodeId, hit.pinName); return;
     }
     if (hit.type == Hit::SwitchDefault) {
-        m_selectedNodeId = hit.nodeId; toggleSwitchDefault(hit.nodeId); return;
+        selectSingleNode(hit.nodeId); toggleSwitchDefault(hit.nodeId); return;
     }
     if (hit.type == Hit::SwitchValue) {
-        m_selectedNodeId = hit.nodeId;
+        selectSingleNode(hit.nodeId);
         showInlineEdit(hit.nodeId, "case_" + hit.pinName);  // 写回分支比较值
         update();
         return;
@@ -1338,23 +1370,45 @@ void BlueprintEditor::mousePressEvent(QMouseEvent* e) {
     }
 
     if (hit.type == Hit::Node) {
-        m_selectedNodeId  = hit.nodeId;
-        m_dragState       = DragState::DraggingNode;
-        m_draggingNodeId  = hit.nodeId;
-        const BPNode* n = findNode(hit.nodeId);
-        if (n) {
-            m_nodeBeforeDrag = *n;
-            m_dragOffset = screenToCanvas(e->position()) - QPointF(n->x, n->y);
+        const bool addMod = (e->modifiers()
+            & (Qt::ShiftModifier | Qt::ControlModifier | Qt::MetaModifier));
+        if (addMod) {
+            // Shift/Cmd 点击：增减选中，不拖拽
+            if (m_selectedNodeIds.contains(hit.nodeId)) {
+                m_selectedNodeIds.remove(hit.nodeId);
+                if (m_selectedNodeId == hit.nodeId)
+                    m_selectedNodeId = m_selectedNodeIds.isEmpty()
+                                       ? QString() : *m_selectedNodeIds.begin();
+            } else {
+                m_selectedNodeIds.insert(hit.nodeId);
+                m_selectedNodeId = hit.nodeId;
+            }
+            m_selectedConnId.clear();
+            update();
+            return;
         }
+        // 无修饰键：点的不在当前多选里 → 单选它；在多选里 → 保持，准备整组拖
+        if (!m_selectedNodeIds.contains(hit.nodeId))
+            selectSingleNode(hit.nodeId);
+        else
+            m_selectedNodeId = hit.nodeId;
+        // 开始拖拽（可能整组），记录所有选中节点起始快照
+        m_dragState      = DragState::DraggingNode;
+        m_draggingNodeId = hit.nodeId;
+        m_groupDragLast  = screenToCanvas(e->position());
+        m_groupBefore.clear();
+        for (const QString& id : m_selectedNodeIds)
+            if (const BPNode* n = findNode(id)) m_groupBefore.append(*n);
         update();
         return;
     }
 
-    // 空白处：开始平移，松开时根据移动量决定是否清除选中
-    m_panning     = true;
-    m_lastMouse   = e->pos();
-    m_panStartPos = e->pos();
-    setCursor(Qt::ClosedHandCursor);
+    // 空白处：开始框选（左键）。加修饰键则在原选中基础上增选。
+    m_marquee         = true;
+    m_marqueeStart    = e->pos();
+    m_marqueeCur      = e->pos();
+    m_marqueeAdditive = (e->modifiers()
+        & (Qt::ShiftModifier | Qt::ControlModifier | Qt::MetaModifier));
 }
 
 void BlueprintEditor::mouseMoveEvent(QMouseEvent* e) {
@@ -1365,26 +1419,26 @@ void BlueprintEditor::mouseMoveEvent(QMouseEvent* e) {
         update();
         return;
     }
+    if (m_marquee) {
+        m_marqueeCur = e->pos();
+        update();
+        return;
+    }
     if (m_dragState == DragState::DraggingNode && (m_doc || m_bpClass)) {
-        QPointF canvasPos = screenToCanvas(e->position()) - m_dragOffset;
-        // 直接修改节点坐标（临时，不标脏）
-        if (m_bpClass) {
-            for (BPNode& n : m_bpClass->nodes) {
-                if (n.id == m_draggingNodeId) {
-                    n.x = (float)canvasPos.x();
-                    n.y = (float)canvasPos.y();
-                    break;
-                }
+        // 增量移动所有选中节点（保持相对位置），临时改坐标不标脏
+        const QPointF cur   = screenToCanvas(e->position());
+        const QPointF delta = cur - m_groupDragLast;
+        m_groupDragLast = cur;
+        auto moveById = [&](const QString& id) {
+            if (m_bpClass) {
+                for (BPNode& n : m_bpClass->nodes)
+                    if (n.id == id) { n.x += (float)delta.x(); n.y += (float)delta.y(); return; }
+            } else if (m_doc) {
+                for (BPNode& n : const_cast<QList<BPNode>&>(m_doc->bpNodes()))
+                    if (n.id == id) { n.x += (float)delta.x(); n.y += (float)delta.y(); return; }
             }
-        } else if (m_doc) {
-            for (BPNode& n : const_cast<QList<BPNode>&>(m_doc->bpNodes())) {
-                if (n.id == m_draggingNodeId) {
-                    n.x = (float)canvasPos.x();
-                    n.y = (float)canvasPos.y();
-                    break;
-                }
-            }
-        }
+        };
+        for (const QString& id : m_selectedNodeIds) moveById(id);
         update();
         return;
     }
@@ -1395,33 +1449,63 @@ void BlueprintEditor::mouseMoveEvent(QMouseEvent* e) {
 }
 
 void BlueprintEditor::mouseReleaseEvent(QMouseEvent* e) {
-    if (e->button() != Qt::LeftButton) return;
-
-    if (m_panning) {
+    // 右键/中键平移结束
+    if (m_panning && (e->button() == Qt::RightButton || e->button() == Qt::MiddleButton)) {
         m_panning = false;
         setCursor(Qt::ArrowCursor);
-        if ((e->pos() - m_panStartPos).manhattanLength() < 4) {
-            m_selectedNodeId.clear();
+        // 右键未拖动 → 弹出上下文菜单
+        if (m_panIsRight && (e->pos() - m_panStartPos).manhattanLength() < 4)
+            showContextMenu(e->pos(), e->globalPosition().toPoint());
+        m_panIsRight = false;
+        return;
+    }
+    if (e->button() != Qt::LeftButton) return;
+
+    // 框选结束
+    if (m_marquee) {
+        m_marquee = false;
+        const QRect r = QRect(m_marqueeStart, m_marqueeCur).normalized();
+        if (r.width() < 3 && r.height() < 3) {
+            // 视为点击空白：清除选中（除非加修饰键）
+            if (!m_marqueeAdditive) { clearNodeSelection(); m_selectedConnId.clear(); }
+        } else {
+            if (!m_marqueeAdditive) m_selectedNodeIds.clear();
+            for (const BPNode& n : activeNodes()) {
+                QPointF tl = canvasToScreen({n.x, n.y});
+                QRectF  nr(tl.x(), tl.y(), kNodeW * m_zoom, nodeHeight(n) * m_zoom);
+                if (r.intersects(nr.toRect())) m_selectedNodeIds.insert(n.id);
+            }
+            if (!m_selectedNodeIds.contains(m_selectedNodeId))
+                m_selectedNodeId = m_selectedNodeIds.isEmpty()
+                                   ? QString() : *m_selectedNodeIds.begin();
             m_selectedConnId.clear();
-            update();
         }
+        update();
         return;
     }
 
     if (m_dragState == DragState::DraggingNode && (m_doc || m_bpClass)) {
-        const BPNode* n = findNode(m_draggingNodeId);
-        if (n) {
-            // 判断是否有实际移动
-            if (n->x != m_nodeBeforeDrag.x || n->y != m_nodeBeforeDrag.y) {
-                BPNode after = *n;
-                auto refresh = [this]() { notifyModified(); update(); };
-                m_bpUndoStack->push(new BPNodeMoveCmd(m_bpClass, m_doc, m_nodeBeforeDrag, after, refresh));
-            } else {
-                updateNodeInActive(m_bpClass, m_doc, *n);
-            }
+        // 收集实际发生移动的节点，整组走 Undo
+        auto refresh = [this]() { notifyModified(); update(); };
+        QList<QPair<BPNode, BPNode>> moved;
+        for (const BPNode& before : m_groupBefore) {
+            const BPNode* after = findNode(before.id);
+            if (after && (after->x != before.x || after->y != before.y))
+                moved.append({before, *after});
+        }
+        if (moved.size() == 1) {
+            m_bpUndoStack->push(new BPNodeMoveCmd(m_bpClass, m_doc,
+                                moved[0].first, moved[0].second, refresh));
+        } else if (moved.size() > 1) {
+            m_bpUndoStack->beginMacro("移动节点");
+            for (const auto& pr : moved)
+                m_bpUndoStack->push(new BPNodeMoveCmd(m_bpClass, m_doc,
+                                    pr.first, pr.second, refresh));
+            m_bpUndoStack->endMacro();
         }
         m_dragState = DragState::None;
         m_draggingNodeId.clear();
+        m_groupBefore.clear();
         update();
         return;
     }
@@ -1525,7 +1609,7 @@ void BlueprintEditor::duplicateSelectedNode() {
     copy.y += 20.0f;
     auto refresh = [this]() { notifyModified(); update(); };
     m_bpUndoStack->push(new BPNodeAddCmd(m_bpClass, m_doc, copy, refresh));
-    m_selectedNodeId = copy.id;
+    selectSingleNode(copy.id);
     update();
 }
 
@@ -1540,17 +1624,30 @@ void BlueprintEditor::deleteSelected() {
         m_selectedConnId.clear();
         return;
     }
-    if (!m_selectedNodeId.isEmpty()) {
-        const BPNode* n = findNode(m_selectedNodeId);
-        if (n) {
-            QList<BPConnection> related;
-            for (const BPConnection& c : activeConns())
-                if (c.fromNode == m_selectedNodeId || c.toNode == m_selectedNodeId)
-                    related << c;
-            m_bpUndoStack->push(new BPNodeRemoveCmd(m_bpClass, m_doc, *n, related, refresh));
-            m_selectedNodeId.clear();
-        }
+    if (m_selectedNodeIds.isEmpty()) return;
+    // 批量删除所有选中节点（连带各自的连线），整组走 Undo
+    const QStringList ids = QStringList(m_selectedNodeIds.begin(), m_selectedNodeIds.end());
+    QList<QPair<BPNode, QList<BPConnection>>> toRemove;
+    for (const QString& id : ids) {
+        const BPNode* n = findNode(id);
+        if (!n) continue;
+        QList<BPConnection> related;
+        for (const BPConnection& c : activeConns())
+            if (c.fromNode == id || c.toNode == id) related << c;
+        toRemove.append({*n, related});
     }
+    if (toRemove.isEmpty()) return;
+    if (toRemove.size() == 1) {
+        m_bpUndoStack->push(new BPNodeRemoveCmd(m_bpClass, m_doc,
+                            toRemove[0].first, toRemove[0].second, refresh));
+    } else {
+        m_bpUndoStack->beginMacro("删除节点");
+        for (const auto& pr : toRemove)
+            m_bpUndoStack->push(new BPNodeRemoveCmd(m_bpClass, m_doc,
+                                pr.first, pr.second, refresh));
+        m_bpUndoStack->endMacro();
+    }
+    clearNodeSelection();
 }
 
 void BlueprintEditor::keyPressEvent(QKeyEvent* e) {
@@ -1559,9 +1656,9 @@ void BlueprintEditor::keyPressEvent(QKeyEvent* e) {
 
 // ── 右键菜单 ──────────────────────────────────────────────────────────
 
-void BlueprintEditor::contextMenuEvent(QContextMenuEvent* e) {
+void BlueprintEditor::showContextMenu(const QPoint& pos, const QPoint& globalPos) {
     if (!m_doc && !m_bpClass) return;
-    Hit hit = hitTest(QPointF(e->pos()));
+    Hit hit = hitTest(QPointF(pos));
 
     // 右键点在节点上：对象操作菜单
     if (hit.type == Hit::Node || hit.type == Hit::Pin || hit.type == Hit::PinValue) {
@@ -1578,9 +1675,10 @@ void BlueprintEditor::contextMenuEvent(QContextMenuEvent* e) {
                     related << c;
             auto refresh = [this]() { notifyModified(); update(); };
             m_bpUndoStack->push(new BPNodeRemoveCmd(m_bpClass, m_doc, *n, related, refresh));
+            m_selectedNodeIds.remove(nodeId);
             if (m_selectedNodeId == nodeId) m_selectedNodeId.clear();
         });
-        menu.exec(e->globalPos());
+        menu.exec(globalPos);
         return;
     }
 
@@ -1596,12 +1694,12 @@ void BlueprintEditor::contextMenuEvent(QContextMenuEvent* e) {
             m_bpUndoStack->push(new BPConnectionRemoveCmd(m_bpClass, m_doc, conn, refresh));
             if (m_selectedConnId == connId) m_selectedConnId.clear();
         });
-        menu.exec(e->globalPos());
+        menu.exec(globalPos);
         return;
     }
 
     // 空白处：弹出节点创建菜单
-    QPointF canvasPos = screenToCanvas(e->pos());
+    QPointF canvasPos = screenToCanvas(pos);
 
     QMenu menu(this);
     auto* eventMenu  = menu.addMenu("事件");
@@ -1635,11 +1733,11 @@ void BlueprintEditor::contextMenuEvent(QContextMenuEvent* e) {
             seedSwitchDefaults(node);
             auto refresh = [this]() { notifyModified(); update(); };
             m_bpUndoStack->push(new BPNodeAddCmd(m_bpClass, m_doc, node, refresh));
-            m_selectedNodeId = node.id;
+            selectSingleNode(node.id);
             update();
         });
     }
-    menu.exec(e->globalPos());
+    menu.exec(globalPos);
 }
 
 // ── eventFilter（捕获弹窗内 Escape）────────────────────────────────────
@@ -1877,7 +1975,7 @@ void BlueprintEditor::onWireDropSelected(const QString& typeId, const QString& c
     m_bpUndoStack->push(new BPConnectionAddCmd(m_bpClass, m_doc, conn, {}, false, refresh));
     m_bpUndoStack->endMacro();
 
-    m_selectedNodeId = node.id;
+    selectSingleNode(node.id);
 
     hideWireDropPopup();
     update();
@@ -2210,7 +2308,7 @@ void BlueprintEditor::onParamValueConfirmed(const QString& value) {
 void BlueprintEditor::loadBpClass(BPClass* bpClass) {
     m_bpClass = bpClass;
     m_doc     = nullptr;
-    m_selectedNodeId.clear();
+    clearNodeSelection();
     m_selectedConnId.clear();
     m_dragState = DragState::None;
     // Clear wire state
