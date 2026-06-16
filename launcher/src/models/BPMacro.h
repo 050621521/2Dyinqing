@@ -22,6 +22,7 @@ struct BPMacro {
     QString             id;          // 稳定唯一 id（调用节点按它引用）
     QString             name;        // 显示名
     QString             filePath;    // 存盘路径
+    QString             kind = "macro";  // "macro" 宏式（执行流） / "function" 纯函数（返回值）
     QList<MacroPin>     inputPins;   // 对外输入（入口节点的输出引脚）
     QList<MacroPin>     outputPins;  // 对外输出（出口节点的输入引脚）
     QList<BPNode>       nodes;       // 内部子图
@@ -36,4 +37,7 @@ struct BPMacro {
     // {project}/Blueprints/Macros 目录；listAll 读取其下所有 *.bpmacro
     static QString        macrosDir(const QString& projectRoot);
     static QList<BPMacro> listAll(const QString& projectRoot);
+    // {project}/Blueprints/Functions 目录；listFunctions 读取其下所有 *.bpfunc
+    static QString        functionsDir(const QString& projectRoot);
+    static QList<BPMacro> listFunctions(const QString& projectRoot);
 };

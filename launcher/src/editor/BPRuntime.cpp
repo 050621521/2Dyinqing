@@ -37,13 +37,12 @@ BPRuntime::BPRuntime(const LevelDocument* doc, QObject* parent)
     m_actors      = doc->actors();
 
     // 工程根：关卡在 {project}/Levels/x.level，上溯一级
-    QString projectRoot;
     if (!doc->filePath().isEmpty()) {
         QDir d(QFileInfo(doc->filePath()).absolutePath());
         d.cdUp();
-        projectRoot = d.absolutePath();
+        m_projectRoot = d.absolutePath();
     }
-    flattenMacros(projectRoot);
+    flattenMacros(m_projectRoot);
 
     m_tickTimer = new QTimer(this);
     m_tickTimer->setInterval(16);
@@ -392,7 +391,10 @@ QString BPRuntime::executeNode(const QString& nodeId) {
 }
 
 QString BPRuntime::resolveDataPin(const QString& nodeId, const QString& pinKey) {
-    for (const BPConnection& c : m_connections) {
+    // 帧感知：在函数帧内用帧的连线，否则用关卡图连线
+    const QList<BPConnection>& conns = m_funcFrames.isEmpty()
+        ? m_connections : m_funcFrames.last().conns;
+    for (const BPConnection& c : conns) {
         if (c.toNode == nodeId && c.toPin == pinKey)
             return resolveOutputPin(c.fromNode, c.fromPin);
     }
@@ -401,8 +403,41 @@ QString BPRuntime::resolveDataPin(const QString& nodeId, const QString& pinKey) 
 }
 
 QString BPRuntime::resolveOutputPin(const QString& nodeId, const QString& pinKey) {
+    // 函数帧内：入口节点的输出 = 帧的实参值
+    if (!m_funcFrames.isEmpty() && nodeId == m_funcFrames.last().entryId)
+        return m_funcFrames.last().inputs.value(pinKey);
+
     const BPNode* node = findNode(nodeId);
     if (!node) return {};
+
+    // 函数调用节点：进子图按需数据流求值
+    if (node->type.startsWith("Func::")) {
+        BPMacro fn; bool ok = false;
+        if (node->type == "Func::local") {
+            const QString sub = node->params.value("subgraph");
+            if (!sub.isEmpty()) { fn = BPMacro::fromJson(QJsonDocument::fromJson(sub.toUtf8()).object()); ok = true; }
+        } else {
+            const QString id = node->type.mid(6);
+            for (const BPMacro& m : BPMacro::listFunctions(m_projectRoot))
+                if (m.id == id) { fn = m; ok = true; break; }
+        }
+        if (!ok || m_funcFrames.size() > 64) return {};   // 防递归
+        QString entryId, exitId;
+        for (const BPNode& n : fn.nodes) {
+            if (n.type == "Macro.Entry") entryId = n.id;
+            else if (n.type == "Macro.Exit") exitId = n.id;
+        }
+        FuncFrame f;
+        f.nodes = fn.nodes; f.conns = fn.connections;
+        f.entryId = entryId; f.exitId = exitId;
+        // 实参：在当前上下文解析调用节点的每个输入引脚（压帧前）
+        for (const MacroPin& ip : fn.inputPins)
+            f.inputs[ip.key] = resolveDataPin(nodeId, ip.key);
+        m_funcFrames.append(f);
+        const QString r = resolveDataPin(exitId, pinKey);   // 帧内求该返回引脚
+        m_funcFrames.removeLast();
+        return r;
+    }
 
     if (node->type == "Var.ActorRef")
         return node->params.value("actorId");
@@ -506,7 +541,10 @@ QString BPRuntime::resolveOutputPin(const QString& nodeId, const QString& pinKey
 }
 
 const BPNode* BPRuntime::findNode(const QString& id) const {
-    for (const BPNode& n : m_nodes)
+    // 帧感知：函数帧内只在子图里找
+    const QList<BPNode>& nodes = m_funcFrames.isEmpty()
+        ? m_nodes : m_funcFrames.last().nodes;
+    for (const BPNode& n : nodes)
         if (n.id == id) return &n;
     return nullptr;
 }
