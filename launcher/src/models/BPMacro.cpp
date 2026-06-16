@@ -32,7 +32,6 @@ QJsonObject BPMacro::toJson() const {
     QJsonObject obj;
     obj["id"]   = id;
     obj["name"] = name;
-    obj["kind"] = kind;
     QJsonArray ins;
     for (const MacroPin& p : inputPins)  ins.append(p.toJson());
     obj["inputPins"] = ins;
@@ -52,7 +51,6 @@ BPMacro BPMacro::fromJson(const QJsonObject& obj, const QString& fp) {
     BPMacro m;
     m.id       = obj["id"].toString();
     m.name     = obj["name"].toString();
-    m.kind     = obj.value("kind").toString("macro");
     m.filePath = fp;
     for (const QJsonValue& v : obj["inputPins"].toArray())
         m.inputPins.append(MacroPin::fromJson(v.toObject()));
@@ -90,19 +88,6 @@ QList<BPMacro> BPMacro::listAll(const QString& projectRoot) {
     if (projectRoot.isEmpty()) return out;
     QDir dir(macrosDir(projectRoot));
     for (const QString& fn : dir.entryList({"*.bpmacro"}, QDir::Files, QDir::Name))
-        out.append(load(dir.absoluteFilePath(fn)));
-    return out;
-}
-
-QString BPMacro::functionsDir(const QString& projectRoot) {
-    return projectRoot + "/Blueprints/Functions";
-}
-
-QList<BPMacro> BPMacro::listFunctions(const QString& projectRoot) {
-    QList<BPMacro> out;
-    if (projectRoot.isEmpty()) return out;
-    QDir dir(functionsDir(projectRoot));
-    for (const QString& fn : dir.entryList({"*.bpfunc"}, QDir::Files, QDir::Name))
         out.append(load(dir.absoluteFilePath(fn)));
     return out;
 }

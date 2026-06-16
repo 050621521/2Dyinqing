@@ -58,16 +58,6 @@ private:
     QStringList         m_printLog;
     QMap<QString, QString> m_varStore;  // 本关运行内变量表（name → value）
     QMap<QString, QString>* m_globalVars = nullptr;  // 全局变量表（EditorWindow 持有）
-    QString m_projectRoot;              // 工程根（加载函数库资产用）
-
-    // 函数数据流求值帧：求函数调用节点输出时，子图临时上下文（防递归）
-    struct FuncFrame {
-        QList<BPNode>          nodes;
-        QList<BPConnection>    conns;
-        QMap<QString, QString> inputs;   // 入口引脚 key → 实参值
-        QString                entryId, exitId;
-    };
-    QList<FuncFrame> m_funcFrames;
 
     UIRuntime*             m_uiRuntime = nullptr;
     QMap<QString, QString> m_uiRefs;      // nodeId(UI.Create) → instanceId

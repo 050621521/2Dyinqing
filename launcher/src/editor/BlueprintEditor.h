@@ -101,8 +101,8 @@ private:
     QPointF       m_groupDragLast;    // 上次画布坐标（增量移动）
     void selectSingleNode(const QString& id);
     void clearNodeSelection();
-    // 折叠选中节点为一个本地自定义节点（asFunction=false 宏 / true 纯函数）
-    void foldSelectionToMacro(bool asFunction = false);
+    // 折叠选中节点为一个本地自定义节点（宏）
+    void foldSelectionToMacro();
     // 解开折叠：把一个自定义节点展开回其内部节点，外部连线接回
     void unfoldMacroNode(const QString& nodeId);
     // 提升为宏库资产：把本地折叠节点写成 .bpmacro 文件，改为库引用（跨蓝图复用）
@@ -130,10 +130,8 @@ private:
     QString  m_paramEditNodeId;
     QString  m_paramEditPinKey;
 
-    // 宏/函数（自定义节点）：库资产缓存 + 当前正在编辑的宏（编辑子图时设置入口/出口引脚来源）
+    // 宏（自定义节点）：库资产缓存 + 当前正在编辑的宏（编辑子图时设置入口/出口引脚来源）
     mutable QHash<QString, BPMacro> m_macroCache;
-    mutable QHash<QString, BPMacro> m_funcCache;
-    const BPMacro* findFunction(const QString& id) const;
     BPMacro* m_editingMacro = nullptr;
     // 进宏内部编辑：把子图装进临时 BPClass 复用编辑机制
     bool           m_inMacroEdit = false;

@@ -102,8 +102,7 @@ QString switchCaseValue(const BPNode& node, const QString& id) {
 // 无静态 NodeDef 的动态节点（绘制/命中需特殊容忍）：
 // 宏调用 Macro:: / 入口出口 Macro.Entry|Exit / 全局变量 Global.Get|Set
 bool isMacroNodeType(const QString& t) {
-    return t.startsWith("Macro::") || t.startsWith("Func::")
-        || t == "Macro.Entry" || t == "Macro.Exit"
+    return t.startsWith("Macro::") || t == "Macro.Entry" || t == "Macro.Exit"
         || t == "Global.Get" || t == "Global.Set";
 }
 
@@ -578,30 +577,17 @@ const BPMacro* BlueprintEditor::findMacro(const QString& id) const {
     return it != m_macroCache.end() ? &it.value() : nullptr;
 }
 
-const BPMacro* BlueprintEditor::findFunction(const QString& id) const {
-    auto it = m_funcCache.find(id);
-    if (it != m_funcCache.end()) return &it.value();
-    if (!m_projectRoot.isEmpty())
-        for (const BPMacro& m : BPMacro::listFunctions(m_projectRoot))
-            m_funcCache.insert(m.id, m);
-    it = m_funcCache.find(id);
-    return it != m_funcCache.end() ? &it.value() : nullptr;
-}
-
 bool BlueprintEditor::macroInterface(const BPNode& node, QList<MacroPin>& ins,
                                      QList<MacroPin>& outs) const {
-    const bool isMacro = node.type.startsWith("Macro::");
-    const bool isFunc  = node.type.startsWith("Func::");
-    if (!isMacro && !isFunc) return false;
-    if (node.type == "Macro::local" || node.type == "Func::local") {
+    if (!node.type.startsWith("Macro::")) return false;
+    if (node.type == "Macro::local") {
         const QString sub = node.params.value("subgraph");
         if (sub.isEmpty()) return false;
         const BPMacro m = BPMacro::fromJson(QJsonDocument::fromJson(sub.toUtf8()).object());
         ins = m.inputPins; outs = m.outputPins;
         return true;
     }
-    const BPMacro* m = isFunc ? findFunction(node.type.mid(6))   // "Func::"
-                              : findMacro(node.type.mid(7));     // "Macro::"
+    const BPMacro* m = findMacro(node.type.mid(7));   // 去掉 "Macro::"
     if (!m) return false;
     ins = m->inputPins; outs = m->outputPins;
     return true;
@@ -650,8 +636,8 @@ QList<BlueprintEditor::PinDef> BlueprintEditor::effectivePins(const BPNode& node
                  {"value", QString(), false, false,
                   kindFromGlobalType(globalVarType(node.params.value("varName")))} };
     }
-    // 宏/函数调用节点：引脚来自所引用资产的接口（输入在前、输出在后）
-    if (node.type.startsWith("Macro::") || node.type.startsWith("Func::")) {
+    // 宏调用节点：引脚来自所引用宏的接口（输入在前、输出在后）
+    if (node.type.startsWith("Macro::")) {
         QList<PinDef> pins;
         QList<MacroPin> ins, outs;
         if (macroInterface(node, ins, outs)) {
@@ -1132,12 +1118,6 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
         const bool undefined = globalVarType(vn).isEmpty();
         displayName = (node.type == "Global.Get" ? "获取 " : "设置 ")
                     + (vn.isEmpty() ? "全局变量" : vn) + (undefined && !vn.isEmpty() ? " (未定义)" : "");
-    } else if (node.type.startsWith("Func::")) {  // 函数调用节点（纯数据）
-        headerColor = QColor("#2a5a4a");
-        QString nm = node.params.value("macroName");
-        if (nm.isEmpty() && node.type != "Func::local")
-            if (const BPMacro* m = findFunction(node.type.mid(6))) nm = m->name;
-        displayName = nm.isEmpty() ? "自定义函数" : nm;
     } else {  // Macro:: 调用节点
         headerColor = QColor("#3a2a5a");
         QString nm = node.params.value("macroName");
@@ -1514,14 +1494,13 @@ void BlueprintEditor::clearNodeSelection() {
 
 // 折叠选中节点为一个本地自定义节点（宏）。
 // 穿越选区边界的连线 → 自动推成入口/出口引脚；选区替换为一个 Macro::local 调用节点。
-void BlueprintEditor::foldSelectionToMacro(bool asFunction) {
+void BlueprintEditor::foldSelectionToMacro() {
     if (m_selectedNodeIds.isEmpty() || (!m_doc && !m_bpClass)) return;
     const QSet<QString> sel = m_selectedNodeIds;
 
     bool ok = false;
-    const QString name = QInputDialog::getText(this,
-                             asFunction ? "折叠为函数" : "折叠成节点", "名称：",
-                             QLineEdit::Normal, asFunction ? "自定义函数" : "自定义节点", &ok).trimmed();
+    const QString name = QInputDialog::getText(this, "折叠成节点", "节点名称：",
+                             QLineEdit::Normal, "自定义节点", &ok).trimmed();
     if (!ok || name.isEmpty()) return;
 
     auto uuid = [] { return QUuid::createUuid().toString(QUuid::WithoutBraces); };
@@ -1551,7 +1530,6 @@ void BlueprintEditor::foldSelectionToMacro(bool asFunction) {
     for (const BPNode& n : selNodes)
         for (const PinDef& pd : effectivePins(n)) {
             if (pinHasInternal(n.id, pd.key, pd.isOutput)) continue;  // 内部连接，隐藏
-            if (asFunction && pd.isExec) continue;                    // 纯函数无执行流
             boundaries.append({n.id, pd.key, pd.isOutput, pd.isExec, kindToString(pd.kind), pd.label,
                                (pd.isOutput ? "out_" : "in_") + uuid()});
         }
@@ -1563,11 +1541,10 @@ void BlueprintEditor::foldSelectionToMacro(bool asFunction) {
         if (ret != QMessageBox::Yes) return;
     }
 
-    // 组装宏/函数资产
+    // 组装宏资产
     BPMacro macro;
     macro.id   = uuid();
     macro.name = name;
-    macro.kind = asFunction ? "function" : "macro";
     macro.nodes = selNodes;
     BPNode entry; entry.id = uuid(); entry.type = "Macro.Entry";
     entry.x = centroid.x() - 240; entry.y = centroid.y();
@@ -1592,7 +1569,7 @@ void BlueprintEditor::foldSelectionToMacro(bool asFunction) {
     // 调用节点（本地折叠：子图存自身 params）
     BPNode call;
     call.id   = uuid();
-    call.type = asFunction ? "Func::local" : "Macro::local";
+    call.type = "Macro::local";
     call.x = centroid.x(); call.y = centroid.y();
     call.params["macroName"] = name;
     call.params["subgraph"]  =
@@ -1614,7 +1591,7 @@ void BlueprintEditor::foldSelectionToMacro(bool asFunction) {
 
     // 应用（整组 Undo）：删边界/内部连线 → 删选中节点 → 加调用节点 → 加外部新连线
     auto refresh = [this] { notifyModified(); update(); };
-    m_bpUndoStack->beginMacro(asFunction ? "折叠为函数" : "折叠成节点");
+    m_bpUndoStack->beginMacro("折叠成节点");
     for (const BPConnection& c : connSnap)
         if (sel.contains(c.fromNode) || sel.contains(c.toNode))
             m_bpUndoStack->push(new BPConnectionRemoveCmd(m_bpClass, m_doc, c, refresh));
@@ -1632,20 +1609,17 @@ void BlueprintEditor::foldSelectionToMacro(bool asFunction) {
 // 解开折叠：把一个 Macro:: 调用节点展开回其内部节点，外部连线接回内部端点。
 void BlueprintEditor::unfoldMacroNode(const QString& nodeId) {
     const BPNode* callPtr = findNode(nodeId);
-    if (!callPtr || (!m_doc && !m_bpClass)) return;
-    const bool isFunc = callPtr->type.startsWith("Func::");
-    if (!callPtr->type.startsWith("Macro::") && !isFunc) return;
+    if (!callPtr || !callPtr->type.startsWith("Macro::") || (!m_doc && !m_bpClass)) return;
     const BPNode call = *callPtr;
 
     BPMacro macro; bool ok = false;
-    if (call.type == "Macro::local" || call.type == "Func::local") {
+    if (call.type == "Macro::local") {
         const QString sub = call.params.value("subgraph");
         if (!sub.isEmpty()) {
             macro = BPMacro::fromJson(QJsonDocument::fromJson(sub.toUtf8()).object());
             ok = true;
         }
-    } else if (const BPMacro* m = isFunc ? findFunction(call.type.mid(6))
-                                         : findMacro(call.type.mid(7))) {
+    } else if (const BPMacro* m = findMacro(call.type.mid(7))) {
         macro = *m; ok = true;
     }
     if (!ok) return;
@@ -1725,30 +1699,25 @@ void BlueprintEditor::promoteMacroToLibrary(const QString& nodeId) {
         return;
     }
     const BPNode* callPtr = findNode(nodeId);
-    if (!callPtr || (callPtr->type != "Macro::local" && callPtr->type != "Func::local")) return;
+    if (!callPtr || callPtr->type != "Macro::local") return;
     const BPNode call = *callPtr;
-    const bool isFunc = (call.type == "Func::local");
     const QString sub = call.params.value("subgraph");
     if (sub.isEmpty()) return;
 
     BPMacro macro = BPMacro::fromJson(QJsonDocument::fromJson(sub.toUtf8()).object());
     if (macro.id.isEmpty()) macro.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    macro.name = call.params.value("macroName", macro.name);
-    macro.kind = isFunc ? "function" : "macro";
-    macro.filePath = isFunc
-        ? BPMacro::functionsDir(m_projectRoot) + "/" + macro.name + ".bpfunc"
-        : BPMacro::macrosDir(m_projectRoot)    + "/" + macro.name + ".bpmacro";
+    macro.name     = call.params.value("macroName", macro.name);
+    macro.filePath = BPMacro::macrosDir(m_projectRoot) + "/" + macro.name + ".bpmacro";
     if (!macro.save()) {
-        QMessageBox::warning(this, "提升为库资产", "保存库文件失败。");
+        QMessageBox::warning(this, "提升为宏库资产", "保存宏库文件失败。");
         return;
     }
-    (isFunc ? m_funcCache : m_macroCache).insert(macro.id, macro);
+    m_macroCache.insert(macro.id, macro);
 
     BPNode before = call, after = call;
-    after.type = (isFunc ? "Func::" : "Macro::") + macro.id;
+    after.type = "Macro::" + macro.id;
     after.params.remove("subgraph");
-    m_bpUndoStack->push(new BPNodeModifyCmd(m_bpClass, m_doc, before, after,
-                        isFunc ? "提升为函数库资产" : "提升为宏库资产",
+    m_bpUndoStack->push(new BPNodeModifyCmd(m_bpClass, m_doc, before, after, "提升为宏库资产",
                         [this]{ notifyModified(); update(); }));
     update();
 }
@@ -1758,17 +1727,14 @@ void BlueprintEditor::promoteMacroToLibrary(const QString& nodeId) {
 void BlueprintEditor::enterMacroEdit(const QString& nodeId) {
     if (m_inMacroEdit) return;   // 暂不支持嵌套进入
     const BPNode* callPtr = findNode(nodeId);
-    if (!callPtr) return;
-    const bool isFunc = callPtr->type.startsWith("Func::");
-    if (!callPtr->type.startsWith("Macro::") && !isFunc) return;
+    if (!callPtr || !callPtr->type.startsWith("Macro::")) return;
 
     BPMacro macro;
-    if (callPtr->type == "Macro::local" || callPtr->type == "Func::local") {
+    if (callPtr->type == "Macro::local") {
         const QString sub = callPtr->params.value("subgraph");
         if (sub.isEmpty()) return;
         macro = BPMacro::fromJson(QJsonDocument::fromJson(sub.toUtf8()).object());
-    } else if (const BPMacro* m = isFunc ? findFunction(callPtr->type.mid(6))
-                                         : findMacro(callPtr->type.mid(7))) {
+    } else if (const BPMacro* m = findMacro(callPtr->type.mid(7))) {
         macro = *m;
     } else return;
 
@@ -1838,8 +1804,8 @@ void BlueprintEditor::exitMacroEdit() {
 void BlueprintEditor::mouseDoubleClickEvent(QMouseEvent* e) {
     if (e->button() != Qt::LeftButton) { QWidget::mouseDoubleClickEvent(e); return; }
     Hit hit = hitTest(e->position());
-    const BPNode* dn = hit.type == Hit::Node ? findNode(hit.nodeId) : nullptr;
-    if (dn && (dn->type.startsWith("Macro::") || dn->type.startsWith("Func::"))) {
+    if (hit.type == Hit::Node && findNode(hit.nodeId)
+        && findNode(hit.nodeId)->type.startsWith("Macro::")) {
         enterMacroEdit(hit.nodeId);
         return;
     }
@@ -2318,19 +2284,15 @@ void BlueprintEditor::showContextMenu(const QPoint& pos, const QPoint& globalPos
                 em->addAction("（取消枚举·自由值）", [this, nodeId]() { bindSwitchEnum(nodeId, QString()); });
             menu.addSeparator();
         }
-        if (n->type.startsWith("Macro::") || n->type.startsWith("Func::")) {
-            const bool isFunc = n->type.startsWith("Func::");
+        if (n->type.startsWith("Macro::")) {
             menu.addAction("解开折叠", [this, nodeId]() { unfoldMacroNode(nodeId); });
-            if (n->type == "Macro::local" || n->type == "Func::local")
-                menu.addAction(isFunc ? "提升为函数库资产" : "提升为宏库资产",
-                               [this, nodeId]() { promoteMacroToLibrary(nodeId); });
+            if (n->type == "Macro::local")
+                menu.addAction("提升为宏库资产", [this, nodeId]() { promoteMacroToLibrary(nodeId); });
             menu.addSeparator();
         }
         if (m_selectedNodeIds.contains(nodeId)) {
             menu.addAction(QString("折叠成节点（%1）").arg(m_selectedNodeIds.size()),
-                           [this]() { foldSelectionToMacro(false); });
-            menu.addAction(QString("折叠为函数（%1）").arg(m_selectedNodeIds.size()),
-                           [this]() { foldSelectionToMacro(true); });
+                           [this]() { foldSelectionToMacro(); });
             menu.addSeparator();
         }
         menu.addAction("删除节点 "" + label + """, [this, nodeId, n]() {
@@ -2367,12 +2329,10 @@ void BlueprintEditor::showContextMenu(const QPoint& pos, const QPoint& globalPos
     QPointF canvasPos = screenToCanvas(pos);
 
     QMenu menu(this);
-    // 有多选时，顶部提供"折叠成节点 / 折叠为函数"
+    // 有多选时，顶部提供"折叠成节点"
     if (m_selectedNodeIds.size() >= 2) {
         menu.addAction(QString("折叠成节点（%1）").arg(m_selectedNodeIds.size()),
-                       [this]() { foldSelectionToMacro(false); });
-        menu.addAction(QString("折叠为函数（%1）").arg(m_selectedNodeIds.size()),
-                       [this]() { foldSelectionToMacro(true); });
+                       [this]() { foldSelectionToMacro(); });
         menu.addSeparator();
     }
     // 全局变量：每个声明的变量提供 获取/设置
@@ -2394,27 +2354,6 @@ void BlueprintEditor::showContextMenu(const QPoint& pos, const QPoint& globalPos
             };
             gvMenu->addAction("获取 " + vn, [makeGlobalNode]() { makeGlobalNode("Global.Get"); });
             gvMenu->addAction("设置 " + vn, [makeGlobalNode]() { makeGlobalNode("Global.Set"); });
-        }
-    }
-    // 工程里的自定义函数（函数库资产）
-    const QList<BPMacro> funcs = m_projectRoot.isEmpty()
-        ? QList<BPMacro>{} : BPMacro::listFunctions(m_projectRoot);
-    if (!funcs.isEmpty()) {
-        auto* fnMenu = menu.addMenu("自定义函数");
-        for (const BPMacro& fn : funcs) {
-            const QString id = fn.id, nm = fn.name;
-            fnMenu->addAction(nm, [this, id, nm, canvasPos]() {
-                if (!m_doc && !m_bpClass) return;
-                BPNode node;
-                node.id   = QUuid::createUuid().toString(QUuid::WithoutBraces);
-                node.type = "Func::" + id;
-                node.x = (float)canvasPos.x(); node.y = (float)canvasPos.y();
-                node.params["macroName"] = nm;
-                auto refresh = [this]() { notifyModified(); update(); };
-                m_bpUndoStack->push(new BPNodeAddCmd(m_bpClass, m_doc, node, refresh));
-                selectSingleNode(node.id);
-                update();
-            });
         }
     }
     // 工程里的自定义节点（宏库资产）
@@ -3115,8 +3054,7 @@ bool BlueprintEditor::isSelfNodeVisible(const QString& typeId) const {
 
 void BlueprintEditor::setProjectRoot(const QString& root) {
     m_projectRoot = root;
-    m_macroCache.clear();   // 切工程时丢弃旧宏/函数缓存
-    m_funcCache.clear();
+    m_macroCache.clear();   // 切工程时丢弃旧宏缓存
 }
 
 void BlueprintEditor::hideUIAssetPicker() {
