@@ -458,8 +458,8 @@ void EditorWindow::setupCentralArea() {
     });
     auto* gvDock = new ads::CDockWidget("全局变量");
     gvDock->setWidget(m_globalVarPanel);
-    m_dockManager->addDockWidget(ads::RightDockWidgetArea, gvDock);
-    gvDock->closeDockWidget();
+    // 停靠在画布左侧，像虚幻"我的蓝图"常驻可见
+    m_dockManager->addDockWidget(ads::LeftDockWidgetArea, gvDock);
     if (m_windowMenu) m_windowMenu->addAction(gvDock->toggleViewAction());
 
     // ── 蓝图浮动窗口：每个实例按需创建独立 Dock（见 floatBp）──────────────
