@@ -2,7 +2,8 @@
 #include "GlobalVars.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
-#include <QListWidget>
+#include <QTableWidget>
+#include <QHeaderView>
 #include <QPushButton>
 #include <QLabel>
 #include <QFileInfo>
@@ -11,39 +12,50 @@ EnumEditor::EnumEditor(QWidget* parent) : QWidget(parent) {
     setObjectName("enumEditor");
     auto* lay = new QVBoxLayout(this);
     lay->setContentsMargins(16, 16, 16, 16);
+    lay->setSpacing(8);
 
     m_title = new QLabel(this);
     m_title->setObjectName("enumEditorTitle");
     lay->addWidget(m_title);
 
-    lay->addWidget(new QLabel("选项：", this));
-    m_list = new QListWidget(this);
-    m_list->setMaximumWidth(420);
-    lay->addWidget(m_list, 1);
+    // 顶部：添加枚举器
+    auto* top = new QHBoxLayout();
+    auto* addBtn = new QPushButton("＋ 添加枚举器", this);
+    top->addWidget(addBtn);
+    top->addStretch(1);
+    lay->addLayout(top);
 
-    auto* row = new QHBoxLayout();
-    auto* addBtn = new QPushButton("＋ 添加", this);
-    auto* delBtn = new QPushButton("－ 删除", this);
-    auto* upBtn  = new QPushButton("↑", this);
-    auto* dnBtn  = new QPushButton("↓", this);
-    upBtn->setFixedWidth(36); dnBtn->setFixedWidth(36);
-    row->addWidget(addBtn); row->addWidget(delBtn);
-    row->addStretch(1);
-    row->addWidget(upBtn); row->addWidget(dnBtn);
-    row->setStretch(2, 0);
-    auto* rowWrap = new QHBoxLayout();
-    rowWrap->addLayout(row);
-    rowWrap->addStretch(1);
-    lay->addLayout(rowWrap);
-    lay->addStretch(1);
+    // 枚举值表：显示命名 | 描述 | 删除
+    m_table = new QTableWidget(0, 3, this);
+    m_table->setObjectName("enumValueTable");
+    m_table->setHorizontalHeaderLabels({"显示命名", "描述", ""});
+    m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    m_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
+    m_table->setColumnWidth(2, 40);
+    m_table->verticalHeader()->setVisible(false);
+    m_table->setMaximumWidth(900);
+    lay->addWidget(m_table, 1);
 
     connect(addBtn, &QPushButton::clicked, this, &EnumEditor::addValue);
-    connect(delBtn, &QPushButton::clicked, this, &EnumEditor::removeSelected);
-    connect(upBtn,  &QPushButton::clicked, this, [this]() { move(-1); });
-    connect(dnBtn,  &QPushButton::clicked, this, [this]() { move(1); });
-    connect(m_list, &QListWidget::itemChanged, this, [this](QListWidgetItem*) {
+    connect(m_table, &QTableWidget::itemChanged, this, [this](QTableWidgetItem*) {
         if (!m_loading) save();
     });
+}
+
+void EnumEditor::appendRow(const QString& name, const QString& desc) {
+    const int r = m_table->rowCount();
+    m_table->insertRow(r);
+    m_table->setItem(r, 0, new QTableWidgetItem(name));
+    m_table->setItem(r, 1, new QTableWidgetItem(desc));
+    auto* del = new QPushButton("🗑", m_table);
+    del->setFlat(true);
+    connect(del, &QPushButton::clicked, this, [this, del]() {
+        for (int i = 0; i < m_table->rowCount(); ++i)
+            if (m_table->cellWidget(i, 2) == del) { m_table->removeRow(i); break; }
+        save();
+    });
+    m_table->setCellWidget(r, 2, del);
 }
 
 void EnumEditor::load(const QString& enumPath) {
@@ -52,37 +64,17 @@ void EnumEditor::load(const QString& enumPath) {
     const EnumDef e = EnumDef::load(enumPath);
     const QString nm = e.name.isEmpty() ? QFileInfo(enumPath).baseName() : e.name;
     m_title->setText("枚举：" + nm);
-    m_list->clear();
-    for (const QString& v : e.values) {
-        auto* it = new QListWidgetItem(v, m_list);
-        it->setFlags(it->flags() | Qt::ItemIsEditable);
-    }
+    m_table->setRowCount(0);
+    for (int i = 0; i < e.values.size(); ++i)
+        appendRow(e.values[i], i < e.descriptions.size() ? e.descriptions[i] : QString());
     m_loading = false;
 }
 
 void EnumEditor::addValue() {
     if (m_path.isEmpty()) return;
-    auto* it = new QListWidgetItem(QString("选项%1").arg(m_list->count() + 1), m_list);
-    it->setFlags(it->flags() | Qt::ItemIsEditable);
-    m_list->setCurrentItem(it);
-    save();
-    m_list->editItem(it);
-}
-
-void EnumEditor::removeSelected() {
-    const int r = m_list->currentRow();
-    if (r < 0) return;
-    delete m_list->takeItem(r);
-    save();
-}
-
-void EnumEditor::move(int delta) {
-    const int r = m_list->currentRow();
-    const int nr = r + delta;
-    if (r < 0 || nr < 0 || nr >= m_list->count()) return;
-    auto* it = m_list->takeItem(r);
-    m_list->insertItem(nr, it);
-    m_list->setCurrentRow(nr);
+    m_loading = true;
+    appendRow(QString("枚举值%1").arg(m_table->rowCount() + 1), QString());
+    m_loading = false;
     save();
 }
 
@@ -90,9 +82,13 @@ void EnumEditor::save() {
     if (m_path.isEmpty()) return;
     EnumDef e;
     e.name = QFileInfo(m_path).baseName();
-    for (int i = 0; i < m_list->count(); ++i) {
-        const QString v = m_list->item(i)->text().trimmed();
-        if (!v.isEmpty()) e.values.append(v);
+    for (int i = 0; i < m_table->rowCount(); ++i) {
+        QTableWidgetItem* nameIt = m_table->item(i, 0);
+        const QString v = nameIt ? nameIt->text().trimmed() : QString();
+        if (v.isEmpty()) continue;
+        QTableWidgetItem* descIt = m_table->item(i, 1);
+        e.values.append(v);
+        e.descriptions.append(descIt ? descIt->text() : QString());
     }
     e.save(m_path);
     emit changed();

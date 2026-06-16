@@ -56,9 +56,12 @@ bool GlobalVars::save(const QString& projectRoot, const QList<GlobalVarDef>& var
 bool EnumDef::save(const QString& fp) const {
     QJsonObject o;
     o["name"] = name;
-    QJsonArray vals;
+    QJsonArray vals, descs;
     for (const QString& v : values) vals.append(v);
-    o["values"] = vals;
+    for (int i = 0; i < values.size(); ++i)
+        descs.append(i < descriptions.size() ? descriptions[i] : QString());
+    o["values"]       = vals;
+    o["descriptions"] = descs;
     QDir().mkpath(QFileInfo(fp).absolutePath());
     QSaveFile wf(fp);
     if (!wf.open(QIODevice::WriteOnly)) return false;
@@ -75,6 +78,9 @@ EnumDef EnumDef::load(const QString& fp) {
     e.name = o.value("name").toString(QFileInfo(fp).baseName());
     for (const QJsonValue& v : o.value("values").toArray())
         e.values.append(v.toString());
+    for (const QJsonValue& v : o.value("descriptions").toArray())
+        e.descriptions.append(v.toString());
+    while (e.descriptions.size() < e.values.size()) e.descriptions.append(QString());
     return e;
 }
 
