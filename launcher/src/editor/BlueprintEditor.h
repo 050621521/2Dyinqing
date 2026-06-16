@@ -39,6 +39,7 @@ protected:
     void paintEvent(QPaintEvent* e) override;
     void wheelEvent(QWheelEvent* e) override;
     void mousePressEvent(QMouseEvent* e) override;
+    void mouseDoubleClickEvent(QMouseEvent* e) override;
     void mouseMoveEvent(QMouseEvent* e) override;
     void mouseReleaseEvent(QMouseEvent* e) override;
     void keyPressEvent(QKeyEvent* e) override;
@@ -99,6 +100,8 @@ private:
     void foldSelectionToMacro();
     // 解开折叠：把一个自定义节点展开回其内部节点，外部连线接回
     void unfoldMacroNode(const QString& nodeId);
+    // 提升为宏库资产：把本地折叠节点写成 .bpmacro 文件，改为库引用（跨蓝图复用）
+    void promoteMacroToLibrary(const QString& nodeId);
 
     // 连线拖拽
     QString  m_wireFromNode;
@@ -122,9 +125,18 @@ private:
     QString  m_paramEditNodeId;
     QString  m_paramEditPinKey;
 
-    // 宏（自定义节点）：库资产缓存 + 当前正在编辑的宏（编辑子图时由 B5 设置）
+    // 宏（自定义节点）：库资产缓存 + 当前正在编辑的宏（编辑子图时设置入口/出口引脚来源）
     mutable QHash<QString, BPMacro> m_macroCache;
     BPMacro* m_editingMacro = nullptr;
+    // 进宏内部编辑：把子图装进临时 BPClass 复用编辑机制
+    bool           m_inMacroEdit = false;
+    BPClass        m_macroEditClass;   // 临时承载宏子图（nodes/connections）
+    BPMacro        m_macroEditInfo;    // 宏接口（inputPins/outputPins）+ id/name/filePath
+    QString        m_macroCallNodeId;  // 进入时所点的调用节点（本地折叠回写用）
+    LevelDocument* m_returnDoc     = nullptr;
+    BPClass*       m_returnBpClass = nullptr;
+    void enterMacroEdit(const QString& nodeId);
+    void exitMacroEdit();
     const BPMacro* findMacro(const QString& id) const;
     // 取某调用节点引用的宏接口（库资产 or 本地折叠子图）；成功返回 true
     bool macroInterface(const BPNode& node, QList<MacroPin>& ins,

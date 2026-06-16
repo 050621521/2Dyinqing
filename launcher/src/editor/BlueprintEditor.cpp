@@ -960,6 +960,17 @@ void BlueprintEditor::paintEvent(QPaintEvent*) {
         p.setBrush(QColor(0x5a, 0x9f, 0xd4, 40));
         p.drawRect(r);
     }
+
+    // 宏内部编辑：左上角"返回"按钮 + 标题
+    if (m_inMacroEdit) {
+        const QRect btn(10, 10, 200, 30);
+        p.setBrush(QColor(0x2a, 0x24, 0x3a));
+        p.setPen(QPen(QColor(0x8a, 0x6a, 0xd4), 1.5));
+        p.drawRoundedRect(btn, 4, 4);
+        p.setPen(QColor(0xff, 0xff, 0xff));
+        QFont f; f.setPointSizeF(11); p.setFont(f);
+        p.drawText(btn, Qt::AlignCenter, "← 返回（编辑：" + m_macroEditInfo.name + "）");
+    }
 }
 
 void BlueprintEditor::drawBackground(QPainter& p) {
@@ -1621,7 +1632,125 @@ void BlueprintEditor::unfoldMacroNode(const QString& nodeId) {
     update();
 }
 
+// 提升为宏库资产：本地折叠子图写成 .bpmacro，节点改为 Macro::<id> 库引用。
+void BlueprintEditor::promoteMacroToLibrary(const QString& nodeId) {
+    if (m_projectRoot.isEmpty()) {
+        QMessageBox::warning(this, "提升为宏库资产", "当前没有工程路径，无法保存。");
+        return;
+    }
+    const BPNode* callPtr = findNode(nodeId);
+    if (!callPtr || callPtr->type != "Macro::local") return;
+    const BPNode call = *callPtr;
+    const QString sub = call.params.value("subgraph");
+    if (sub.isEmpty()) return;
+
+    BPMacro macro = BPMacro::fromJson(QJsonDocument::fromJson(sub.toUtf8()).object());
+    if (macro.id.isEmpty()) macro.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    macro.name     = call.params.value("macroName", macro.name);
+    macro.filePath = BPMacro::macrosDir(m_projectRoot) + "/" + macro.name + ".bpmacro";
+    if (!macro.save()) {
+        QMessageBox::warning(this, "提升为宏库资产", "保存宏库文件失败。");
+        return;
+    }
+    m_macroCache.insert(macro.id, macro);
+
+    BPNode before = call, after = call;
+    after.type = "Macro::" + macro.id;
+    after.params.remove("subgraph");
+    m_bpUndoStack->push(new BPNodeModifyCmd(m_bpClass, m_doc, before, after, "提升为宏库资产",
+                        [this]{ notifyModified(); update(); }));
+    update();
+}
+
+// ── 进/出宏内部编辑 ───────────────────────────────────────────────────
+
+void BlueprintEditor::enterMacroEdit(const QString& nodeId) {
+    if (m_inMacroEdit) return;   // 暂不支持嵌套进入
+    const BPNode* callPtr = findNode(nodeId);
+    if (!callPtr || !callPtr->type.startsWith("Macro::")) return;
+
+    BPMacro macro;
+    if (callPtr->type == "Macro::local") {
+        const QString sub = callPtr->params.value("subgraph");
+        if (sub.isEmpty()) return;
+        macro = BPMacro::fromJson(QJsonDocument::fromJson(sub.toUtf8()).object());
+    } else if (const BPMacro* m = findMacro(callPtr->type.mid(7))) {
+        macro = *m;
+    } else return;
+
+    // 记录返回上下文
+    m_returnDoc       = m_doc;
+    m_returnBpClass   = m_bpClass;
+    m_macroCallNodeId = nodeId;
+    m_macroEditInfo   = macro;
+
+    // 子图装进临时 BPClass，复用 bpClass 编辑路径
+    m_macroEditClass = BPClass{};
+    m_macroEditClass.name        = macro.name;
+    m_macroEditClass.nodes       = macro.nodes;
+    m_macroEditClass.connections = macro.connections;
+
+    loadBpClass(&m_macroEditClass);    // 会清状态/撤销栈
+    m_inMacroEdit  = true;
+    m_editingMacro = &m_macroEditInfo; // 入口/出口引脚来源
+    frameAll();
+    update();
+}
+
+void BlueprintEditor::exitMacroEdit() {
+    if (!m_inMacroEdit) return;
+
+    // 收回编辑结果
+    BPMacro macro      = m_macroEditInfo;
+    macro.nodes        = m_macroEditClass.nodes;
+    macro.connections  = m_macroEditClass.connections;
+
+    // 回写：本地折叠 → 更新调用节点 subgraph；库宏 → 存文件 + 刷新缓存
+    if (macro.filePath.isEmpty()) {
+        const QString subJson =
+            QString::fromUtf8(QJsonDocument(macro.toJson()).toJson(QJsonDocument::Compact));
+        auto writeBack = [&](const QString& id) {
+            if (m_returnBpClass) {
+                for (BPNode& x : m_returnBpClass->nodes)
+                    if (x.id == id) { x.params["subgraph"] = subJson; return; }
+            } else if (m_returnDoc) {
+                for (const BPNode& n : m_returnDoc->bpNodes())
+                    if (n.id == id) { BPNode nn = n; nn.params["subgraph"] = subJson;
+                                      m_returnDoc->updateBPNode(nn); return; }
+            }
+        };
+        writeBack(m_macroCallNodeId);
+    } else {
+        macro.save();
+        m_macroCache.insert(macro.id, macro);
+    }
+
+    LevelDocument* rdoc = m_returnDoc;
+    BPClass*       rbc  = m_returnBpClass;
+    m_inMacroEdit     = false;
+    m_editingMacro    = nullptr;
+    m_returnDoc       = nullptr;
+    m_returnBpClass   = nullptr;
+    m_macroCallNodeId.clear();
+
+    if (rbc)      loadBpClass(rbc);
+    else          loadLevel(rdoc);
+    notifyModified();
+    update();
+}
+
 // ── 鼠标事件 ──────────────────────────────────────────────────────────
+
+void BlueprintEditor::mouseDoubleClickEvent(QMouseEvent* e) {
+    if (e->button() != Qt::LeftButton) { QWidget::mouseDoubleClickEvent(e); return; }
+    Hit hit = hitTest(e->position());
+    if (hit.type == Hit::Node && findNode(hit.nodeId)
+        && findNode(hit.nodeId)->type.startsWith("Macro::")) {
+        enterMacroEdit(hit.nodeId);
+        return;
+    }
+    QWidget::mouseDoubleClickEvent(e);
+}
 
 void BlueprintEditor::mousePressEvent(QMouseEvent* e) {
     // 内联编辑框激活时，点击外部提交
@@ -1650,6 +1779,12 @@ void BlueprintEditor::mousePressEvent(QMouseEvent* e) {
             hideUIAssetPicker();
     }
     setFocus();
+    // 宏编辑：点"返回"按钮
+    if (m_inMacroEdit && e->button() == Qt::LeftButton
+        && QRect(10, 10, 200, 30).contains(e->pos())) {
+        exitMacroEdit();
+        return;
+    }
     // 右键/中键拖拽 = 平移画布（右键未拖动则在松开时弹菜单；左键空白拖拽=框选）
     if (e->button() == Qt::RightButton || e->button() == Qt::MiddleButton) {
         m_panning     = true;
@@ -2065,6 +2200,8 @@ void BlueprintEditor::showContextMenu(const QPoint& pos, const QPoint& globalPos
         QMenu menu(this);
         if (n->type.startsWith("Macro::")) {
             menu.addAction("解开折叠", [this, nodeId]() { unfoldMacroNode(nodeId); });
+            if (n->type == "Macro::local")
+                menu.addAction("提升为宏库资产", [this, nodeId]() { promoteMacroToLibrary(nodeId); });
             menu.addSeparator();
         }
         if (m_selectedNodeIds.contains(nodeId)) {
@@ -2111,6 +2248,27 @@ void BlueprintEditor::showContextMenu(const QPoint& pos, const QPoint& globalPos
         menu.addAction(QString("折叠成节点（%1）").arg(m_selectedNodeIds.size()),
                        [this]() { foldSelectionToMacro(); });
         menu.addSeparator();
+    }
+    // 工程里的自定义节点（宏库资产）
+    const QList<BPMacro> macros = m_projectRoot.isEmpty()
+        ? QList<BPMacro>{} : BPMacro::listAll(m_projectRoot);
+    if (!macros.isEmpty()) {
+        auto* customMenu = menu.addMenu("自定义节点");
+        for (const BPMacro& mac : macros) {
+            const QString id = mac.id, nm = mac.name;
+            customMenu->addAction(nm, [this, id, nm, canvasPos]() {
+                if (!m_doc && !m_bpClass) return;
+                BPNode node;
+                node.id   = QUuid::createUuid().toString(QUuid::WithoutBraces);
+                node.type = "Macro::" + id;
+                node.x = (float)canvasPos.x(); node.y = (float)canvasPos.y();
+                node.params["macroName"] = nm;
+                auto refresh = [this]() { notifyModified(); update(); };
+                m_bpUndoStack->push(new BPNodeAddCmd(m_bpClass, m_doc, node, refresh));
+                selectSingleNode(node.id);
+                update();
+            });
+        }
     }
     auto* eventMenu  = menu.addMenu("事件");
     auto* keyMenu    = eventMenu->addMenu("键盘事件");
