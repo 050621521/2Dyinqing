@@ -96,6 +96,7 @@ private:
     ads::CDockWidget*  m_outlineDockW = nullptr;
     ads::CDockWidget*  m_detailsDockW = nullptr;
     ads::CDockWidget*  m_cbDockW      = nullptr;
+    ads::CDockWidget*  m_gvDock       = nullptr;
     ContentBrowser*    m_contentBrowser = nullptr;
 
     QStackedWidget* m_centralStack    = nullptr;

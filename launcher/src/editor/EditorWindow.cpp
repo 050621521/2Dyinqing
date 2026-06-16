@@ -456,11 +456,11 @@ void EditorWindow::setupCentralArea() {
         for (auto it = m_bpInstances.begin(); it != m_bpInstances.end(); ++it)
             if (it.value().editor) it.value().editor->update();
     });
-    auto* gvDock = new ads::CDockWidget("全局变量");
-    gvDock->setWidget(m_globalVarPanel);
+    m_gvDock = new ads::CDockWidget("全局变量");
+    m_gvDock->setWidget(m_globalVarPanel);
     // 停靠在画布左侧，像虚幻"我的蓝图"常驻可见
-    m_dockManager->addDockWidget(ads::LeftDockWidgetArea, gvDock);
-    if (m_windowMenu) m_windowMenu->addAction(gvDock->toggleViewAction());
+    m_dockManager->addDockWidget(ads::LeftDockWidgetArea, m_gvDock);
+    if (m_windowMenu) m_windowMenu->addAction(m_gvDock->toggleViewAction());
 
     // ── 蓝图浮动窗口：每个实例按需创建独立 Dock（见 floatBp）──────────────
 
@@ -521,6 +521,11 @@ void EditorWindow::setupCentralArea() {
     m_layoutManager = new LayoutManager(m_dockManager, m_project.path, this);
     QTimer::singleShot(0, this, [this]() {
         m_layoutManager->captureDefault();
+        // 旧布局不含"全局变量"面板 → 恢复后会浮窗；强制摆回左侧并重存默认布局
+        if (m_gvDock && (m_gvDock->isFloating() || m_gvDock->isClosed())) {
+            m_dockManager->addDockWidget(ads::LeftDockWidgetArea, m_gvDock);
+            m_layoutManager->saveLayout("默认布局");
+        }
     });
 }
 
