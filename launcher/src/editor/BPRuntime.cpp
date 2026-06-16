@@ -6,6 +6,10 @@
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QUuid>
+#include <QDir>
+#include <QFileInfo>
+#include "models/BPMacro.h"
 #include <algorithm>
 #include <cmath>
 
@@ -31,11 +35,103 @@ BPRuntime::BPRuntime(const LevelDocument* doc, QObject* parent)
     m_nodes       = doc->bpNodes();
     m_connections = doc->bpConnections();
     m_actors      = doc->actors();
+
+    // 工程根：关卡在 {project}/Levels/x.level，上溯一级
+    QString projectRoot;
+    if (!doc->filePath().isEmpty()) {
+        QDir d(QFileInfo(doc->filePath()).absolutePath());
+        d.cdUp();
+        projectRoot = d.absolutePath();
+    }
+    flattenMacros(projectRoot);
+
     m_tickTimer = new QTimer(this);
     m_tickTimer->setInterval(16);
     connect(m_tickTimer, &QTimer::timeout, this, &BPRuntime::tick);
     m_tickTimer->start();
     m_elapsedTimer.start();
+}
+
+void BPRuntime::flattenMacros(const QString& projectRoot) {
+    const QList<BPMacro> libMacros =
+        projectRoot.isEmpty() ? QList<BPMacro>{} : BPMacro::listAll(projectRoot);
+
+    auto removeNodeAndConns = [&](const QString& id) {
+        m_nodes.removeIf([&](const BPNode& n){ return n.id == id; });
+        m_connections.removeIf([&](const BPConnection& c){
+            return c.fromNode == id || c.toNode == id; });
+    };
+
+    // 反复展开，直到没有 Macro:: 调用节点（支持嵌套）；上限防环
+    for (int guard = 0; guard < 2000; ++guard) {
+        int idx = -1;
+        for (int i = 0; i < m_nodes.size(); ++i)
+            if (m_nodes[i].type.startsWith("Macro::")) { idx = i; break; }
+        if (idx < 0) break;
+
+        const BPNode call = m_nodes[idx];
+
+        // 解析宏：本地折叠取自 params；库宏按 id 查
+        BPMacro macro; bool okMacro = false;
+        if (call.type == "Macro::local") {
+            const QString sub = call.params.value("subgraph");
+            if (!sub.isEmpty()) {
+                macro = BPMacro::fromJson(QJsonDocument::fromJson(sub.toUtf8()).object());
+                okMacro = true;
+            }
+        } else {
+            const QString id = call.type.mid(7);
+            for (const BPMacro& m : libMacros)
+                if (m.id == id) { macro = m; okMacro = true; break; }
+        }
+        if (!okMacro) { removeNodeAndConns(call.id); continue; }
+
+        // 入口/出口 + 接口映射
+        QString entryId, exitId;
+        for (const BPNode& n : macro.nodes) {
+            if (n.type == "Macro.Entry") entryId = n.id;
+            else if (n.type == "Macro.Exit") exitId = n.id;
+        }
+        QMap<QString, QPair<QString,QString>> inMap, outMap;  // pinKey → (insideNode, insidePin)
+        for (const BPConnection& c : macro.connections) {
+            if (c.fromNode == entryId) inMap[c.fromPin] = {c.toNode, c.toPin};
+            if (c.toNode   == exitId)  outMap[c.toPin]  = {c.fromNode, c.fromPin};
+        }
+
+        // 内部节点 id 重映射（排除入口/出口）
+        QMap<QString,QString> idMap;
+        for (const BPNode& n : macro.nodes)
+            if (n.id != entryId && n.id != exitId)
+                idMap[n.id] = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        auto mapId = [&](const QString& id){ return idMap.value(id, id); };
+
+        // 插入内部节点
+        for (const BPNode& n : macro.nodes) {
+            if (n.id == entryId || n.id == exitId) continue;
+            BPNode nn = n; nn.id = idMap[n.id];
+            m_nodes.append(nn);
+        }
+        // 插入内部连线（排除连入口/出口的）
+        for (const BPConnection& c : macro.connections) {
+            if (c.fromNode == entryId || c.toNode == exitId) continue;
+            if (!idMap.contains(c.fromNode) || !idMap.contains(c.toNode)) continue;
+            m_connections.append({QUuid::createUuid().toString(QUuid::WithoutBraces),
+                                  mapId(c.fromNode), c.fromPin, mapId(c.toNode), c.toPin});
+        }
+        // 外部连线重定向到内部端点
+        for (BPConnection& c : m_connections) {
+            if (c.toNode == call.id) {
+                auto it = inMap.find(c.toPin);
+                if (it != inMap.end()) { c.toNode = mapId(it.value().first); c.toPin = it.value().second; }
+            }
+            if (c.fromNode == call.id) {
+                auto it = outMap.find(c.fromPin);
+                if (it != outMap.end()) { c.fromNode = mapId(it.value().first); c.fromPin = it.value().second; }
+            }
+        }
+        // 移除 call 及其残余连线（未映射的引脚）
+        removeNodeAndConns(call.id);
+    }
 }
 
 void BPRuntime::tick() {
@@ -134,12 +230,13 @@ void BPRuntime::executeChain(const QString& fromNodeId, const QString& fromPin,
     if (visited && visited->contains(key)) return;
     if (visited) visited->insert(key);
 
-    for (const BPConnection& c : m_connections) {
+    // exec 输出支持扇出：跟随该出口的所有连线，依次执行
+    const QList<BPConnection> conns = m_connections;   // 拷贝，防执行中修改
+    for (const BPConnection& c : conns) {
         if (c.fromNode == fromNodeId && c.fromPin == fromPin) {
             QString nextPin = executeNode(c.toNode);
             if (!nextPin.isEmpty())
                 executeChain(c.toNode, nextPin, visited);
-            break;
         }
     }
 }
@@ -203,7 +300,7 @@ QString BPRuntime::executeNode(const QString& nodeId) {
     }
 
     if (node->type == "Flow.Switch") {
-        // 取「值」输入，逐个分支全等比较；命中走 case_<id>，否则 default 或不继续
+        // 取「值」输入，逐个分支比较；每分支比较值可连变量(caseval_<id>)或用字面量
         const QString v = resolveDataPin(nodeId, "value");
         const QJsonDocument d = QJsonDocument::fromJson(node->params.value("branches").toUtf8());
         if (d.isArray()) {
@@ -211,8 +308,9 @@ QString BPRuntime::executeNode(const QString& nodeId) {
                 const QJsonObject o = bv.toObject();
                 const QString id = o.value("id").toString();
                 if (id.isEmpty()) continue;
-                if (o.value("value").toString() == v)
-                    return "case_" + id;
+                QString cmp = resolveDataPin(nodeId, "caseval_" + id);     // 连线 or params 字面量
+                if (cmp.isEmpty()) cmp = o.value("value").toString();      // 兼容旧数据
+                if (cmp == v) return "case_" + id;
             }
         }
         const QString hd = node->params.value("hasDefault").toLower();

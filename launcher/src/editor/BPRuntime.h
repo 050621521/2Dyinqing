@@ -38,6 +38,8 @@ private slots:
     void tick();
 
 private:
+    // 装载时把 Macro:: 调用节点内联展开为其子图（宏=内联语义，支持嵌套）
+    void    flattenMacros(const QString& projectRoot);
     void    tickComponents(float dt);
     void    triggerTick(float dt);
     void    executeChain(const QString& fromNodeId, const QString& fromPin,

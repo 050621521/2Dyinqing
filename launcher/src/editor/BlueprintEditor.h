@@ -1,12 +1,14 @@
 #pragma once
 #include "models/LevelDocument.h"
 #include "models/BPClass.h"
+#include "models/BPMacro.h"
 #include <QWidget>
 #include <QColor>
 #include <QPointF>
 #include <QRectF>
 #include <QList>
 #include <QMap>
+#include <QHash>
 #include <QSet>
 #include <QString>
 #include <QUndoStack>
@@ -93,6 +95,10 @@ private:
     QPointF       m_groupDragLast;    // 上次画布坐标（增量移动）
     void selectSingleNode(const QString& id);
     void clearNodeSelection();
+    // 折叠选中节点为一个本地自定义节点（宏）
+    void foldSelectionToMacro();
+    // 解开折叠：把一个自定义节点展开回其内部节点，外部连线接回
+    void unfoldMacroNode(const QString& nodeId);
 
     // 连线拖拽
     QString  m_wireFromNode;
@@ -115,6 +121,16 @@ private:
     QFrame*  m_paramEditPopup   = nullptr;
     QString  m_paramEditNodeId;
     QString  m_paramEditPinKey;
+
+    // 宏（自定义节点）：库资产缓存 + 当前正在编辑的宏（编辑子图时由 B5 设置）
+    mutable QHash<QString, BPMacro> m_macroCache;
+    BPMacro* m_editingMacro = nullptr;
+    const BPMacro* findMacro(const QString& id) const;
+    // 取某调用节点引用的宏接口（库资产 or 本地折叠子图）；成功返回 true
+    bool macroInterface(const BPNode& node, QList<MacroPin>& ins,
+                        QList<MacroPin>& outs) const;
+    static ValueKind kindFromString(const QString& s);
+    static QString   kindToString(ValueKind k);
 
     // UI 资产选择器
     QString  m_projectRoot;

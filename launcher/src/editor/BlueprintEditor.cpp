@@ -24,6 +24,8 @@
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QInputDialog>
+#include <QMessageBox>
 
 // ── bpClass/doc 统一读写辅助 ─────────────────────────────────────────
 
@@ -86,6 +88,20 @@ QString serializeSwitchBranches(const QList<SwitchBranch>& branches) {
 bool switchHasDefault(const BPNode& node) {
     const QString v = node.params.value("hasDefault").toLower();
     return v == "true" || v == "1";
+}
+
+// 分支比较值字面量：优先 params["caseval_<id>"]；兼容旧数据（曾存于 branches JSON 的 value）
+QString switchCaseValue(const BPNode& node, const QString& id) {
+    const QString v = node.params.value("caseval_" + id);
+    if (!v.isEmpty()) return v;
+    for (const SwitchBranch& b : parseSwitchBranches(node.params.value("branches")))
+        if (b.id == id) return b.value;
+    return QString();
+}
+
+// 宏（自定义节点）相关：调用节点 type 以 "Macro::" 开头；入口/出口为 Macro.Entry/Exit
+bool isMacroNodeType(const QString& t) {
+    return t.startsWith("Macro::") || t == "Macro.Entry" || t == "Macro.Exit";
 }
 
 // 新建 Flow.Switch 时给一组默认分支，避免空节点
@@ -529,15 +545,90 @@ QPointF BlueprintEditor::screenToCanvas(QPointF s) const {
 // 节点实例的有效引脚列表。普通节点直接返回静态 def->pins；
 // 动态节点（后续 Flow.Switch / Macro:: 调用节点）按实例配置计算。
 // 所有"按实例枚举引脚"的几何/绘制/命中逻辑统一走此入口。
+BlueprintEditor::ValueKind BlueprintEditor::kindFromString(const QString& s) {
+    if (s == "Bool")      return ValueKind::Bool;
+    if (s == "LevelRef")  return ValueKind::LevelRef;
+    if (s == "ActorRef")  return ValueKind::ActorRef;
+    if (s == "UIRef")     return ValueKind::UIRef;
+    if (s == "WidgetRef") return ValueKind::WidgetRef;
+    return ValueKind::Text;
+}
+
+QString BlueprintEditor::kindToString(ValueKind k) {
+    switch (k) {
+        case ValueKind::Bool:      return "Bool";
+        case ValueKind::LevelRef:  return "LevelRef";
+        case ValueKind::ActorRef:  return "ActorRef";
+        case ValueKind::UIRef:     return "UIRef";
+        case ValueKind::WidgetRef: return "WidgetRef";
+        default:                   return "Text";
+    }
+}
+
+const BPMacro* BlueprintEditor::findMacro(const QString& id) const {
+    auto it = m_macroCache.find(id);
+    if (it != m_macroCache.end()) return &it.value();
+    if (!m_projectRoot.isEmpty())
+        for (const BPMacro& m : BPMacro::listAll(m_projectRoot))
+            m_macroCache.insert(m.id, m);
+    it = m_macroCache.find(id);
+    return it != m_macroCache.end() ? &it.value() : nullptr;
+}
+
+bool BlueprintEditor::macroInterface(const BPNode& node, QList<MacroPin>& ins,
+                                     QList<MacroPin>& outs) const {
+    if (!node.type.startsWith("Macro::")) return false;
+    if (node.type == "Macro::local") {
+        const QString sub = node.params.value("subgraph");
+        if (sub.isEmpty()) return false;
+        const BPMacro m = BPMacro::fromJson(QJsonDocument::fromJson(sub.toUtf8()).object());
+        ins = m.inputPins; outs = m.outputPins;
+        return true;
+    }
+    const BPMacro* m = findMacro(node.type.mid(7));   // 去掉 "Macro::"
+    if (!m) return false;
+    ins = m->inputPins; outs = m->outputPins;
+    return true;
+}
+
 QList<BlueprintEditor::PinDef> BlueprintEditor::effectivePins(const BPNode& node) const {
-    // 分支控制：exec_in + value（数据输入）+ 每个分支一个 exec 出口 + 可选 default
+    // 宏调用节点：引脚来自所引用宏的接口（输入在前、输出在后）
+    if (node.type.startsWith("Macro::")) {
+        QList<PinDef> pins;
+        QList<MacroPin> ins, outs;
+        if (macroInterface(node, ins, outs)) {
+            for (const MacroPin& p : ins)
+                pins.append({p.key, p.label, p.isExec, false, kindFromString(p.kind)});
+            for (const MacroPin& p : outs)
+                pins.append({p.key, p.label, p.isExec, true,  kindFromString(p.kind)});
+        }
+        return pins;
+    }
+    // 入口节点：输出引脚 = 正在编辑的宏的对外输入
+    if (node.type == "Macro.Entry") {
+        QList<PinDef> pins;
+        if (m_editingMacro)
+            for (const MacroPin& p : m_editingMacro->inputPins)
+                pins.append({p.key, p.label, p.isExec, true, kindFromString(p.kind)});
+        return pins;
+    }
+    // 出口节点：输入引脚 = 正在编辑的宏的对外输出
+    if (node.type == "Macro.Exit") {
+        QList<PinDef> pins;
+        if (m_editingMacro)
+            for (const MacroPin& p : m_editingMacro->outputPins)
+                pins.append({p.key, p.label, p.isExec, false, kindFromString(p.kind)});
+        return pins;
+    }
+
+    // 分支控制：exec_in + value（数据输入）；每个分支一行 = 比较值数据输入(caseval) + exec 出口(case)
     if (node.type == "Flow.Switch") {
         QList<PinDef> pins;
         pins.append({"exec_in", "exec", true,  false});
         pins.append({"value",   "值",   false, false});
         for (const SwitchBranch& b : parseSwitchBranches(node.params.value("branches"))) {
-            const QString label = b.value.isEmpty() ? "= ?" : ("= " + b.value);
-            pins.append({"case_" + b.id, label, true, true});
+            pins.append({"caseval_" + b.id, QString(), false, false});  // 比较值（可连变量）
+            pins.append({"case_" + b.id,    QString(), true,  true});   // exec 出口
         }
         if (switchHasDefault(node))
             pins.append({"default", "默认", true, true});
@@ -554,9 +645,12 @@ float BlueprintEditor::nodeHeight(const BPNode& node) const {
         return kHeaderH + kRowH * (1 + n) + 4.0f;
     }
     int pinCount = effectivePins(node).size();
-    // 分支控制：在引脚行下额外预留「默认开关」「＋加分支」两行
-    if (node.type == "Flow.Switch")
-        return kHeaderH + kRowH * (pinCount + 2) + 4.0f;
+    // 分支控制：可视行 = exec_in + value + 每分支一行 + [默认]，再加「默认开关」「＋加分支」两行
+    if (node.type == "Flow.Switch") {
+        const int nb = parseSwitchBranches(node.params.value("branches")).size();
+        const int rows = 2 + nb + (switchHasDefault(node) ? 1 : 0);
+        return kHeaderH + kRowH * (rows + 2) + 4.0f;
+    }
     int extraRows = (node.type == "Var.ActorRef" || nodeHasUIPicker(node.type)) ? 1 : 0;
     return kHeaderH + kRowH * qMax(1, pinCount + extraRows) + 4.0f;
 }
@@ -580,6 +674,24 @@ QPointF BlueprintEditor::pinCenter(const BPNode& node, const QString& pinKey, bo
             }
         }
         return {};
+    }
+
+    // 分支控制：每分支一行（caseval 左、case 右同一行），自定义行映射
+    if (node.type == "Flow.Switch") {
+        const auto branches = parseSwitchBranches(node.params.value("branches"));
+        int row = -1;
+        if (pinKey == "exec_in") row = 0;
+        else if (pinKey == "value") row = 1;
+        else if (pinKey == "default") row = 2 + branches.size();
+        else {
+            const QString id = pinKey.startsWith("caseval_") ? pinKey.mid(8)
+                             : pinKey.startsWith("case_")    ? pinKey.mid(5) : QString();
+            for (int i = 0; i < branches.size(); ++i)
+                if (branches[i].id == id) { row = 2 + i; break; }
+        }
+        if (row < 0) return {};
+        float cy = (float)(tl.y() + (kHeaderH + row * kRowH + kRowH * 0.5f) * m_zoom);
+        return {isOutput ? rightX : leftX, cy};
     }
 
     int extraRows = (node.type == "Var.ActorRef" || nodeHasUIPicker(node.type)) ? 1 : 0;
@@ -630,7 +742,7 @@ BlueprintEditor::Hit BlueprintEditor::hitTest(QPointF screenPos) const {
     for (int i = nodes.size() - 1; i >= 0; --i) {
         const BPNode& node = nodes[i];
         const NodeDef* def = findNodeDef(node.type);
-        if (!def) continue;
+        if (!def && !isMacroNodeType(node.type)) continue;
 
         int row = 0;
         for (const PinDef& pd : effectivePins(node)) {
@@ -667,38 +779,53 @@ BlueprintEditor::Hit BlueprintEditor::hitTest(QPointF screenPos) const {
             }
         }
     }
-    // 分支控制的可点区域：分支 × 删除 / 分支值编辑 / 默认开关 / ＋加分支
-    // （置于 pin 圆点命中之后、普通 PinValue 之前）
+    // 分支控制的可点区域：值框编辑 / 分支 × 删除 / 默认开关 / ＋加分支
+    // （置于 pin 圆点命中之后、普通 PinValue 之前；引脚本身由上面的 pin 圆点循环处理）
     for (int i = nodes.size() - 1; i >= 0; --i) {
         const BPNode& node = nodes[i];
         if (node.type != "Flow.Switch") continue;
         QPointF tl = canvasToScreen({node.x, node.y});
-        float nw = kNodeW * (float)m_zoom;
-        const QList<PinDef> pins = effectivePins(node);
-        const int P = pins.size();
-        // 各 case 行：左侧 × 删除，中段值编辑
-        for (int r = 0; r < P; ++r) {
-            if (!pins[r].key.startsWith("case_")) continue;
-            float rowY = tl.y() + (kHeaderH + r * kRowH) * (float)m_zoom;
-            float rowH = kRowH * (float)m_zoom;
-            if (screenPos.y() < rowY || screenPos.y() > rowY + rowH) continue;
-            const QString branchId = pins[r].key.mid(5);
-            if (screenPos.x() >= tl.x() && screenPos.x() <= tl.x() + 18.0f * m_zoom) {
-                Hit h; h.type = Hit::SwitchDel; h.nodeId = node.id; h.pinName = branchId; return h;
-            }
-            if (screenPos.x() <= tl.x() + nw - 16.0f * m_zoom) {
-                Hit h; h.type = Hit::SwitchValue; h.nodeId = node.id; h.pinName = branchId; return h;
+        const float nw = kNodeW * (float)m_zoom;
+        const float rowH = kRowH * (float)m_zoom;
+        auto rowYOf = [&](int r){ return (float)(tl.y() + (kHeaderH + r * kRowH) * m_zoom); };
+        const auto branches = parseSwitchBranches(node.params.value("branches"));
+        const float boxX0 = tl.x() + nw * 0.34f;
+        const float boxX1 = tl.x() + nw - 30.0f * m_zoom;
+
+        // value 行（row 1）：未连接时可编辑值框
+        {
+            const float rowY = rowYOf(1);
+            if (screenPos.y() >= rowY && screenPos.y() <= rowY + rowH &&
+                screenPos.x() >= boxX0 && screenPos.x() <= boxX1 &&
+                !isPinConnected(node.id, "value", false)) {
+                Hit h; h.type = Hit::SwitchValue; h.nodeId = node.id; h.pinName = "value"; return h;
             }
         }
-        // 默认开关行 (row P)
-        float defY = tl.y() + (kHeaderH + P * kRowH) * (float)m_zoom;
-        float rowH = kRowH * (float)m_zoom;
+        // 各分支行
+        for (int b = 0; b < branches.size(); ++b) {
+            const float rowY = rowYOf(2 + b);
+            if (screenPos.y() < rowY || screenPos.y() > rowY + rowH) continue;
+            const QString id = branches[b].id;
+            // × 删除（case 出口左侧）
+            if (screenPos.x() >= tl.x() + nw - 30.0f * m_zoom &&
+                screenPos.x() <= tl.x() + nw - 14.0f * m_zoom) {
+                Hit h; h.type = Hit::SwitchDel; h.nodeId = node.id; h.pinName = id; return h;
+            }
+            // 比较值框（未连接 caseval 时）
+            if (screenPos.x() >= boxX0 && screenPos.x() <= boxX1 &&
+                !isPinConnected(node.id, "caseval_" + id, false)) {
+                Hit h; h.type = Hit::SwitchValue; h.nodeId = node.id;
+                h.pinName = "caseval_" + id; return h;
+            }
+        }
+        // 默认开关行 / ＋加分支行
+        const int toggleRow = 2 + branches.size() + (switchHasDefault(node) ? 1 : 0);
+        const float defY = rowYOf(toggleRow);
         if (screenPos.y() >= defY && screenPos.y() <= defY + rowH &&
             screenPos.x() >= tl.x() && screenPos.x() <= tl.x() + nw) {
             Hit h; h.type = Hit::SwitchDefault; h.nodeId = node.id; return h;
         }
-        // ＋加分支行 (row P+1)
-        float addY = tl.y() + (kHeaderH + (P + 1) * kRowH) * (float)m_zoom;
+        const float addY = rowYOf(toggleRow + 1);
         if (screenPos.y() >= addY && screenPos.y() <= addY + rowH &&
             screenPos.x() >= tl.x() && screenPos.x() <= tl.x() + nw) {
             Hit h; h.type = Hit::SwitchAdd; h.nodeId = node.id; return h;
@@ -708,8 +835,9 @@ BlueprintEditor::Hit BlueprintEditor::hitTest(QPointF screenPos) const {
     const auto& nodes2 = activeNodes();
     for (int i = nodes2.size() - 1; i >= 0; --i) {
         const BPNode& node = nodes2[i];
+        if (node.type == "Flow.Switch") continue;   // 分支控制值框由上面专门处理
         const NodeDef* def = findNodeDef(node.type);
-        if (!def) continue;
+        if (!def && !isMacroNodeType(node.type)) continue;
         QPointF tl = canvasToScreen({node.x, node.y});
         float nw = kNodeW * m_zoom;
 
@@ -913,7 +1041,25 @@ void BlueprintEditor::drawPin(QPainter& p, QPointF center, bool isExec, bool con
 
 void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
     const NodeDef* def = findNodeDef(node.type);
-    if (!def) return;
+    if (!def && !isMacroNodeType(node.type)) return;
+
+    // 表头名称/颜色：普通节点取静态定义；宏节点动态推导
+    QColor  headerColor;
+    QString displayName;
+    if (def) {
+        headerColor = def->headerColor;
+        displayName = def->displayName;
+    } else if (node.type == "Macro.Entry") {
+        headerColor = QColor("#6a6a3a"); displayName = "入口节点";
+    } else if (node.type == "Macro.Exit") {
+        headerColor = QColor("#6a6a3a"); displayName = "出口节点";
+    } else {  // Macro:: 调用节点
+        headerColor = QColor("#3a2a5a");
+        QString nm = node.params.value("macroName");
+        if (nm.isEmpty() && node.type != "Macro::local")
+            if (const BPMacro* m = findMacro(node.type.mid(7))) nm = m->name;
+        displayName = nm.isEmpty() ? "自定义节点" : nm;
+    }
 
     QPointF tl = canvasToScreen({node.x, node.y});
     float nw = kNodeW * (float)m_zoom;
@@ -938,14 +1084,14 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
     headerPath.quadTo(headerRc.topRight(), headerRc.topRight() + QPointF(0, radius));
     headerPath.lineTo(headerRc.bottomRight());
     headerPath.closeSubpath();
-    p.setBrush(def->headerColor);
+    p.setBrush(headerColor);
     p.drawPath(headerPath);
 
     // 色块图标
     float iconSz = 8.0f * (float)m_zoom;
     float iconX  = tl.x() + 6.0f * (float)m_zoom;
     float iconY  = tl.y() + (hh - iconSz) * 0.5f;
-    QColor iconColor = def->headerColor.lighter(150);
+    QColor iconColor = headerColor.lighter(150);
     p.setBrush(iconColor);
     p.drawRect(QRectF(iconX, iconY, iconSz, iconSz));
 
@@ -955,7 +1101,7 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
     p.setFont(font);
     p.setPen(QColor(0xff, 0xff, 0xff));
     float textX = iconX + iconSz + 5.0f * (float)m_zoom;
-    QString titleText = def->displayName;
+    QString titleText = displayName;
     if (nodeHasUIPicker(node.type)) {
         const QString uiParam = node.params.value("uiName");
         if (!uiParam.isEmpty()) {
@@ -1054,6 +1200,7 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
 
     int extraRows = (node.type == "Var.ActorRef" || nodeHasUIPicker(node.type)) ? 1 : 0;
     int row = 0;
+    if (node.type != "Flow.Switch")      // 分支控制自定义绘制，跳过通用引脚循环
     for (const PinDef& pd : effectivePins(node)) {
         QPointF pc = pinCenter(node, pd.key, pd.isOutput);
         bool connected = isPinConnected(node.id, pd.key, pd.isOutput);
@@ -1122,52 +1269,99 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
         ++row;
     }
 
-    // 分支控制：在引脚行下绘制 分支×删除 / 默认开关 / ＋加分支
+    // 分支控制：完整自定义绘制（每分支：左值输入引脚 + 比较值框 + × + 右 exec 出口）
     if (node.type == "Flow.Switch") {
-        const QList<PinDef> pins = effectivePins(node);
-        const int P = pins.size();
-        QFont sf; sf.setPointSizeF(qMax(7.0, 9.0 * m_zoom));
-        p.setFont(sf);
-        // 每个 case 行左侧画 ×
-        for (int r = 0; r < P; ++r) {
-            if (!pins[r].key.startsWith("case_")) continue;
-            float rowY = tl.y() + (kHeaderH + r * kRowH) * (float)m_zoom;
-            float rowH = kRowH * (float)m_zoom;
+        const auto branches = parseSwitchBranches(node.params.value("branches"));
+        QFont sf; sf.setPointSizeF(qMax(7.0, 9.0 * m_zoom)); p.setFont(sf);
+        const float rowH = kRowH * (float)m_zoom;
+        auto rowYOf = [&](int r){ return (float)(tl.y() + (kHeaderH + r * kRowH) * m_zoom); };
+
+        auto drawValBox = [&](float rowY, const QString& text, bool connected) {
+            const float bx0 = (float)(tl.x() + nw * 0.34f);
+            const float bx1 = (float)(tl.x() + nw - 30.0f * (float)m_zoom);
+            QRectF boxRc(bx0, rowY + 2, bx1 - bx0, rowH - 4);
+            if (connected) {
+                p.setPen(QColor(0x88, 0x88, 0x88)); p.setBrush(Qt::NoBrush);
+                p.drawText(boxRc, Qt::AlignVCenter | Qt::AlignRight, "(变量)");
+                return;
+            }
+            p.setBrush(QColor(0x1c, 0x2d, 0x3e));
+            p.setPen(QPen(QColor(0x2a, 0x50, 0x70), 1.0));
+            p.drawRoundedRect(boxRc, 2.0, 2.0);
+            p.setBrush(Qt::NoBrush);
+            const QString disp = text.isEmpty() ? "···" : text;
+            p.setPen(text.isEmpty() ? QColor(0x55, 0x55, 0x55) : QColor(0x5a, 0x9f, 0xd4));
+            p.drawText(boxRc.adjusted(3, 0, -3, 0), Qt::AlignVCenter | Qt::AlignRight, disp);
+        };
+
+        // exec_in
+        drawPin(p, pinCenter(node, "exec_in", false), true, isPinConnected(node.id, "exec_in", false));
+        p.setPen(QColor(0xaa, 0xaa, 0xaa));
+        p.drawText(QRectF(tl.x() + 18 * (float)m_zoom, rowYOf(0), nw, rowH),
+                   Qt::AlignVCenter | Qt::AlignLeft, "exec");
+        // value（被判断的值）
+        {
+            const bool conn = isPinConnected(node.id, "value", false);
+            drawPin(p, pinCenter(node, "value", false), false, conn);
+            p.setPen(QColor(0xaa, 0xaa, 0xaa));
+            p.drawText(QRectF(tl.x() + 18 * (float)m_zoom, rowYOf(1), nw * 0.3f, rowH),
+                       Qt::AlignVCenter | Qt::AlignLeft, "值");
+            drawValBox(rowYOf(1), node.params.value("value"), conn);
+        }
+        // 各分支
+        for (int i = 0; i < branches.size(); ++i) {
+            const QString id = branches[i].id;
+            const float rowY = rowYOf(2 + i);
+            const bool cvConn = isPinConnected(node.id, "caseval_" + id, false);
+            drawPin(p, pinCenter(node, "caseval_" + id, false), false, cvConn);
+            drawPin(p, pinCenter(node, "case_" + id, true), true, isPinConnected(node.id, "case_" + id, true));
+            p.setPen(QColor(0xaa, 0xaa, 0xaa));
+            p.drawText(QRectF(tl.x() + 18 * (float)m_zoom, rowY, 16 * (float)m_zoom, rowH),
+                       Qt::AlignVCenter | Qt::AlignLeft, "=");
+            drawValBox(rowY, switchCaseValue(node, id), cvConn);
             p.setPen(QColor(0xc0, 0x60, 0x60));
-            p.drawText(QRectF(tl.x() + 4.0f * (float)m_zoom, rowY, 14.0f * (float)m_zoom, rowH),
+            p.drawText(QRectF(tl.x() + nw - 28 * (float)m_zoom, rowY, 14 * (float)m_zoom, rowH),
                        Qt::AlignCenter, "×");
         }
-        // 默认开关行 (row P)
-        float defY = tl.y() + (kHeaderH + P * kRowH) * (float)m_zoom;
-        float rowH = kRowH * (float)m_zoom;
-        bool on = switchHasDefault(node);
-        float sz = qMin(rowH - 6.0f, 13.0f * (float)m_zoom);
-        QRectF box(tl.x() + 8.0f * (float)m_zoom, defY + (rowH - sz) * 0.5f, sz, sz);
-        p.setBrush(on ? QColor(0x2a, 0x6a, 0x6a) : QColor(0x1c, 0x2d, 0x3e));
-        p.setPen(QPen(QColor(0x2a, 0x50, 0x70), 1.0));
-        p.drawRoundedRect(box, 2.0, 2.0);
-        if (on) {
-            p.setBrush(Qt::NoBrush);
-            p.setPen(QPen(QColor(0xe0, 0xff, 0xe0), qMax(1.2, 1.5 * m_zoom)));
-            QPointF a(box.left() + sz * 0.24, box.center().y() + sz * 0.02);
-            QPointF b(box.left() + sz * 0.42, box.bottom() - sz * 0.26);
-            QPointF c(box.right() - sz * 0.20, box.top() + sz * 0.26);
-            p.drawLine(a, b); p.drawLine(b, c);
+        // default 出口
+        if (switchHasDefault(node)) {
+            const int row = 2 + branches.size();
+            drawPin(p, pinCenter(node, "default", true), true, isPinConnected(node.id, "default", true));
+            p.setPen(QColor(0xaa, 0xaa, 0xaa));
+            p.drawText(QRectF(tl.x(), rowYOf(row), nw - 18 * (float)m_zoom, rowH),
+                       Qt::AlignVCenter | Qt::AlignRight, "默认");
         }
-        p.setBrush(Qt::NoBrush);
-        p.setPen(QColor(0xaa, 0xaa, 0xaa));
-        p.drawText(QRectF(box.right() + 6.0f * (float)m_zoom, defY,
-                          nw - (box.right() - tl.x()) - 10.0f * (float)m_zoom, rowH),
-                   Qt::AlignVCenter | Qt::AlignLeft, "默认出口");
-        // ＋加分支行 (row P+1)
-        float addY = tl.y() + (kHeaderH + (P + 1) * kRowH) * (float)m_zoom;
-        QRectF rc(tl.x() + 6.0f * (float)m_zoom, addY + 2.0f, nw - 12.0f * (float)m_zoom, rowH - 4.0f);
-        p.setBrush(QColor(0x20, 0x28, 0x1f));
-        p.setPen(QPen(QColor(0x3a, 0x5a, 0x3a), 1.0));
-        p.drawRoundedRect(rc, 3.0, 3.0);
-        p.setBrush(Qt::NoBrush);
-        p.setPen(QColor(0x7b, 0xbf, 0x7b));
-        p.drawText(rc, Qt::AlignCenter, "＋ 加分支");
+        // 默认开关行 + 加分支行
+        const int toggleRow = 2 + branches.size() + (switchHasDefault(node) ? 1 : 0);
+        {
+            const float defY = rowYOf(toggleRow);
+            const bool on = switchHasDefault(node);
+            const float sz = qMin(rowH - 6.0f, 13.0f * (float)m_zoom);
+            QRectF box(tl.x() + 8 * (float)m_zoom, defY + (rowH - sz) * 0.5f, sz, sz);
+            p.setBrush(on ? QColor(0x2a, 0x6a, 0x6a) : QColor(0x1c, 0x2d, 0x3e));
+            p.setPen(QPen(QColor(0x2a, 0x50, 0x70), 1.0));
+            p.drawRoundedRect(box, 2.0, 2.0);
+            if (on) {
+                p.setBrush(Qt::NoBrush);
+                p.setPen(QPen(QColor(0xe0, 0xff, 0xe0), qMax(1.2, 1.5 * m_zoom)));
+                QPointF a(box.left() + sz * 0.24, box.center().y() + sz * 0.02);
+                QPointF b(box.left() + sz * 0.42, box.bottom() - sz * 0.26);
+                QPointF c(box.right() - sz * 0.20, box.top() + sz * 0.26);
+                p.drawLine(a, b); p.drawLine(b, c);
+            }
+            p.setBrush(Qt::NoBrush); p.setPen(QColor(0xaa, 0xaa, 0xaa));
+            p.drawText(QRectF(box.right() + 6 * (float)m_zoom, defY, nw, rowH),
+                       Qt::AlignVCenter | Qt::AlignLeft, "默认出口");
+        }
+        {
+            const float addY = rowYOf(toggleRow + 1);
+            QRectF rc(tl.x() + 6 * (float)m_zoom, addY + 2.0f, nw - 12 * (float)m_zoom, rowH - 4.0f);
+            p.setBrush(QColor(0x20, 0x28, 0x1f));
+            p.setPen(QPen(QColor(0x3a, 0x5a, 0x3a), 1.0));
+            p.drawRoundedRect(rc, 3.0, 3.0);
+            p.setBrush(Qt::NoBrush); p.setPen(QColor(0x7b, 0xbf, 0x7b));
+            p.drawText(rc, Qt::AlignCenter, "＋ 加分支");
+        }
         p.setFont(font);
     }
 
@@ -1225,6 +1419,206 @@ void BlueprintEditor::selectSingleNode(const QString& id) {
 void BlueprintEditor::clearNodeSelection() {
     m_selectedNodeId.clear();
     m_selectedNodeIds.clear();
+}
+
+// 折叠选中节点为一个本地自定义节点（宏）。
+// 穿越选区边界的连线 → 自动推成入口/出口引脚；选区替换为一个 Macro::local 调用节点。
+void BlueprintEditor::foldSelectionToMacro() {
+    if (m_selectedNodeIds.isEmpty() || (!m_doc && !m_bpClass)) return;
+    const QSet<QString> sel = m_selectedNodeIds;
+
+    bool ok = false;
+    const QString name = QInputDialog::getText(this, "折叠成节点", "节点名称：",
+                             QLineEdit::Normal, "自定义节点", &ok).trimmed();
+    if (!ok || name.isEmpty()) return;
+
+    auto uuid = [] { return QUuid::createUuid().toString(QUuid::WithoutBraces); };
+
+    // 选中节点快照 + 重心
+    QList<BPNode> selNodes;
+    QPointF centroid(0, 0);
+    for (const QString& id : sel)
+        if (const BPNode* n = findNode(id)) { selNodes << *n; centroid += QPointF(n->x, n->y); }
+    if (selNodes.isEmpty()) return;
+    centroid /= selNodes.size();
+
+    const QList<BPConnection> connSnap = activeConns();
+
+    // 某引脚是否连到"选区内的另一个节点"（连内部=隐藏；否则暴露为边界引脚）
+    auto pinHasInternal = [&](const QString& nodeId, const QString& key, bool isOutput) -> bool {
+        for (const BPConnection& c : connSnap) {
+            if (isOutput) { if (c.fromNode == nodeId && c.fromPin == key && sel.contains(c.toNode))   return true; }
+            else          { if (c.toNode   == nodeId && c.toPin   == key && sel.contains(c.fromNode)) return true; }
+        }
+        return false;
+    };
+
+    // 边界引脚 = 选区内每个节点上"未连到选区内其他节点"的引脚（含未连接的空引脚）
+    struct Boundary { QString node, pin; bool isOutputPin, isExec; QString kind, label, pinKey; };
+    QList<Boundary> boundaries;
+    for (const BPNode& n : selNodes)
+        for (const PinDef& pd : effectivePins(n)) {
+            if (pinHasInternal(n.id, pd.key, pd.isOutput)) continue;  // 内部连接，隐藏
+            boundaries.append({n.id, pd.key, pd.isOutput, pd.isExec, kindToString(pd.kind), pd.label,
+                               (pd.isOutput ? "out_" : "in_") + uuid()});
+        }
+
+    if (boundaries.isEmpty()) {
+        const auto ret = QMessageBox::question(this, "折叠成节点",
+            "选区内节点没有任何对外引脚，折叠后将是一个无引脚的节点。\n仍要折叠吗？",
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (ret != QMessageBox::Yes) return;
+    }
+
+    // 组装宏资产
+    BPMacro macro;
+    macro.id   = uuid();
+    macro.name = name;
+    macro.nodes = selNodes;
+    BPNode entry; entry.id = uuid(); entry.type = "Macro.Entry";
+    entry.x = centroid.x() - 240; entry.y = centroid.y();
+    BPNode exitN; exitN.id = uuid(); exitN.type = "Macro.Exit";
+    exitN.x = centroid.x() + 240; exitN.y = centroid.y();
+    macro.nodes << entry << exitN;
+    // 内部连线（两端都在选区）整体保留
+    for (const BPConnection& c : connSnap)
+        if (sel.contains(c.fromNode) && sel.contains(c.toNode)) macro.connections.append(c);
+    // 边界引脚 → 宏接口 + 入口/出口接线
+    for (const Boundary& b : boundaries) {
+        const MacroPin mp{b.pinKey, b.label, b.isExec, b.kind};
+        if (b.isOutputPin) {
+            macro.outputPins.append(mp);
+            macro.connections.append({uuid(), b.node, b.pin, exitN.id, b.pinKey});
+        } else {
+            macro.inputPins.append(mp);
+            macro.connections.append({uuid(), entry.id, b.pinKey, b.node, b.pin});
+        }
+    }
+
+    // 调用节点（本地折叠：子图存自身 params）
+    BPNode call;
+    call.id   = uuid();
+    call.type = "Macro::local";
+    call.x = centroid.x(); call.y = centroid.y();
+    call.params["macroName"] = name;
+    call.params["subgraph"]  =
+        QString::fromUtf8(QJsonDocument(macro.toJson()).toJson(QJsonDocument::Compact));
+
+    // 外部连线改接到调用节点（连到边界引脚的那些线）
+    QList<BPConnection> newExternal;
+    for (const Boundary& b : boundaries) {
+        for (const BPConnection& c : connSnap) {
+            if (b.isOutputPin) {
+                if (c.fromNode == b.node && c.fromPin == b.pin && !sel.contains(c.toNode))
+                    newExternal.append({uuid(), call.id, b.pinKey, c.toNode, c.toPin});
+            } else {
+                if (c.toNode == b.node && c.toPin == b.pin && !sel.contains(c.fromNode))
+                    newExternal.append({uuid(), c.fromNode, c.fromPin, call.id, b.pinKey});
+            }
+        }
+    }
+
+    // 应用（整组 Undo）：删边界/内部连线 → 删选中节点 → 加调用节点 → 加外部新连线
+    auto refresh = [this] { notifyModified(); update(); };
+    m_bpUndoStack->beginMacro("折叠成节点");
+    for (const BPConnection& c : connSnap)
+        if (sel.contains(c.fromNode) || sel.contains(c.toNode))
+            m_bpUndoStack->push(new BPConnectionRemoveCmd(m_bpClass, m_doc, c, refresh));
+    for (const BPNode& n : selNodes)
+        m_bpUndoStack->push(new BPNodeRemoveCmd(m_bpClass, m_doc, n, {}, refresh));
+    m_bpUndoStack->push(new BPNodeAddCmd(m_bpClass, m_doc, call, refresh));
+    for (const BPConnection& c : newExternal)
+        m_bpUndoStack->push(new BPConnectionAddCmd(m_bpClass, m_doc, c, {}, false, refresh));
+    m_bpUndoStack->endMacro();
+
+    selectSingleNode(call.id);
+    update();
+}
+
+// 解开折叠：把一个 Macro:: 调用节点展开回其内部节点，外部连线接回内部端点。
+void BlueprintEditor::unfoldMacroNode(const QString& nodeId) {
+    const BPNode* callPtr = findNode(nodeId);
+    if (!callPtr || !callPtr->type.startsWith("Macro::") || (!m_doc && !m_bpClass)) return;
+    const BPNode call = *callPtr;
+
+    BPMacro macro; bool ok = false;
+    if (call.type == "Macro::local") {
+        const QString sub = call.params.value("subgraph");
+        if (!sub.isEmpty()) {
+            macro = BPMacro::fromJson(QJsonDocument::fromJson(sub.toUtf8()).object());
+            ok = true;
+        }
+    } else if (const BPMacro* m = findMacro(call.type.mid(7))) {
+        macro = *m; ok = true;
+    }
+    if (!ok) return;
+
+    auto uuid = [] { return QUuid::createUuid().toString(QUuid::WithoutBraces); };
+
+    QString entryId, exitId;
+    for (const BPNode& n : macro.nodes) {
+        if (n.type == "Macro.Entry") entryId = n.id;
+        else if (n.type == "Macro.Exit") exitId = n.id;
+    }
+    QMap<QString, QPair<QString,QString>> inMap, outMap;
+    for (const BPConnection& c : macro.connections) {
+        if (c.fromNode == entryId) inMap[c.fromPin] = {c.toNode, c.toPin};
+        if (c.toNode   == exitId)  outMap[c.toPin]  = {c.fromNode, c.fromPin};
+    }
+
+    QMap<QString,QString> idMap;
+    for (const BPNode& n : macro.nodes)
+        if (n.id != entryId && n.id != exitId) idMap[n.id] = uuid();
+    auto mapId = [&](const QString& id){ return idMap.value(id, id); };
+
+    QList<BPNode> newNodes;
+    for (const BPNode& n : macro.nodes) {
+        if (n.id == entryId || n.id == exitId) continue;
+        BPNode nn = n; nn.id = idMap[n.id]; newNodes << nn;
+    }
+    QList<BPConnection> newConns;
+    for (const BPConnection& c : macro.connections) {
+        if (c.fromNode == entryId || c.toNode == exitId) continue;
+        if (!idMap.contains(c.fromNode) || !idMap.contains(c.toNode)) continue;
+        newConns << BPConnection{uuid(), mapId(c.fromNode), c.fromPin, mapId(c.toNode), c.toPin};
+    }
+
+    const QList<BPConnection> extConns = activeConns();
+    QList<BPConnection> rewired;
+    for (const BPConnection& c : extConns) {
+        if (c.toNode == nodeId) {
+            auto it = inMap.find(c.toPin);
+            if (it != inMap.end())
+                rewired << BPConnection{uuid(), c.fromNode, c.fromPin,
+                                        mapId(it.value().first), it.value().second};
+        }
+        if (c.fromNode == nodeId) {
+            auto it = outMap.find(c.fromPin);
+            if (it != outMap.end())
+                rewired << BPConnection{uuid(), mapId(it.value().first), it.value().second,
+                                        c.toNode, c.toPin};
+        }
+    }
+
+    auto refresh = [this] { notifyModified(); update(); };
+    m_bpUndoStack->beginMacro("解开折叠");
+    for (const BPConnection& c : extConns)
+        if (c.fromNode == nodeId || c.toNode == nodeId)
+            m_bpUndoStack->push(new BPConnectionRemoveCmd(m_bpClass, m_doc, c, refresh));
+    m_bpUndoStack->push(new BPNodeRemoveCmd(m_bpClass, m_doc, call, {}, refresh));
+    for (const BPNode& n : newNodes)
+        m_bpUndoStack->push(new BPNodeAddCmd(m_bpClass, m_doc, n, refresh));
+    for (const BPConnection& c : newConns)
+        m_bpUndoStack->push(new BPConnectionAddCmd(m_bpClass, m_doc, c, {}, false, refresh));
+    for (const BPConnection& c : rewired)
+        m_bpUndoStack->push(new BPConnectionAddCmd(m_bpClass, m_doc, c, {}, false, refresh));
+    m_bpUndoStack->endMacro();
+
+    m_selectedNodeIds.clear();
+    for (const BPNode& n : newNodes) m_selectedNodeIds.insert(n.id);
+    m_selectedNodeId = newNodes.isEmpty() ? QString() : newNodes.first().id;
+    m_selectedConnId.clear();
+    update();
 }
 
 // ── 鼠标事件 ──────────────────────────────────────────────────────────
@@ -1323,7 +1717,7 @@ void BlueprintEditor::mousePressEvent(QMouseEvent* e) {
     }
     if (hit.type == Hit::SwitchValue) {
         selectSingleNode(hit.nodeId);
-        showInlineEdit(hit.nodeId, "case_" + hit.pinName);  // 写回分支比较值
+        showInlineEdit(hit.nodeId, hit.pinName);  // pinName = "value" 或 "caseval_<id>"
         update();
         return;
     }
@@ -1533,15 +1927,16 @@ void BlueprintEditor::mouseReleaseEvent(QMouseEvent* e) {
 
             if (typeOk) {
                 // 查找需被挤掉的旧连接（displaced）。
-                // 虚幻规则：exec 输出只能连一根（按输出端去重，输入端允许扇入多连）；
-                //          数据输入只能接一根（按输入端去重，输出端允许多连）。
+                // 规则：exec 既可扇出（一个输出连多个）也可扇入（多个连一个输入），
+                //       只挡完全重复的同一根线；数据输入仍单连（按输入端去重）。
                 const bool isExecConn = isPinExec(fromNodePtr->type, fromPin, true);
                 BPConnection displaced;
                 bool hasDisplaced = false;
                 for (const BPConnection& c : activeConns()) {
                     const bool conflict = isExecConn
-                        ? (c.fromNode == fromNode && c.fromPin == fromPin)   // exec：同一输出端
-                        : (c.toNode   == toNode   && c.toPin   == toPin);    // data：同一输入端
+                        ? (c.fromNode == fromNode && c.fromPin == fromPin
+                           && c.toNode == toNode && c.toPin == toPin)        // exec：仅挡重复线
+                        : (c.toNode   == toNode   && c.toPin   == toPin);    // data：输入单连
                     if (conflict) {
                         displaced = c;
                         hasDisplaced = true;
@@ -1668,6 +2063,15 @@ void BlueprintEditor::showContextMenu(const QPoint& pos, const QPoint& globalPos
         const NodeDef* def = findNodeDef(n->type);
         QString label = def ? def->displayName : n->type;
         QMenu menu(this);
+        if (n->type.startsWith("Macro::")) {
+            menu.addAction("解开折叠", [this, nodeId]() { unfoldMacroNode(nodeId); });
+            menu.addSeparator();
+        }
+        if (m_selectedNodeIds.contains(nodeId)) {
+            menu.addAction(QString("折叠成节点（%1）").arg(m_selectedNodeIds.size()),
+                           [this]() { foldSelectionToMacro(); });
+            menu.addSeparator();
+        }
         menu.addAction("删除节点 "" + label + """, [this, nodeId, n]() {
             QList<BPConnection> related;
             for (const BPConnection& c : activeConns())
@@ -1702,6 +2106,12 @@ void BlueprintEditor::showContextMenu(const QPoint& pos, const QPoint& globalPos
     QPointF canvasPos = screenToCanvas(pos);
 
     QMenu menu(this);
+    // 有多选时，顶部提供"折叠成节点"
+    if (m_selectedNodeIds.size() >= 2) {
+        menu.addAction(QString("折叠成节点（%1）").arg(m_selectedNodeIds.size()),
+                       [this]() { foldSelectionToMacro(); });
+        menu.addSeparator();
+    }
     auto* eventMenu  = menu.addMenu("事件");
     auto* keyMenu    = eventMenu->addMenu("键盘事件");
     auto* actionMenu = menu.addMenu("动作");
@@ -1989,35 +2399,32 @@ void BlueprintEditor::showInlineEdit(const QString& nodeId, const QString& pinKe
 
     const BPNode* node = findNode(nodeId);
     if (!node) return;
-    const NodeDef* def = findNodeDef(node->type);
-    if (!def) return;
 
-    // 计算该 pin 所在行
-    int extraRows = (node->type == "Var.ActorRef" || nodeHasUIPicker(node->type)) ? 1 : 0;
-    int row = 0;
-    for (const PinDef& pd : effectivePins(*node)) {
-        if (pd.key == pinKey) break;
-        ++row;
-    }
-
+    // 行 Y 用 pinCenter（兼容分支控制的自定义行布局）
+    const QPointF pc = pinCenter(*node, pinKey, false);
+    if (pc.x() == 0.0 && pc.y() == 0.0) return;
     QPointF tl  = canvasToScreen({node->x, node->y});
     float   nw  = kNodeW * (float)m_zoom;
-    float   rowY = (float)(tl.y() + (kHeaderH + (row + extraRows) * kRowH) * m_zoom);
     float   rowH = kRowH * (float)m_zoom;
-    float   x0  = (float)(tl.x() + nw * 0.5f);
-    float   x1  = (float)(tl.x() + nw - 6.0);
+    float   rowY = (float)pc.y() - rowH * 0.5f;
+    float   x0, x1;
+    if (node->type == "Flow.Switch") {
+        x0 = (float)(tl.x() + nw * 0.34f);
+        x1 = (float)(tl.x() + nw - 30.0f * (float)m_zoom);
+    } else {
+        x0 = (float)(tl.x() + nw * 0.5f);
+        x1 = (float)(tl.x() + nw - 6.0);
+    }
 
     m_inlineEditNodeId = nodeId;
     m_inlineEditPinKey = pinKey;
-
-    // 分支控制的 case_<id> 引脚：编辑的是分支比较值，初值取自 branches
     m_inlineSwitchBranchId.clear();
-    QString initText = node->params.value(pinKey);
-    if (node->type == "Flow.Switch" && pinKey.startsWith("case_")) {
-        m_inlineSwitchBranchId = pinKey.mid(5);
-        for (const SwitchBranch& b : parseSwitchBranches(node->params.value("branches")))
-            if (b.id == m_inlineSwitchBranchId) { initText = b.value; break; }
-    }
+
+    QString initText;
+    if (node->type == "Flow.Switch" && pinKey.startsWith("caseval_"))
+        initText = switchCaseValue(*node, pinKey.mid(8));   // 兼容旧数据
+    else
+        initText = node->params.value(pinKey);
 
     m_inlineEdit = new QLineEdit(this);
     m_inlineEdit->setText(initText);
@@ -2044,20 +2451,14 @@ void BlueprintEditor::commitInlineEdit() {
 
     const BPNode* cur = findNode(m_inlineEditNodeId);
     if (cur) {
-        if (!m_inlineSwitchBranchId.isEmpty()) {
-            // 分支控制：写回某分支的比较值（走 Undo）
-            BPNode before = *cur, after = *cur;
-            auto branches = parseSwitchBranches(after.params.value("branches"));
-            for (SwitchBranch& b : branches)
-                if (b.id == m_inlineSwitchBranchId) { b.value = val; break; }
-            after.params["branches"] = serializeSwitchBranches(branches);
+        BPNode before = *cur, after = *cur;
+        after.params[m_inlineEditPinKey] = val;
+        if (after.type == "Flow.Switch") {
+            // 分支控制的值/比较值：走 Undo
             m_bpUndoStack->push(new BPNodeModifyCmd(m_bpClass, m_doc, before, after, "修改分支值",
                                 [this]{ notifyModified(); update(); }));
         } else {
-            // 普通引脚值：直接写回（沿用既有行为）
-            BPNode node = *cur;
-            node.params[m_inlineEditPinKey] = val;
-            updateNodeInActive(m_bpClass, m_doc, node);
+            updateNodeInActive(m_bpClass, m_doc, after);
             notifyModified();
         }
     }
@@ -2362,6 +2763,7 @@ bool BlueprintEditor::isSelfNodeVisible(const QString& typeId) const {
 
 void BlueprintEditor::setProjectRoot(const QString& root) {
     m_projectRoot = root;
+    m_macroCache.clear();   // 切工程时丢弃旧宏缓存
 }
 
 void BlueprintEditor::hideUIAssetPicker() {

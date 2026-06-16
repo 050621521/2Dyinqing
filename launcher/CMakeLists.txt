@@ -44,6 +44,7 @@ set(SOURCES
     src/editor/BlueprintFloatWindow.cpp
     src/editor/GameViewport.cpp
     src/models/BPClass.cpp
+    src/models/BPMacro.cpp
     src/models/UIDocument.cpp
     src/editor/UIRuntime.cpp
     src/editor/UIEditor.cpp
@@ -74,6 +75,7 @@ set(HEADERS
     src/editor/BlueprintFloatWindow.h
     src/editor/GameViewport.h
     src/models/BPClass.h
+    src/models/BPMacro.h
     src/models/UIDocument.h
     src/editor/UIRuntime.h
     src/editor/UIEditor.h
