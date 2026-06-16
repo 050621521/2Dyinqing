@@ -47,6 +47,7 @@ set(SOURCES
     src/models/BPMacro.cpp
     src/editor/GlobalVars.cpp
     src/editor/GlobalVarPanel.cpp
+    src/editor/EnumEditor.cpp
     src/models/UIDocument.cpp
     src/editor/UIRuntime.cpp
     src/editor/UIEditor.cpp
@@ -80,6 +81,7 @@ set(HEADERS
     src/models/BPMacro.h
     src/editor/GlobalVars.h
     src/editor/GlobalVarPanel.h
+    src/editor/EnumEditor.h
     src/models/UIDocument.h
     src/editor/UIRuntime.h
     src/editor/UIEditor.h

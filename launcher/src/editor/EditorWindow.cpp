@@ -10,6 +10,7 @@
 #include "DetailsPanel.h"
 #include "ContentBrowser.h"
 #include "GlobalVarPanel.h"
+#include "EnumEditor.h"
 #include "LayoutManager.h"
 #include "DocTabBar.h"
 #include "ProjectSettingsDialog.h"
@@ -383,6 +384,31 @@ void EditorWindow::setupCentralArea() {
             this, [this](const QString& path) { openBpClassTab(path); });
     connect(cb, &ContentBrowser::uiDocOpenRequested,
             this, [this](const QString& path) { openUIDocTab(path); });
+    connect(cb, &ContentBrowser::enumOpenRequested, this, [this](const QString& path) {
+        EnumEditor dlg(path, this);
+        if (dlg.exec() == QDialog::Accepted) reloadGlobalVarDefs();
+    });
+    connect(cb, &ContentBrowser::enumFileDeleted, this, [this]() { reloadGlobalVarDefs(); });
+    connect(cb, &ContentBrowser::enumFileRenamed, this,
+            [this](const QString& oldN, const QString& newN) {
+        const QString oldT = "enum:" + oldN, newT = "enum:" + newN;
+        QList<GlobalVarDef> vars = GlobalVars::load(m_project.path);
+        for (GlobalVarDef& v : vars) if (v.type == oldT) v.type = newT;
+        GlobalVars::save(m_project.path, vars);
+        for (LevelDocument* doc : m_openLevels.values())
+            if (doc)
+                for (const BPNode& n : doc->bpNodes())
+                    if (n.type == "Flow.Switch" && n.params.value("enum") == oldN) {
+                        BPNode nn = n; nn.params["enum"] = newN; doc->updateBPNode(nn);
+                    }
+        for (BPClass* bc : m_openBpClasses.values())
+            if (bc)
+                for (BPNode& n : bc->nodes)
+                    if (n.type == "Flow.Switch" && n.params.value("enum") == oldN)
+                        n.params["enum"] = newN;
+        reloadGlobalVarDefs();
+        if (m_globalVarPanel) m_globalVarPanel->setProjectRoot(m_project.path);
+    });
     connect(cb, &ContentBrowser::saveAllRequested,
             this, &EditorWindow::saveAllLevels);
     connect(cb, &ContentBrowser::imageAssignRequested,
@@ -405,7 +431,7 @@ void EditorWindow::setupCentralArea() {
 
     // ── 全局变量面板 ──────────────────────────────────────────────────────
     m_globalVarDefs = GlobalVars::load(m_project.path);
-    m_enumDefs      = Enums::load(m_project.path);
+    m_enumDefs      = Enums::loadAll(m_project.path);
     m_globalVarPanel = new GlobalVarPanel();
     m_globalVarPanel->setProjectRoot(m_project.path);
     connect(m_globalVarPanel, &GlobalVarPanel::changed,
@@ -1308,12 +1334,13 @@ void EditorWindow::onProjectSettings() {
 
 void EditorWindow::reloadGlobalVarDefs() {
     m_globalVarDefs = GlobalVars::load(m_project.path);
-    m_enumDefs      = Enums::load(m_project.path);
+    m_enumDefs      = Enums::loadAll(m_project.path);
     for (auto it = m_bpInstances.begin(); it != m_bpInstances.end(); ++it)
         if (it.value().editor) {
             it.value().editor->setGlobalVarDefs(m_globalVarDefs);
             it.value().editor->setEnumDefs(m_enumDefs);
         }
+    if (m_globalVarPanel) m_globalVarPanel->refreshEnums();   // 变量类型下拉同步枚举
 }
 
 void EditorWindow::startRuntime() {

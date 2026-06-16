@@ -1,5 +1,6 @@
 #include "ContentBrowser.h"
 #include "models/BPClass.h"
+#include "GlobalVars.h"
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QTreeWidget>
@@ -413,6 +414,13 @@ void ContentBrowser::populateFolder(const QString& absPath) {
         m_currentTypes   << "ui";
     }
 
+    // .enum 枚举资产
+    const QStringList enumFiles = dir.entryList({"*.enum"}, QDir::Files, QDir::Name);
+    for (const QString& en : enumFiles) {
+        m_currentEntries << en;
+        m_currentTypes   << "enum";
+    }
+
     // 图片文件
     const QStringList imgExts = {"*.png", "*.jpg", "*.jpeg", "*.bmp", "*.svg", "*.webp"};
     const QStringList images = dir.entryList(imgExts, QDir::Files, QDir::Name);
@@ -486,6 +494,8 @@ void ContentBrowser::onGridItemDoubleClicked(QListWidgetItem* item) {
         emit bpClassOpenRequested(path);
     } else if (type == "ui") {
         emit uiDocOpenRequested(path);
+    } else if (type == "enum") {
+        emit enumOpenRequested(path);
     } else if (type == "image") {
         emit imageAssignRequested(path);
     }
@@ -643,6 +653,32 @@ void ContentBrowser::showGridContextMenu(const QPoint& pos) {
                 QFile::remove(path);
                 populateFolder(m_currentPath);
             });
+        } else if (type == "enum") {
+            menu.addAction("打开", [this, path]() { emit enumOpenRequested(path); });
+            menu.addSeparator();
+            menu.addAction("重命名", [this, path]() {
+                bool ok;
+                const QString oldName = QFileInfo(path).baseName();
+                const QString newName = QInputDialog::getText(this, "重命名枚举", "枚举名称：",
+                                            QLineEdit::Normal, oldName, &ok).trimmed();
+                if (!ok || newName.isEmpty() || newName == oldName) return;
+                EnumDef e = EnumDef::load(path);
+                e.name = newName;
+                const QString newPath = QFileInfo(path).absolutePath() + "/" + newName + ".enum";
+                e.save(newPath);
+                QFile::remove(path);
+                populateFolder(m_currentPath);
+                emit enumFileRenamed(oldName, newName);
+            });
+            menu.addAction("删除", [this, path]() {
+                const QString name = QFileInfo(path).fileName();
+                if (QMessageBox::question(this, "删除枚举",
+                        QString("确定删除「%1」？").arg(name),
+                        QMessageBox::Yes | QMessageBox::Cancel) != QMessageBox::Yes) return;
+                QFile::remove(path);
+                populateFolder(m_currentPath);
+                emit enumFileDeleted();
+            });
         } else if (type == "image") {
             menu.addAction("指定给当前精灵", [this, path]() {
                 emit imageAssignRequested(path);
@@ -704,6 +740,21 @@ void ContentBrowser::showGridContextMenu(const QPoint& pos) {
             if (f.open(QIODevice::WriteOnly))
                 f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
             populateFolder(m_currentPath);
+        });
+        menu.addAction("新建枚举", this, [this]() {
+            bool ok;
+            const QString name = QInputDialog::getText(this, "新建枚举", "枚举名称：",
+                                                        QLineEdit::Normal, "新枚举", &ok);
+            if (!ok || name.trimmed().isEmpty()) return;
+            const QString path = m_currentPath + "/" + name.trimmed() + ".enum";
+            if (QFile::exists(path)) {
+                QMessageBox::warning(this, "新建枚举", "同名枚举已存在。");
+                return;
+            }
+            EnumDef e; e.name = name.trimmed(); e.values = {"选项1", "选项2"};
+            e.save(path);
+            populateFolder(m_currentPath);
+            emit enumOpenRequested(path);
         });
         menu.addAction("新建文件夹", this, &ContentBrowser::onNewFolder);
     }

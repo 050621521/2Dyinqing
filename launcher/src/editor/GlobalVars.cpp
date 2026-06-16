@@ -1,6 +1,9 @@
 #include "GlobalVars.h"
 #include <QFile>
 #include <QSaveFile>
+#include <QDir>
+#include <QDirIterator>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -48,46 +51,39 @@ bool GlobalVars::save(const QString& projectRoot, const QList<GlobalVarDef>& var
     return wf.commit();
 }
 
-QList<EnumDef> Enums::load(const QString& projectRoot) {
-    QList<EnumDef> out;
-    if (projectRoot.isEmpty()) return out;
-    QFile f(projectJsonPath(projectRoot));
-    if (!f.open(QIODevice::ReadOnly)) return out;
-    const QJsonObject obj = QJsonDocument::fromJson(f.readAll()).object();
-    for (const QJsonValue& v : obj.value("enums").toArray()) {
-        const QJsonObject o = v.toObject();
-        const QString name = o.value("name").toString();
-        if (name.isEmpty()) continue;
-        EnumDef e; e.name = name;
-        for (const QJsonValue& vv : o.value("values").toArray())
-            e.values.append(vv.toString());
-        out.append(e);
-    }
-    return out;
+// ── 枚举资产：单个 .enum 文件 ──────────────────────────────────────────
+
+bool EnumDef::save(const QString& fp) const {
+    QJsonObject o;
+    o["name"] = name;
+    QJsonArray vals;
+    for (const QString& v : values) vals.append(v);
+    o["values"] = vals;
+    QDir().mkpath(QFileInfo(fp).absolutePath());
+    QSaveFile wf(fp);
+    if (!wf.open(QIODevice::WriteOnly)) return false;
+    wf.write(QJsonDocument(o).toJson());
+    return wf.commit();
 }
 
-bool Enums::save(const QString& projectRoot, const QList<EnumDef>& enums) {
-    if (projectRoot.isEmpty()) return false;
-    QJsonObject obj;
-    QFile rf(projectJsonPath(projectRoot));
-    if (rf.open(QIODevice::ReadOnly)) {
-        obj = QJsonDocument::fromJson(rf.readAll()).object();
-        rf.close();
-    }
-    QJsonArray arr;
-    for (const EnumDef& e : enums) {
-        QJsonObject o;
-        o["name"] = e.name;
-        QJsonArray vals;
-        for (const QString& v : e.values) vals.append(v);
-        o["values"] = vals;
-        arr.append(o);
-    }
-    obj["enums"] = arr;
-    QSaveFile wf(projectJsonPath(projectRoot));
-    if (!wf.open(QIODevice::WriteOnly)) return false;
-    wf.write(QJsonDocument(obj).toJson());
-    return wf.commit();
+EnumDef EnumDef::load(const QString& fp) {
+    EnumDef e;
+    e.filePath = fp;
+    QFile f(fp);
+    if (!f.open(QIODevice::ReadOnly)) return e;
+    const QJsonObject o = QJsonDocument::fromJson(f.readAll()).object();
+    e.name = o.value("name").toString(QFileInfo(fp).baseName());
+    for (const QJsonValue& v : o.value("values").toArray())
+        e.values.append(v.toString());
+    return e;
+}
+
+QList<EnumDef> Enums::loadAll(const QString& projectRoot) {
+    QList<EnumDef> out;
+    if (projectRoot.isEmpty()) return out;
+    QDirIterator it(projectRoot, {"*.enum"}, QDir::Files, QDirIterator::Subdirectories);
+    while (it.hasNext()) out.append(EnumDef::load(it.next()));
+    return out;
 }
 
 QStringList Enums::valuesOf(const QList<EnumDef>& enums, const QString& name) {

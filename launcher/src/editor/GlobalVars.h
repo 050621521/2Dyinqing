@@ -10,10 +10,14 @@ struct GlobalVarDef {
     QString type = "string";
 };
 
-// 枚举声明（项目级，存 project.json 的 enums 数组）
+// 枚举资产：存为内容浏览器里的 .enum 文件（文件名 = 枚举名）
 struct EnumDef {
     QString     name;
     QStringList values;
+    QString     filePath;   // 来源文件（扫描时填）
+
+    bool           save(const QString& filePath) const;
+    static EnumDef load(const QString& filePath);
 };
 
 namespace GlobalVars {
@@ -26,8 +30,8 @@ namespace GlobalVars {
 }
 
 namespace Enums {
-    QList<EnumDef> load(const QString& projectRoot);
-    bool save(const QString& projectRoot, const QList<EnumDef>& enums);
+    // 递归扫描工程内所有 .enum 资产
+    QList<EnumDef> loadAll(const QString& projectRoot);
     // 在声明列表里找某枚举的选项
     QStringList valuesOf(const QList<EnumDef>& enums, const QString& name);
 }

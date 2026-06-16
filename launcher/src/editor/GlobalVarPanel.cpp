@@ -1,11 +1,34 @@
 #include "GlobalVarPanel.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QFormLayout>
 #include <QLabel>
-#include <QTableWidget>
-#include <QHeaderView>
+#include <QListWidget>
+#include <QLineEdit>
 #include <QComboBox>
 #include <QPushButton>
+#include <QPixmap>
+#include <QPainter>
+#include <QIcon>
+
+static QColor colorForType(const QString& type) {
+    if (type == "number") return QColor(0x3a, 0x7a, 0xd4);   // 蓝
+    if (type == "bool")   return QColor(0xc0, 0x50, 0x50);   // 红
+    if (type == "string") return QColor(0xd0, 0x6a, 0xb0);   // 粉
+    if (type.startsWith("enum:")) return QColor(0x2a, 0x9a, 0x8a); // 青
+    return QColor(0x88, 0x88, 0x88);
+}
+
+static QIcon typeIcon(const QString& type) {
+    QPixmap pm(12, 12);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setPen(Qt::NoPen);
+    p.setBrush(colorForType(type));
+    p.drawRoundedRect(1, 3, 10, 6, 2, 2);
+    return QIcon(pm);
+}
 
 GlobalVarPanel::GlobalVarPanel(QWidget* parent) : QWidget(parent) {
     setObjectName("globalVarPanel");
@@ -13,61 +36,38 @@ GlobalVarPanel::GlobalVarPanel(QWidget* parent) : QWidget(parent) {
     lay->setContentsMargins(6, 6, 6, 6);
     lay->setSpacing(4);
 
-    // ── 变量 ──
-    lay->addWidget(new QLabel("全局变量", this));
-    m_table = new QTableWidget(0, 2, this);
-    m_table->setObjectName("globalVarTable");
-    m_table->setHorizontalHeaderLabels({"变量名", "类型"});
-    m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
-    m_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Fixed);
-    m_table->setColumnWidth(1, 110);
-    m_table->verticalHeader()->setVisible(false);
-    m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
-    lay->addWidget(m_table, 1);
+    // 顶部：标题 + 添加/删除
+    auto* head = new QHBoxLayout();
+    head->addWidget(new QLabel("变量", this));
+    head->addStretch(1);
+    auto* addBtn = new QPushButton("＋", this);
+    auto* delBtn = new QPushButton("－", this);
+    addBtn->setFixedWidth(28); delBtn->setFixedWidth(28);
+    head->addWidget(addBtn); head->addWidget(delBtn);
+    lay->addLayout(head);
 
-    auto* vbtns = new QHBoxLayout();
-    auto* addVar = new QPushButton("＋ 变量", this);
-    auto* delVar = new QPushButton("－ 变量", this);
-    vbtns->addWidget(addVar); vbtns->addWidget(delVar); vbtns->addStretch(1);
-    lay->addLayout(vbtns);
+    // 列表
+    m_list = new QListWidget(this);
+    m_list->setObjectName("globalVarList");
+    lay->addWidget(m_list, 1);
 
-    // ── 枚举 ──
-    lay->addWidget(new QLabel("枚举", this));
-    m_enumTable = new QTableWidget(0, 2, this);
-    m_enumTable->setObjectName("enumTable");
-    m_enumTable->setHorizontalHeaderLabels({"枚举名", "选项（逗号分隔）"});
-    m_enumTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
-    m_enumTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-    m_enumTable->setColumnWidth(0, 90);
-    m_enumTable->verticalHeader()->setVisible(false);
-    m_enumTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    lay->addWidget(m_enumTable, 1);
+    // 细节区
+    lay->addWidget(new QLabel("细节", this));
+    auto* form = new QFormLayout();
+    m_nameEdit  = new QLineEdit(this);
+    m_typeCombo = new QComboBox(this);
+    form->addRow("名字", m_nameEdit);
+    form->addRow("类型", m_typeCombo);
+    lay->addLayout(form);
 
-    auto* ebtns = new QHBoxLayout();
-    auto* addEnum = new QPushButton("＋ 枚举", this);
-    auto* delEnum = new QPushButton("－ 枚举", this);
-    ebtns->addWidget(addEnum); ebtns->addWidget(delEnum); ebtns->addStretch(1);
-    lay->addLayout(ebtns);
-
-    connect(addVar, &QPushButton::clicked, this, &GlobalVarPanel::addVarRow);
-    connect(delVar, &QPushButton::clicked, this, &GlobalVarPanel::removeSelectedVar);
-    connect(addEnum, &QPushButton::clicked, this, &GlobalVarPanel::addEnumRow);
-    connect(delEnum, &QPushButton::clicked, this, &GlobalVarPanel::removeSelectedEnum);
-    connect(m_table, &QTableWidget::itemChanged, this, [this](QTableWidgetItem* it) {
-        if (m_loading) return;
-        if (it->column() == 0) {
-            const QString oldName = it->data(Qt::UserRole).toString();
-            const QString newName = it->text().trimmed();
-            if (!oldName.isEmpty() && oldName != newName) emit varRenamed(oldName, newName);
-            m_table->blockSignals(true);
-            it->setData(Qt::UserRole, newName);
-            m_table->blockSignals(false);
-        }
-        commitVars();
+    connect(addBtn, &QPushButton::clicked, this, &GlobalVarPanel::addVar);
+    connect(delBtn, &QPushButton::clicked, this, &GlobalVarPanel::removeSelected);
+    connect(m_list, &QListWidget::currentRowChanged, this, [this](int) { onSelectionChanged(); });
+    connect(m_nameEdit, &QLineEdit::editingFinished, this, &GlobalVarPanel::onNameEdited);
+    connect(m_typeCombo, &QComboBox::currentIndexChanged, this, [this](int) {
+        if (!m_loading) onTypeChanged();
     });
-    connect(m_enumTable, &QTableWidget::itemChanged, this, [this](QTableWidgetItem*) {
-        if (!m_loading) commitEnums();
-    });
+    onSelectionChanged();   // 初始禁用细节
 }
 
 void GlobalVarPanel::setProjectRoot(const QString& root) {
@@ -75,121 +75,98 @@ void GlobalVarPanel::setProjectRoot(const QString& root) {
     reload();
 }
 
-void GlobalVarPanel::fillTypeCombo(QComboBox* combo, const QString& currentType) {
-    combo->clear();
-    combo->addItem("数值",   "number");
-    combo->addItem("布尔",   "bool");
-    combo->addItem("字符串", "string");
-    for (const EnumDef& e : Enums::load(m_projectRoot))
-        combo->addItem("枚举(" + e.name + ")", "enum:" + e.name);
-    for (int i = 0; i < combo->count(); ++i)
-        if (combo->itemData(i).toString() == currentType) { combo->setCurrentIndex(i); break; }
+void GlobalVarPanel::refreshEnums() {
+    // 类型下拉里枚举项可能变了，按当前选中变量重填
+    const int row = m_list->currentRow();
+    if (row >= 0 && row < m_vars.size())
+        fillTypeCombo(m_vars[row].type);
 }
 
 void GlobalVarPanel::reload() {
     m_loading = true;
-    // 变量
-    m_table->setRowCount(0);
-    for (const GlobalVarDef& d : GlobalVars::load(m_projectRoot)) {
-        const int r = m_table->rowCount();
-        m_table->insertRow(r);
-        auto* nameItem = new QTableWidgetItem(d.name);
-        nameItem->setData(Qt::UserRole, d.name);
-        m_table->setItem(r, 0, nameItem);
-        auto* combo = new QComboBox(m_table);
-        fillTypeCombo(combo, d.type);
-        connect(combo, &QComboBox::currentIndexChanged, this, [this](int) {
-            if (!m_loading) commitVars();
-        });
-        m_table->setCellWidget(r, 1, combo);
-    }
-    // 枚举
-    m_enumTable->setRowCount(0);
-    for (const EnumDef& e : Enums::load(m_projectRoot)) {
-        const int r = m_enumTable->rowCount();
-        m_enumTable->insertRow(r);
-        m_enumTable->setItem(r, 0, new QTableWidgetItem(e.name));
-        m_enumTable->setItem(r, 1, new QTableWidgetItem(e.values.join(",")));
-    }
+    m_vars = GlobalVars::load(m_projectRoot);
+    rebuildList();
     m_loading = false;
+    onSelectionChanged();
 }
 
-void GlobalVarPanel::commitVars() {
-    QList<GlobalVarDef> defs;
-    for (int r = 0; r < m_table->rowCount(); ++r) {
-        QTableWidgetItem* it = m_table->item(r, 0);
-        const QString name = it ? it->text().trimmed() : QString();
-        if (name.isEmpty()) continue;
-        QString type = "string";
-        if (auto* combo = qobject_cast<QComboBox*>(m_table->cellWidget(r, 1)))
-            type = combo->currentData().toString();
-        bool dup = false;
-        for (const GlobalVarDef& d : defs) if (d.name == name) { dup = true; break; }
-        if (dup) continue;
-        defs.append({name, type});
+void GlobalVarPanel::rebuildList() {
+    const int keep = m_list->currentRow();
+    m_list->clear();
+    for (const GlobalVarDef& d : m_vars) {
+        auto* it = new QListWidgetItem(typeIcon(d.type), d.name);
+        m_list->addItem(it);
     }
-    GlobalVars::save(m_projectRoot, defs);
-    emit changed();
+    if (keep >= 0 && keep < m_vars.size()) m_list->setCurrentRow(keep);
 }
 
-void GlobalVarPanel::commitEnums() {
-    QList<EnumDef> defs;
-    for (int r = 0; r < m_enumTable->rowCount(); ++r) {
-        QTableWidgetItem* nameIt = m_enumTable->item(r, 0);
-        const QString name = nameIt ? nameIt->text().trimmed() : QString();
-        if (name.isEmpty()) continue;
-        EnumDef e; e.name = name;
-        QTableWidgetItem* valIt = m_enumTable->item(r, 1);
-        if (valIt)
-            for (const QString& v : valIt->text().split(",", Qt::SkipEmptyParts))
-                e.values.append(v.trimmed());
-        bool dup = false;
-        for (const EnumDef& d : defs) if (d.name == name) { dup = true; break; }
-        if (dup) continue;
-        defs.append(e);
-    }
-    Enums::save(m_projectRoot, defs);
-    reload();         // 枚举变了 → 重建变量类型下拉
-    emit changed();
-}
-
-void GlobalVarPanel::addVarRow() {
+void GlobalVarPanel::fillTypeCombo(const QString& current) {
     m_loading = true;
-    const int r = m_table->rowCount();
-    m_table->insertRow(r);
-    auto* nameItem = new QTableWidgetItem(QString("变量%1").arg(r + 1));
-    nameItem->setData(Qt::UserRole, nameItem->text());
-    m_table->setItem(r, 0, nameItem);
-    auto* combo = new QComboBox(m_table);
-    fillTypeCombo(combo, "string");
-    connect(combo, &QComboBox::currentIndexChanged, this, [this](int) {
-        if (!m_loading) commitVars();
-    });
-    m_table->setCellWidget(r, 1, combo);
+    m_typeCombo->clear();
+    m_typeCombo->addItem("数值",   "number");
+    m_typeCombo->addItem("布尔",   "bool");
+    m_typeCombo->addItem("字符串", "string");
+    for (const EnumDef& e : Enums::loadAll(m_projectRoot))
+        m_typeCombo->addItem("枚举(" + e.name + ")", "enum:" + e.name);
+    for (int i = 0; i < m_typeCombo->count(); ++i)
+        if (m_typeCombo->itemData(i).toString() == current) { m_typeCombo->setCurrentIndex(i); break; }
     m_loading = false;
-    commitVars();
 }
 
-void GlobalVarPanel::removeSelectedVar() {
-    const int r = m_table->currentRow();
-    if (r < 0) return;
-    m_table->removeRow(r);
-    commitVars();
-}
-
-void GlobalVarPanel::addEnumRow() {
+void GlobalVarPanel::onSelectionChanged() {
+    const int row = m_list->currentRow();
+    const bool has = (row >= 0 && row < m_vars.size());
+    m_nameEdit->setEnabled(has);
+    m_typeCombo->setEnabled(has);
+    if (!has) { m_loading = true; m_nameEdit->clear(); m_typeCombo->clear(); m_loading = false; return; }
     m_loading = true;
-    const int r = m_enumTable->rowCount();
-    m_enumTable->insertRow(r);
-    m_enumTable->setItem(r, 0, new QTableWidgetItem(QString("枚举%1").arg(r + 1)));
-    m_enumTable->setItem(r, 1, new QTableWidgetItem("选项1,选项2"));
+    m_nameEdit->setText(m_vars[row].name);
     m_loading = false;
-    commitEnums();
+    fillTypeCombo(m_vars[row].type);
 }
 
-void GlobalVarPanel::removeSelectedEnum() {
-    const int r = m_enumTable->currentRow();
-    if (r < 0) return;
-    m_enumTable->removeRow(r);
-    commitEnums();
+void GlobalVarPanel::onNameEdited() {
+    const int row = m_list->currentRow();
+    if (m_loading || row < 0 || row >= m_vars.size()) return;
+    const QString newName = m_nameEdit->text().trimmed();
+    const QString oldName = m_vars[row].name;
+    if (newName.isEmpty() || newName == oldName) return;
+    // 唯一性
+    for (int i = 0; i < m_vars.size(); ++i)
+        if (i != row && m_vars[i].name == newName) { m_nameEdit->setText(oldName); return; }
+    m_vars[row].name = newName;
+    emit varRenamed(oldName, newName);
+    rebuildList();
+    commit();
+}
+
+void GlobalVarPanel::onTypeChanged() {
+    const int row = m_list->currentRow();
+    if (row < 0 || row >= m_vars.size()) return;
+    m_vars[row].type = m_typeCombo->currentData().toString();
+    rebuildList();
+    commit();
+}
+
+void GlobalVarPanel::addVar() {
+    GlobalVarDef d;
+    d.name = QString("变量%1").arg(m_vars.size() + 1);
+    d.type = "string";
+    m_vars.append(d);
+    commit();
+    rebuildList();
+    m_list->setCurrentRow(m_vars.size() - 1);
+}
+
+void GlobalVarPanel::removeSelected() {
+    const int row = m_list->currentRow();
+    if (row < 0 || row >= m_vars.size()) return;
+    m_vars.removeAt(row);
+    commit();
+    rebuildList();
+}
+
+void GlobalVarPanel::commit() {
+    GlobalVars::save(m_projectRoot, m_vars);
+    emit changed();
 }

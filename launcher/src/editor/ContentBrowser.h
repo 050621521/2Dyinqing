@@ -22,6 +22,9 @@ signals:
     void imageAssignRequested(const QString& imagePath);
     void bpClassOpenRequested(const QString& bpFilePath);
     void uiDocOpenRequested(const QString& path);
+    void enumOpenRequested(const QString& path);
+    void enumFileRenamed(const QString& oldName, const QString& newName);
+    void enumFileDeleted();
 
 protected:
     bool eventFilter(QObject* obj, QEvent* e) override;

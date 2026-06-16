@@ -2,31 +2,38 @@
 #include "GlobalVars.h"
 #include <QWidget>
 
-class QTableWidget;
+class QListWidget;
+class QLineEdit;
+class QComboBox;
 
-// 常驻「全局变量」面板：声明的增/删/改名/改类型，变更即写回 project.json 并发信号。
+// 「我的蓝图」风格变量面板：上半变量列表（带类型色块）+ 下半细节（名字/类型/删除）。
+// 只管变量；枚举改由内容浏览器管理，类型下拉从工程扫到的枚举追加。
 class GlobalVarPanel : public QWidget {
     Q_OBJECT
 public:
     explicit GlobalVarPanel(QWidget* parent = nullptr);
     void setProjectRoot(const QString& root);
+    void refreshEnums();   // 枚举资产变化时刷新类型下拉
 
 signals:
-    void changed();                                  // 声明变化（增删/改名/改类型）
-    void varRenamed(const QString& oldName, const QString& newName);  // 改名（同步引用节点）
+    void changed();
+    void varRenamed(const QString& oldName, const QString& newName);
 
 private:
-    void reload();        // 磁盘 → 两张表
-    void commitVars();    // 变量表 → 磁盘 + emit changed
-    void commitEnums();   // 枚举表 → 磁盘 + 重建变量类型下拉 + emit changed
-    void addVarRow();
-    void removeSelectedVar();
-    void addEnumRow();
-    void removeSelectedEnum();
-    void fillTypeCombo(class QComboBox* combo, const QString& currentType);
+    void reload();
+    void rebuildList();
+    void onSelectionChanged();
+    void onNameEdited();
+    void onTypeChanged();
+    void addVar();
+    void removeSelected();
+    void commit();                 // m_vars → project.json + emit changed
+    void fillTypeCombo(const QString& current);
 
-    QString       m_projectRoot;
-    QTableWidget* m_table     = nullptr;   // 变量：名字 + 类型
-    QTableWidget* m_enumTable = nullptr;   // 枚举：名字 + 选项(逗号分隔)
-    bool          m_loading = false;
+    QString             m_projectRoot;
+    QList<GlobalVarDef> m_vars;     // 内存模型
+    QListWidget*        m_list      = nullptr;
+    QLineEdit*          m_nameEdit  = nullptr;
+    QComboBox*          m_typeCombo = nullptr;
+    bool                m_loading   = false;
 };
