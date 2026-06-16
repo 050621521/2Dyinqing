@@ -318,6 +318,10 @@ void EditorWindow::setupCentralArea() {
     m_uiEditor->setProjectRoot(m_project.path);
     m_centralStack->addWidget(m_uiEditor);  // index 3
 
+    m_enumEditor = new EnumEditor(this);    // index 4：枚举编辑页
+    m_centralStack->addWidget(m_enumEditor);
+    connect(m_enumEditor, &EnumEditor::changed, this, &EditorWindow::reloadGlobalVarDefs);
+
     connect(m_uiEditor, &UIEditor::documentModified, this, [this]() {
         const int cur = m_docTabBar->currentIndex();
         if (cur < 0) return;
@@ -384,10 +388,8 @@ void EditorWindow::setupCentralArea() {
             this, [this](const QString& path) { openBpClassTab(path); });
     connect(cb, &ContentBrowser::uiDocOpenRequested,
             this, [this](const QString& path) { openUIDocTab(path); });
-    connect(cb, &ContentBrowser::enumOpenRequested, this, [this](const QString& path) {
-        EnumEditor dlg(path, this);
-        if (dlg.exec() == QDialog::Accepted) reloadGlobalVarDefs();
-    });
+    connect(cb, &ContentBrowser::enumOpenRequested,
+            this, [this](const QString& path) { openEnumTab(path); });
     connect(cb, &ContentBrowser::enumFileDeleted, this, [this]() { reloadGlobalVarDefs(); });
     connect(cb, &ContentBrowser::enumFileRenamed, this,
             [this](const QString& oldN, const QString& newN) {
@@ -890,6 +892,14 @@ void EditorWindow::onTabChanged(int index) {
         m_uiEditor->setUndoStack(doc->undoStack(), nullptr);
         if (m_centralStack) m_centralStack->setCurrentWidget(m_uiEditor);
         m_activeUndoStack = doc->undoStack();
+        return;
+    }
+
+    // .enum 枚举资产
+    if (path.endsWith(".enum")) {
+        if (m_enumEditor) m_enumEditor->load(path);
+        if (m_centralStack) m_centralStack->setCurrentWidget(m_enumEditor);
+        m_activeUndoStack = nullptr;
         return;
     }
 
@@ -1661,6 +1671,24 @@ void EditorWindow::openUIDocTab(const QString& uiFilePath) {
         onTabChanged(idx);
     else
         m_docTabBar->setCurrentIndex(idx);
+}
+
+void EditorWindow::openEnumTab(const QString& enumPath) {
+    for (int i = 0; i < m_docTabBar->count(); ++i) {
+        if (m_docTabBar->tabData(i).toString() == enumPath) {
+            m_docTabBar->setCurrentIndex(i);
+            return;
+        }
+    }
+    int idx;
+    {
+        QSignalBlocker b(m_docTabBar);
+        idx = m_docTabBar->addTab("  " + QFileInfo(enumPath).baseName());
+        m_docTabBar->setTabData(idx, enumPath);
+        updateTabTooltip(idx);
+    }
+    if (m_docTabBar->currentIndex() == idx) onTabChanged(idx);
+    else                                    m_docTabBar->setCurrentIndex(idx);
 }
 
 // 把某浮动蓝图窗口嵌回 Tab 栏

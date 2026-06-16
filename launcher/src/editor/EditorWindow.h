@@ -142,7 +142,9 @@ private:
     QList<EnumDef>          m_enumDefs;
     QMap<QString, QString>  m_globalVars;
     GlobalVarPanel*         m_globalVarPanel = nullptr;
+    class EnumEditor*       m_enumEditor = nullptr;   // 中央页签：枚举编辑
     void reloadGlobalVarDefs();   // 从 project.json 重读并推给所有蓝图编辑器
+    void openEnumTab(const QString& enumPath);
     UIRuntime* m_uiRuntime = nullptr;
     UIEditor*  m_uiEditor  = nullptr;
     QList<ActorBPRuntime*>   m_actorRuntimes;

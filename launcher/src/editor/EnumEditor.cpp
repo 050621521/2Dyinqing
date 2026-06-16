@@ -7,22 +7,18 @@
 #include <QLabel>
 #include <QFileInfo>
 
-EnumEditor::EnumEditor(const QString& enumPath, QWidget* parent)
-    : QDialog(parent), m_path(enumPath)
-{
-    const EnumDef e = EnumDef::load(enumPath);
-    setWindowTitle("枚举编辑器 — " + (e.name.isEmpty() ? QFileInfo(enumPath).baseName() : e.name));
-    setModal(true);
-    resize(320, 380);
-
+EnumEditor::EnumEditor(QWidget* parent) : QWidget(parent) {
+    setObjectName("enumEditor");
     auto* lay = new QVBoxLayout(this);
-    lay->addWidget(new QLabel("选项：", this));
+    lay->setContentsMargins(16, 16, 16, 16);
 
+    m_title = new QLabel(this);
+    m_title->setObjectName("enumEditorTitle");
+    lay->addWidget(m_title);
+
+    lay->addWidget(new QLabel("选项：", this));
     m_list = new QListWidget(this);
-    for (const QString& v : e.values) {
-        auto* it = new QListWidgetItem(v, m_list);
-        it->setFlags(it->flags() | Qt::ItemIsEditable);
-    }
+    m_list->setMaximumWidth(420);
     lay->addWidget(m_list, 1);
 
     auto* row = new QHBoxLayout();
@@ -30,37 +26,54 @@ EnumEditor::EnumEditor(const QString& enumPath, QWidget* parent)
     auto* delBtn = new QPushButton("－ 删除", this);
     auto* upBtn  = new QPushButton("↑", this);
     auto* dnBtn  = new QPushButton("↓", this);
-    upBtn->setFixedWidth(32); dnBtn->setFixedWidth(32);
+    upBtn->setFixedWidth(36); dnBtn->setFixedWidth(36);
     row->addWidget(addBtn); row->addWidget(delBtn);
     row->addStretch(1);
     row->addWidget(upBtn); row->addWidget(dnBtn);
-    lay->addLayout(row);
-
-    auto* bottom = new QHBoxLayout();
-    bottom->addStretch(1);
-    auto* okBtn = new QPushButton("确定", this);
-    auto* cancelBtn = new QPushButton("取消", this);
-    bottom->addWidget(okBtn); bottom->addWidget(cancelBtn);
-    lay->addLayout(bottom);
+    row->setStretch(2, 0);
+    auto* rowWrap = new QHBoxLayout();
+    rowWrap->addLayout(row);
+    rowWrap->addStretch(1);
+    lay->addLayout(rowWrap);
+    lay->addStretch(1);
 
     connect(addBtn, &QPushButton::clicked, this, &EnumEditor::addValue);
     connect(delBtn, &QPushButton::clicked, this, &EnumEditor::removeSelected);
     connect(upBtn,  &QPushButton::clicked, this, [this]() { move(-1); });
     connect(dnBtn,  &QPushButton::clicked, this, [this]() { move(1); });
-    connect(okBtn,  &QPushButton::clicked, this, &EnumEditor::saveAndClose);
-    connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
+    connect(m_list, &QListWidget::itemChanged, this, [this](QListWidgetItem*) {
+        if (!m_loading) save();
+    });
+}
+
+void EnumEditor::load(const QString& enumPath) {
+    m_loading = true;
+    m_path = enumPath;
+    const EnumDef e = EnumDef::load(enumPath);
+    const QString nm = e.name.isEmpty() ? QFileInfo(enumPath).baseName() : e.name;
+    m_title->setText("枚举：" + nm);
+    m_list->clear();
+    for (const QString& v : e.values) {
+        auto* it = new QListWidgetItem(v, m_list);
+        it->setFlags(it->flags() | Qt::ItemIsEditable);
+    }
+    m_loading = false;
 }
 
 void EnumEditor::addValue() {
+    if (m_path.isEmpty()) return;
     auto* it = new QListWidgetItem(QString("选项%1").arg(m_list->count() + 1), m_list);
     it->setFlags(it->flags() | Qt::ItemIsEditable);
     m_list->setCurrentItem(it);
+    save();
     m_list->editItem(it);
 }
 
 void EnumEditor::removeSelected() {
     const int r = m_list->currentRow();
-    if (r >= 0) delete m_list->takeItem(r);
+    if (r < 0) return;
+    delete m_list->takeItem(r);
+    save();
 }
 
 void EnumEditor::move(int delta) {
@@ -70,9 +83,11 @@ void EnumEditor::move(int delta) {
     auto* it = m_list->takeItem(r);
     m_list->insertItem(nr, it);
     m_list->setCurrentRow(nr);
+    save();
 }
 
-void EnumEditor::saveAndClose() {
+void EnumEditor::save() {
+    if (m_path.isEmpty()) return;
     EnumDef e;
     e.name = QFileInfo(m_path).baseName();
     for (int i = 0; i < m_list->count(); ++i) {
@@ -80,5 +95,5 @@ void EnumEditor::saveAndClose() {
         if (!v.isEmpty()) e.values.append(v);
     }
     e.save(m_path);
-    accept();
+    emit changed();
 }
