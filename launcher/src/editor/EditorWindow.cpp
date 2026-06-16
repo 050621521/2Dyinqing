@@ -405,6 +405,7 @@ void EditorWindow::setupCentralArea() {
 
     // ── 全局变量面板 ──────────────────────────────────────────────────────
     m_globalVarDefs = GlobalVars::load(m_project.path);
+    m_enumDefs      = Enums::load(m_project.path);
     m_globalVarPanel = new GlobalVarPanel();
     m_globalVarPanel->setProjectRoot(m_project.path);
     connect(m_globalVarPanel, &GlobalVarPanel::changed,
@@ -1228,6 +1229,7 @@ BlueprintEditor* EditorWindow::ensureBpInstance(const QString& tabId) {
     inst.editor = new BlueprintEditor();
     inst.editor->setProjectRoot(m_project.path);
     inst.editor->setGlobalVarDefs(m_globalVarDefs);
+    inst.editor->setEnumDefs(m_enumDefs);
 
     if (inst.isLevelBp) {
         inst.dataPath = levelPathOfBlueprintTab(tabId);
@@ -1306,8 +1308,12 @@ void EditorWindow::onProjectSettings() {
 
 void EditorWindow::reloadGlobalVarDefs() {
     m_globalVarDefs = GlobalVars::load(m_project.path);
+    m_enumDefs      = Enums::load(m_project.path);
     for (auto it = m_bpInstances.begin(); it != m_bpInstances.end(); ++it)
-        if (it.value().editor) it.value().editor->setGlobalVarDefs(m_globalVarDefs);
+        if (it.value().editor) {
+            it.value().editor->setGlobalVarDefs(m_globalVarDefs);
+            it.value().editor->setEnumDefs(m_enumDefs);
+        }
 }
 
 void EditorWindow::startRuntime() {

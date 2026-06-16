@@ -139,6 +139,7 @@ private:
     QStringList m_levelNavStack;   // 运行期关卡历史栈：跳转关卡时压栈，返回上一关时弹栈
     // 全局变量：声明（项目级）+ 运行时值（跨关卡保留、点运行清空）
     QList<GlobalVarDef>     m_globalVarDefs;
+    QList<EnumDef>          m_enumDefs;
     QMap<QString, QString>  m_globalVars;
     GlobalVarPanel*         m_globalVarPanel = nullptr;
     void reloadGlobalVarDefs();   // 从 project.json 重读并推给所有蓝图编辑器

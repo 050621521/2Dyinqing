@@ -24,6 +24,7 @@ public:
     explicit BlueprintEditor(QWidget* parent = nullptr);
     // 全局变量声明（由 EditorWindow 在加载/面板变更时推入），用于节点类型/菜单
     void setGlobalVarDefs(const QList<GlobalVarDef>& defs) { m_globalVarDefs = defs; update(); }
+    void setEnumDefs(const QList<EnumDef>& defs) { m_enumDefs = defs; update(); }
     void loadLevel(LevelDocument* doc);
     void loadBpClass(BPClass* bpClass);
     void saveBpClass();
@@ -57,7 +58,8 @@ private:
         LevelRef,   // 下拉：项目 Levels 目录里的关卡
         ActorRef,   // 下拉：场景 Actor 列表（写回 id）
         UIRef,      // 下拉：项目 UI 文件（含控件展开，特殊弹窗）
-        WidgetRef   // 下拉：项目所有 UI 的控件（写回 "UI名::控件名"）
+        WidgetRef,  // 下拉：项目所有 UI 的控件（写回 "UI名::控件名"）
+        EnumRef     // 下拉：某枚举的选项（选项按节点实例推导）
     };
     struct PinDef {
         QString   key;
@@ -147,10 +149,13 @@ private:
     static ValueKind kindFromString(const QString& s);
     static QString   kindToString(ValueKind k);
 
-    // 全局变量声明缓存 + 查类型 + 类型→引脚 kind
+    // 全局变量 / 枚举声明缓存
     QList<GlobalVarDef> m_globalVarDefs;
+    QList<EnumDef>      m_enumDefs;
     QString   globalVarType(const QString& name) const;
-    static ValueKind kindFromGlobalType(const QString& type);
+    ValueKind kindFromGlobalType(const QString& type) const;   // enum:→EnumRef
+    // 某引脚（全局变量值 / 分支比较值）对应的枚举选项；非枚举返回空
+    QStringList enumValuesForPin(const BPNode& node, const QString& key) const;
     // 按节点实例求某引脚的 kind（兼容动态节点：分支控制/宏/全局变量）
     ValueKind pinKindForNode(const BPNode& node, const QString& key) const;
 
@@ -242,6 +247,8 @@ private:
     void addSwitchBranch(const QString& nodeId);
     void removeSwitchBranch(const QString& nodeId, const QString& branchId);
     void toggleSwitchDefault(const QString& nodeId);
+    // 绑定/解绑枚举（空名=解绑）；绑定时为缺失的枚举值各生成一个分支
+    void bindSwitchEnum(const QString& nodeId, const QString& enumName);
     // 各 kind 的下拉选项来源
     QList<QPair<QString, QString>> buildActorItems() const;
     QList<QPair<QString, QString>> buildLevelItems() const;

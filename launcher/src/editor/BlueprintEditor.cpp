@@ -599,9 +599,22 @@ QString BlueprintEditor::globalVarType(const QString& name) const {
     return QString();
 }
 
-BlueprintEditor::ValueKind BlueprintEditor::kindFromGlobalType(const QString& type) {
+BlueprintEditor::ValueKind BlueprintEditor::kindFromGlobalType(const QString& type) const {
     if (type == "bool") return ValueKind::Bool;
-    return ValueKind::Text;   // number/string/enum 暂用打字（枚举下拉留给后续）
+    if (type.startsWith("enum:")) return ValueKind::EnumRef;
+    return ValueKind::Text;   // number/string 打字
+}
+
+QStringList BlueprintEditor::enumValuesForPin(const BPNode& node, const QString& key) const {
+    if ((node.type == "Global.Get" || node.type == "Global.Set") && key == "value") {
+        const QString t = globalVarType(node.params.value("varName"));
+        if (t.startsWith("enum:")) return Enums::valuesOf(m_enumDefs, t.mid(5));
+    }
+    if (node.type == "Flow.Switch" && key.startsWith("caseval_")) {
+        const QString en = node.params.value("enum");
+        if (!en.isEmpty()) return Enums::valuesOf(m_enumDefs, en);
+    }
+    return {};
 }
 
 BlueprintEditor::ValueKind
@@ -657,9 +670,11 @@ QList<BlueprintEditor::PinDef> BlueprintEditor::effectivePins(const BPNode& node
         QList<PinDef> pins;
         pins.append({"exec_in", "exec", true,  false});
         pins.append({"value",   "值",   false, false});
+        const bool enumMode = !node.params.value("enum").isEmpty();
         for (const SwitchBranch& b : parseSwitchBranches(node.params.value("branches"))) {
-            pins.append({"caseval_" + b.id, QString(), false, false});  // 比较值（可连变量）
-            pins.append({"case_" + b.id,    QString(), true,  true});   // exec 出口
+            pins.append({"caseval_" + b.id, QString(), false, false,
+                         enumMode ? ValueKind::EnumRef : ValueKind::Text});  // 比较值
+            pins.append({"case_" + b.id,    QString(), true,  true});        // exec 出口
         }
         if (switchHasDefault(node))
             pins.append({"default", "默认", true, true});
@@ -1294,7 +1309,8 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
                     // 值框（下拉类型在右侧加 ▾ 提示可选）
                     const bool isDropdown = (pd.kind == ValueKind::LevelRef
                                           || pd.kind == ValueKind::ActorRef
-                                          || pd.kind == ValueKind::WidgetRef);
+                                          || pd.kind == ValueKind::WidgetRef
+                                          || pd.kind == ValueKind::EnumRef);
                     float bx0 = (float)(tl.x() + nw * 0.5f);
                     float bx1 = (float)(tl.x() + nw - 6.0f);
                     QRectF boxRc(bx0, rowY + 2, bx1 - bx0, rowH - 4);
@@ -1326,7 +1342,8 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
         const float rowH = kRowH * (float)m_zoom;
         auto rowYOf = [&](int r){ return (float)(tl.y() + (kHeaderH + r * kRowH) * m_zoom); };
 
-        auto drawValBox = [&](float rowY, const QString& text, bool connected) {
+        const bool enumMode = !node.params.value("enum").isEmpty();
+        auto drawValBox = [&](float rowY, const QString& text, bool connected, bool dropdown) {
             const float bx0 = (float)(tl.x() + nw * 0.34f);
             const float bx1 = (float)(tl.x() + nw - 30.0f * (float)m_zoom);
             QRectF boxRc(bx0, rowY + 2, bx1 - bx0, rowH - 4);
@@ -1339,9 +1356,13 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
             p.setPen(QPen(QColor(0x2a, 0x50, 0x70), 1.0));
             p.drawRoundedRect(boxRc, 2.0, 2.0);
             p.setBrush(Qt::NoBrush);
-            const QString disp = text.isEmpty() ? "···" : text;
+            const QString disp = text.isEmpty() ? (dropdown ? "选择…" : "···") : text;
             p.setPen(text.isEmpty() ? QColor(0x55, 0x55, 0x55) : QColor(0x5a, 0x9f, 0xd4));
-            p.drawText(boxRc.adjusted(3, 0, -3, 0), Qt::AlignVCenter | Qt::AlignRight, disp);
+            p.drawText(boxRc.adjusted(3, 0, dropdown ? -12 : -3, 0), Qt::AlignVCenter | Qt::AlignRight, disp);
+            if (dropdown) {
+                p.setPen(QColor(0x88, 0xaa, 0xcc));
+                p.drawText(boxRc.adjusted(0, 0, -3, 0), Qt::AlignVCenter | Qt::AlignRight, "▾");
+            }
         };
 
         // exec_in
@@ -1356,7 +1377,7 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
             p.setPen(QColor(0xaa, 0xaa, 0xaa));
             p.drawText(QRectF(tl.x() + 18 * (float)m_zoom, rowYOf(1), nw * 0.3f, rowH),
                        Qt::AlignVCenter | Qt::AlignLeft, "值");
-            drawValBox(rowYOf(1), node.params.value("value"), conn);
+            drawValBox(rowYOf(1), node.params.value("value"), conn, false);
         }
         // 各分支
         for (int i = 0; i < branches.size(); ++i) {
@@ -1368,7 +1389,7 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
             p.setPen(QColor(0xaa, 0xaa, 0xaa));
             p.drawText(QRectF(tl.x() + 18 * (float)m_zoom, rowY, 16 * (float)m_zoom, rowH),
                        Qt::AlignVCenter | Qt::AlignLeft, "=");
-            drawValBox(rowY, switchCaseValue(node, id), cvConn);
+            drawValBox(rowY, switchCaseValue(node, id), cvConn, enumMode);
             p.setPen(QColor(0xc0, 0x60, 0x60));
             p.drawText(QRectF(tl.x() + nw - 28 * (float)m_zoom, rowY, 14 * (float)m_zoom, rowH),
                        Qt::AlignCenter, "×");
@@ -1869,6 +1890,12 @@ void BlueprintEditor::mousePressEvent(QMouseEvent* e) {
         case ValueKind::WidgetRef:
             showListPicker(e->pos(), hit.nodeId, hit.pinName, "选择控件", buildWidgetItems(), cur);
             break;
+        case ValueKind::EnumRef: {
+            QList<QPair<QString, QString>> items;
+            for (const QString& v : enumValuesForPin(*node, hit.pinName)) items.append({v, v});
+            showListPicker(e->pos(), hit.nodeId, hit.pinName, "选择枚举值", items, cur);
+            break;
+        }
         case ValueKind::Bool:
             toggleBoolParam(hit.nodeId, hit.pinName);  // 勾选框：点一下切换
             break;
@@ -1892,7 +1919,16 @@ void BlueprintEditor::mousePressEvent(QMouseEvent* e) {
     }
     if (hit.type == Hit::SwitchValue) {
         selectSingleNode(hit.nodeId);
-        showInlineEdit(hit.nodeId, hit.pinName);  // pinName = "value" 或 "caseval_<id>"
+        const BPNode* sn = findNode(hit.nodeId);
+        const QStringList enumVals = sn ? enumValuesForPin(*sn, hit.pinName) : QStringList{};
+        if (!enumVals.isEmpty()) {   // 枚举模式的比较值 → 下拉
+            QList<QPair<QString, QString>> items;
+            for (const QString& v : enumVals) items.append({v, v});
+            const QString cur = sn ? switchCaseValue(*sn, hit.pinName.mid(8)) : QString();
+            showListPicker(e->pos(), hit.nodeId, hit.pinName, "选择枚举值", items, cur);
+        } else {
+            showInlineEdit(hit.nodeId, hit.pinName);  // "value" 或自由值 caseval
+        }
         update();
         return;
     }
@@ -2238,6 +2274,16 @@ void BlueprintEditor::showContextMenu(const QPoint& pos, const QPoint& globalPos
         const NodeDef* def = findNodeDef(n->type);
         QString label = def ? def->displayName : n->type;
         QMenu menu(this);
+        if (n->type == "Flow.Switch") {
+            auto* em = menu.addMenu("按枚举");
+            for (const EnumDef& ed : m_enumDefs) {
+                const QString en = ed.name;
+                em->addAction(en, [this, nodeId, en]() { bindSwitchEnum(nodeId, en); });
+            }
+            if (!n->params.value("enum").isEmpty())
+                em->addAction("（取消枚举·自由值）", [this, nodeId]() { bindSwitchEnum(nodeId, QString()); });
+            menu.addSeparator();
+        }
         if (n->type.startsWith("Macro::")) {
             menu.addAction("解开折叠", [this, nodeId]() { unfoldMacroNode(nodeId); });
             if (n->type == "Macro::local")
@@ -2755,6 +2801,32 @@ void BlueprintEditor::removeSwitchBranch(const QString& nodeId, const QString& b
         m_bpUndoStack->push(new BPConnectionRemoveCmd(m_bpClass, m_doc, c, refresh));
     m_bpUndoStack->push(new BPNodeModifyCmd(m_bpClass, m_doc, before, after, "删分支", refresh));
     m_bpUndoStack->endMacro();
+    update();
+}
+
+void BlueprintEditor::bindSwitchEnum(const QString& nodeId, const QString& enumName) {
+    const BPNode* cur = findNode(nodeId);
+    if (!cur) return;
+    BPNode before = *cur, after = *cur;
+    if (enumName.isEmpty()) {
+        after.params.remove("enum");   // 解绑 → 比较值回到打字模式
+    } else {
+        after.params["enum"] = enumName;
+        // 一键生成：为尚未覆盖的枚举值各加一个分支（已有分支保留）
+        auto branches = parseSwitchBranches(after.params.value("branches"));
+        QStringList covered;
+        for (const SwitchBranch& b : branches) covered << switchCaseValue(after, b.id);
+        for (const QString& v : Enums::valuesOf(m_enumDefs, enumName)) {
+            if (covered.contains(v)) continue;
+            const QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+            branches.append({id, QString()});
+            after.params["caseval_" + id] = v;
+        }
+        after.params["branches"] = serializeSwitchBranches(branches);
+    }
+    m_bpUndoStack->push(new BPNodeModifyCmd(m_bpClass, m_doc, before, after,
+                        enumName.isEmpty() ? "取消枚举" : "按枚举生成分支",
+                        [this]{ notifyModified(); update(); }));
     update();
 }
 
