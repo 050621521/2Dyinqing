@@ -71,25 +71,29 @@ EnumEditor::EnumEditor(QWidget* parent) : QWidget(parent) {
     connect(addBtn, &QPushButton::clicked, this, &EnumEditor::addValue);
 }
 
-void EnumEditor::appendRow(const QString& name, const QString& desc) {
+void EnumEditor::appendRow(const QString& key, const QString& disp, const QString& desc) {
     auto* w = new QWidget();
     auto* h = new QHBoxLayout(w);
     h->setContentsMargins(0, 0, 0, 0);
-    auto* nl = new QLabel("显示命名", w); nl->setObjectName("rowLbl"); nl->setFixedWidth(80);
-    auto* nameEdit = new QLineEdit(name, w);
+    auto* kl = new QLabel("键值", w); kl->setObjectName("rowLbl"); kl->setFixedWidth(50);
+    auto* keyEdit = new QLineEdit(key, w);
+    auto* nl = new QLabel("显示命名", w); nl->setObjectName("rowLbl"); nl->setFixedWidth(70);
+    auto* dispEdit = new QLineEdit(disp, w);
     auto* dl = new QLabel("描述", w); dl->setObjectName("rowLbl"); dl->setFixedWidth(40);
     auto* descEdit = new QLineEdit(desc, w);
     auto* del = new QPushButton("🗑", w); del->setObjectName("delRow"); del->setFixedWidth(28);
-    h->addWidget(nl); h->addWidget(nameEdit, 2);
-    h->addWidget(dl); h->addWidget(descEdit, 3);
+    h->addWidget(kl);  h->addWidget(keyEdit, 2);
+    h->addWidget(nl);  h->addWidget(dispEdit, 2);
+    h->addWidget(dl);  h->addWidget(descEdit, 2);
     h->addWidget(del);
 
-    // 插在末尾的 stretch 之前
     m_rowsLay->insertWidget(m_rowsLay->count() - 1, w);
-    m_rows.append({w, nameEdit, descEdit});
+    m_rows.append({w, keyEdit, dispEdit, descEdit});
 
-    connect(nameEdit, &QLineEdit::editingFinished, this, [this]() { if (!m_loading) save(); });
-    connect(descEdit, &QLineEdit::editingFinished, this, [this]() { if (!m_loading) save(); });
+    auto saveOnEdit = [this]() { if (!m_loading) save(); };
+    connect(keyEdit,  &QLineEdit::editingFinished, this, saveOnEdit);
+    connect(dispEdit, &QLineEdit::editingFinished, this, saveOnEdit);
+    connect(descEdit, &QLineEdit::editingFinished, this, saveOnEdit);
     connect(del, &QPushButton::clicked, this, [this, w]() { removeRow(w); });
 }
 
@@ -111,13 +115,15 @@ void EnumEditor::load(const QString& enumPath) {
     for (const Row& r : m_rows) r.w->deleteLater();
     m_rows.clear();
     for (int i = 0; i < e.values.size(); ++i)
-        appendRow(e.values[i], i < e.descriptions.size() ? e.descriptions[i] : QString());
+        appendRow(e.values[i],
+                  i < e.displays.size()     ? e.displays[i]     : QString(),
+                  i < e.descriptions.size() ? e.descriptions[i] : QString());
     m_loading = false;
 }
 
 void EnumEditor::addValue() {
     if (m_path.isEmpty()) return;
-    appendRow(QString("枚举值%1").arg(m_rows.size() + 1), QString());
+    appendRow(QString("值%1").arg(m_rows.size() + 1), QString(), QString());
     save();
 }
 
@@ -126,9 +132,10 @@ void EnumEditor::save() {
     EnumDef e;
     e.name = QFileInfo(m_path).baseName();
     for (const Row& r : m_rows) {
-        const QString v = r.name->text().trimmed();
+        const QString v = r.key->text().trimmed();
         if (v.isEmpty()) continue;
         e.values.append(v);
+        e.displays.append(r.disp->text());
         e.descriptions.append(r.desc->text());
     }
     e.save(m_path);

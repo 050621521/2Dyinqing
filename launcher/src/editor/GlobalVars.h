@@ -13,8 +13,9 @@ struct GlobalVarDef {
 // 枚举资产：存为内容浏览器里的 .enum 文件（文件名 = 枚举名）
 struct EnumDef {
     QString     name;
-    QStringList values;        // 每个枚举值的"显示命名"（键，逻辑里用它比较）
-    QStringList descriptions;  // 与 values 平行的"描述"（仅 UI 备注，可空）
+    QStringList values;        // 键值：逻辑里用它比较/存储（稳定标识）
+    QStringList displays;      // 显示命名：UI 下拉里显示（可空→回退到键值）
+    QStringList descriptions;  // 描述：仅 UI 备注（可空）
     QString     filePath;      // 来源文件（扫描时填）
 
     bool           save(const QString& filePath) const;

@@ -605,16 +605,27 @@ BlueprintEditor::ValueKind BlueprintEditor::kindFromGlobalType(const QString& ty
     return ValueKind::Text;   // number/string 打字
 }
 
-QStringList BlueprintEditor::enumValuesForPin(const BPNode& node, const QString& key) const {
+QList<QPair<QString, QString>>
+BlueprintEditor::enumValuesForPin(const BPNode& node, const QString& key) const {
+    QString enumName;
     if ((node.type == "Global.Get" || node.type == "Global.Set") && key == "value") {
         const QString t = globalVarType(node.params.value("varName"));
-        if (t.startsWith("enum:")) return Enums::valuesOf(m_enumDefs, t.mid(5));
+        if (t.startsWith("enum:")) enumName = t.mid(5);
+    } else if (node.type == "Flow.Switch" && key.startsWith("caseval_")) {
+        enumName = node.params.value("enum");
     }
-    if (node.type == "Flow.Switch" && key.startsWith("caseval_")) {
-        const QString en = node.params.value("enum");
-        if (!en.isEmpty()) return Enums::valuesOf(m_enumDefs, en);
+    QList<QPair<QString, QString>> out;
+    if (enumName.isEmpty()) return out;
+    for (const EnumDef& e : m_enumDefs) {
+        if (e.name != enumName) continue;
+        for (int i = 0; i < e.values.size(); ++i) {
+            const QString disp = (i < e.displays.size() && !e.displays[i].isEmpty())
+                                 ? e.displays[i] : e.values[i];
+            out.append({disp, e.values[i]});   // (显示名, 键值)
+        }
+        break;
     }
-    return {};
+    return out;
 }
 
 BlueprintEditor::ValueKind
@@ -1891,9 +1902,8 @@ void BlueprintEditor::mousePressEvent(QMouseEvent* e) {
             showListPicker(e->pos(), hit.nodeId, hit.pinName, "选择控件", buildWidgetItems(), cur);
             break;
         case ValueKind::EnumRef: {
-            QList<QPair<QString, QString>> items;
-            for (const QString& v : enumValuesForPin(*node, hit.pinName)) items.append({v, v});
-            showListPicker(e->pos(), hit.nodeId, hit.pinName, "选择枚举值", items, cur);
+            showListPicker(e->pos(), hit.nodeId, hit.pinName, "选择枚举值",
+                           enumValuesForPin(*node, hit.pinName), cur);
             break;
         }
         case ValueKind::Bool:
@@ -1920,10 +1930,9 @@ void BlueprintEditor::mousePressEvent(QMouseEvent* e) {
     if (hit.type == Hit::SwitchValue) {
         selectSingleNode(hit.nodeId);
         const BPNode* sn = findNode(hit.nodeId);
-        const QStringList enumVals = sn ? enumValuesForPin(*sn, hit.pinName) : QStringList{};
-        if (!enumVals.isEmpty()) {   // 枚举模式的比较值 → 下拉
-            QList<QPair<QString, QString>> items;
-            for (const QString& v : enumVals) items.append({v, v});
+        const QList<QPair<QString, QString>> items =
+            sn ? enumValuesForPin(*sn, hit.pinName) : QList<QPair<QString, QString>>{};
+        if (!items.isEmpty()) {   // 枚举模式的比较值 → 下拉
             const QString cur = sn ? switchCaseValue(*sn, hit.pinName.mid(8)) : QString();
             showListPicker(e->pos(), hit.nodeId, hit.pinName, "选择枚举值", items, cur);
         } else {

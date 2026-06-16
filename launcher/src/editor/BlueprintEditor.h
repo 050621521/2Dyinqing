@@ -154,8 +154,8 @@ private:
     QList<EnumDef>      m_enumDefs;
     QString   globalVarType(const QString& name) const;
     ValueKind kindFromGlobalType(const QString& type) const;   // enum:→EnumRef
-    // 某引脚（全局变量值 / 分支比较值）对应的枚举选项；非枚举返回空
-    QStringList enumValuesForPin(const BPNode& node, const QString& key) const;
+    // 某引脚（全局变量值 / 分支比较值）对应的枚举选项 (显示名, 键值)；非枚举返回空
+    QList<QPair<QString, QString>> enumValuesForPin(const BPNode& node, const QString& key) const;
     // 按节点实例求某引脚的 kind（兼容动态节点：分支控制/宏/全局变量）
     ValueKind pinKindForNode(const BPNode& node, const QString& key) const;
 

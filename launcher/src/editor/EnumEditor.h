@@ -18,8 +18,8 @@ signals:
     void changed();
 
 private:
-    struct Row { QWidget* w; QLineEdit* name; QLineEdit* desc; };
-    void appendRow(const QString& name, const QString& desc);
+    struct Row { QWidget* w; QLineEdit* key; QLineEdit* disp; QLineEdit* desc; };
+    void appendRow(const QString& key, const QString& disp, const QString& desc);
     void removeRow(QWidget* rowW);
     void addValue();
     void save();
