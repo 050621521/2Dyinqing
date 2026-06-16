@@ -2,6 +2,7 @@
 #include "models/LevelDocument.h"
 #include "models/BPClass.h"
 #include "models/BPMacro.h"
+#include "GlobalVars.h"
 #include <QWidget>
 #include <QColor>
 #include <QPointF>
@@ -21,6 +22,8 @@ class BlueprintEditor : public QWidget {
     Q_OBJECT
 public:
     explicit BlueprintEditor(QWidget* parent = nullptr);
+    // 全局变量声明（由 EditorWindow 在加载/面板变更时推入），用于节点类型/菜单
+    void setGlobalVarDefs(const QList<GlobalVarDef>& defs) { m_globalVarDefs = defs; update(); }
     void loadLevel(LevelDocument* doc);
     void loadBpClass(BPClass* bpClass);
     void saveBpClass();
@@ -143,6 +146,13 @@ private:
                         QList<MacroPin>& outs) const;
     static ValueKind kindFromString(const QString& s);
     static QString   kindToString(ValueKind k);
+
+    // 全局变量声明缓存 + 查类型 + 类型→引脚 kind
+    QList<GlobalVarDef> m_globalVarDefs;
+    QString   globalVarType(const QString& name) const;
+    static ValueKind kindFromGlobalType(const QString& type);
+    // 按节点实例求某引脚的 kind（兼容动态节点：分支控制/宏/全局变量）
+    ValueKind pinKindForNode(const BPNode& node, const QString& key) const;
 
     // UI 资产选择器
     QString  m_projectRoot;

@@ -45,6 +45,8 @@ set(SOURCES
     src/editor/GameViewport.cpp
     src/models/BPClass.cpp
     src/models/BPMacro.cpp
+    src/editor/GlobalVars.cpp
+    src/editor/GlobalVarPanel.cpp
     src/models/UIDocument.cpp
     src/editor/UIRuntime.cpp
     src/editor/UIEditor.cpp
@@ -76,6 +78,8 @@ set(HEADERS
     src/editor/GameViewport.h
     src/models/BPClass.h
     src/models/BPMacro.h
+    src/editor/GlobalVars.h
+    src/editor/GlobalVarPanel.h
     src/models/UIDocument.h
     src/editor/UIRuntime.h
     src/editor/UIEditor.h

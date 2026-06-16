@@ -250,6 +250,14 @@ QString BPRuntime::executeNode(const QString& nodeId) {
         return "exec_out";
     }
 
+    if (node->type == "Global.Set") {
+        if (m_globalVars) {
+            const QString name = node->params.value("varName");
+            if (!name.isEmpty()) (*m_globalVars)[name] = resolveDataPin(nodeId, "value");
+        }
+        return "exec_out";
+    }
+
     if (node->type == "Var.SetNumber" || node->type == "Var.SetBool" || node->type == "Var.SetString") {
         QString name  = resolveDataPin(nodeId, "name");
         QString value = resolveDataPin(nodeId, "value");
@@ -405,6 +413,10 @@ QString BPRuntime::resolveOutputPin(const QString& nodeId, const QString& pinKey
         const QString uiName = node->params.value("uiName");
         return uiName + "::" + pinKey;  // 所有控件引脚返回 "uiName::widgetName"
     }
+
+    // 全局变量读取
+    if (node->type == "Global.Get")
+        return m_globalVars ? m_globalVars->value(node->params.value("varName")) : QString();
 
     // 运行时变量读取（数值/布尔/字符串共用同一张表）
     if (node->type == "Var.GetNumber" || node->type == "Var.GetBool" || node->type == "Var.GetString") {

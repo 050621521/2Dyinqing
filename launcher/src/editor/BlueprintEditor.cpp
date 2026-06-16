@@ -99,9 +99,11 @@ QString switchCaseValue(const BPNode& node, const QString& id) {
     return QString();
 }
 
-// 宏（自定义节点）相关：调用节点 type 以 "Macro::" 开头；入口/出口为 Macro.Entry/Exit
+// 无静态 NodeDef 的动态节点（绘制/命中需特殊容忍）：
+// 宏调用 Macro:: / 入口出口 Macro.Entry|Exit / 全局变量 Global.Get|Set
 bool isMacroNodeType(const QString& t) {
-    return t.startsWith("Macro::") || t == "Macro.Entry" || t == "Macro.Exit";
+    return t.startsWith("Macro::") || t == "Macro.Entry" || t == "Macro.Exit"
+        || t == "Global.Get" || t == "Global.Set";
 }
 
 // 新建 Flow.Switch 时给一组默认分支，避免空节点
@@ -591,7 +593,36 @@ bool BlueprintEditor::macroInterface(const BPNode& node, QList<MacroPin>& ins,
     return true;
 }
 
+QString BlueprintEditor::globalVarType(const QString& name) const {
+    for (const GlobalVarDef& d : m_globalVarDefs)
+        if (d.name == name) return d.type;
+    return QString();
+}
+
+BlueprintEditor::ValueKind BlueprintEditor::kindFromGlobalType(const QString& type) {
+    if (type == "bool") return ValueKind::Bool;
+    return ValueKind::Text;   // number/string/enum 暂用打字（枚举下拉留给后续）
+}
+
+BlueprintEditor::ValueKind
+BlueprintEditor::pinKindForNode(const BPNode& node, const QString& key) const {
+    for (const PinDef& pd : effectivePins(node))
+        if (pd.key == key) return pd.kind;
+    return pinKindOf(node.type, key);   // 兜底（如 uiName 合成参数）
+}
+
 QList<BlueprintEditor::PinDef> BlueprintEditor::effectivePins(const BPNode& node) const {
+    // 全局变量节点：值引脚类型由变量声明决定
+    if (node.type == "Global.Get") {
+        return { {"value", QString(), false, true,
+                  kindFromGlobalType(globalVarType(node.params.value("varName")))} };
+    }
+    if (node.type == "Global.Set") {
+        return { {"exec_in",  "exec", true, false},
+                 {"exec_out", "exec", true, true},
+                 {"value", QString(), false, false,
+                  kindFromGlobalType(globalVarType(node.params.value("varName")))} };
+    }
     // 宏调用节点：引脚来自所引用宏的接口（输入在前、输出在后）
     if (node.type.startsWith("Macro::")) {
         QList<PinDef> pins;
@@ -726,6 +757,8 @@ bool BlueprintEditor::isPinExec(const QString& typeId, const QString& pinKey, bo
     // 分支控制：value 是数据输入，其余（exec_in / case_* / default）都是 exec
     if (typeId == "Flow.Switch")
         return pinKey != "value";
+    if (typeId == "Global.Set") return pinKey == "exec_in" || pinKey == "exec_out";
+    if (typeId == "Global.Get") return false;
     const NodeDef* def = findNodeDef(typeId);
     if (!def) return false;
     for (const PinDef& pd : def->pins)
@@ -1064,6 +1097,12 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
         headerColor = QColor("#6a6a3a"); displayName = "入口节点";
     } else if (node.type == "Macro.Exit") {
         headerColor = QColor("#6a6a3a"); displayName = "出口节点";
+    } else if (node.type == "Global.Get" || node.type == "Global.Set") {
+        headerColor = QColor("#1a3a4a");
+        const QString vn = node.params.value("varName");
+        const bool undefined = globalVarType(vn).isEmpty();
+        displayName = (node.type == "Global.Get" ? "获取 " : "设置 ")
+                    + (vn.isEmpty() ? "全局变量" : vn) + (undefined && !vn.isEmpty() ? " (未定义)" : "");
     } else {  // Macro:: 调用节点
         headerColor = QColor("#3a2a5a");
         QString nm = node.params.value("macroName");
@@ -1814,9 +1853,10 @@ void BlueprintEditor::mousePressEvent(QMouseEvent* e) {
     // 点击引脚值区域：按引脚 kind 选择对应内联编辑器（学虚幻，类型驱动）
     if (hit.type == Hit::PinValue) {
         const BPNode* node     = findNode(hit.nodeId);
-        const QString nodeType = node ? node->type : QString();
         const QString cur      = node ? node->params.value(hit.pinName) : QString();
-        switch (pinKindOf(nodeType, hit.pinName)) {
+        const ValueKind kind   = node ? pinKindForNode(*node, hit.pinName)
+                                      : (hit.pinName == "uiName" ? ValueKind::UIRef : ValueKind::Text);
+        switch (kind) {
         case ValueKind::ActorRef:
             showListPicker(e->pos(), hit.nodeId, hit.pinName, "选择对象", buildActorItems(), cur);
             break;
@@ -2248,6 +2288,27 @@ void BlueprintEditor::showContextMenu(const QPoint& pos, const QPoint& globalPos
         menu.addAction(QString("折叠成节点（%1）").arg(m_selectedNodeIds.size()),
                        [this]() { foldSelectionToMacro(); });
         menu.addSeparator();
+    }
+    // 全局变量：每个声明的变量提供 获取/设置
+    if (!m_globalVarDefs.isEmpty()) {
+        auto* gvMenu = menu.addMenu("全局变量");
+        for (const GlobalVarDef& gv : m_globalVarDefs) {
+            const QString vn = gv.name;
+            auto makeGlobalNode = [this, vn, canvasPos](const QString& type) {
+                if (!m_doc && !m_bpClass) return;
+                BPNode node;
+                node.id   = QUuid::createUuid().toString(QUuid::WithoutBraces);
+                node.type = type;
+                node.x = (float)canvasPos.x(); node.y = (float)canvasPos.y();
+                node.params["varName"] = vn;
+                auto refresh = [this]() { notifyModified(); update(); };
+                m_bpUndoStack->push(new BPNodeAddCmd(m_bpClass, m_doc, node, refresh));
+                selectSingleNode(node.id);
+                update();
+            };
+            gvMenu->addAction("获取 " + vn, [makeGlobalNode]() { makeGlobalNode("Global.Get"); });
+            gvMenu->addAction("设置 " + vn, [makeGlobalNode]() { makeGlobalNode("Global.Set"); });
+        }
     }
     // 工程里的自定义节点（宏库资产）
     const QList<BPMacro> macros = m_projectRoot.isEmpty()

@@ -9,6 +9,7 @@
 #include "SceneOutliner.h"
 #include "DetailsPanel.h"
 #include "ContentBrowser.h"
+#include "GlobalVarPanel.h"
 #include "LayoutManager.h"
 #include "DocTabBar.h"
 #include "ProjectSettingsDialog.h"
@@ -255,6 +256,7 @@ void EditorWindow::setupMainToolBar() {
     tb->addSeparator();
     connect(m_runBtn,   &QToolButton::clicked, this, [this]() {
         m_levelNavStack.clear();   // 全新运行会话：清空关卡历史栈（跳转内部的重启不清）
+        m_globalVars.clear();      // 全新一局：清空全局变量
         startRuntime();
     });
     connect(m_pauseBtn, &QToolButton::clicked, this, &EditorWindow::togglePauseRuntime);
@@ -400,6 +402,36 @@ void EditorWindow::setupCentralArea() {
     m_cbDockW->setWidget(cbContainer);
     m_dockManager->addDockWidget(ads::BottomDockWidgetArea, m_cbDockW);
     m_cbDockW->closeDockWidget();
+
+    // ── 全局变量面板 ──────────────────────────────────────────────────────
+    m_globalVarDefs = GlobalVars::load(m_project.path);
+    m_globalVarPanel = new GlobalVarPanel();
+    m_globalVarPanel->setProjectRoot(m_project.path);
+    connect(m_globalVarPanel, &GlobalVarPanel::changed,
+            this, &EditorWindow::reloadGlobalVarDefs);
+    // 改名同步：已打开的关卡/蓝图里引用该变量的节点跟着改
+    connect(m_globalVarPanel, &GlobalVarPanel::varRenamed, this,
+            [this](const QString& oldN, const QString& newN) {
+        auto isGlobalRef = [&](const BPNode& n) {
+            return (n.type == "Global.Get" || n.type == "Global.Set")
+                && n.params.value("varName") == oldN;
+        };
+        for (LevelDocument* doc : m_openLevels.values())
+            if (doc)
+                for (const BPNode& n : doc->bpNodes())
+                    if (isGlobalRef(n)) { BPNode nn = n; nn.params["varName"] = newN; doc->updateBPNode(nn); }
+        for (BPClass* bc : m_openBpClasses.values())
+            if (bc)
+                for (BPNode& n : bc->nodes)
+                    if (isGlobalRef(n)) n.params["varName"] = newN;
+        for (auto it = m_bpInstances.begin(); it != m_bpInstances.end(); ++it)
+            if (it.value().editor) it.value().editor->update();
+    });
+    auto* gvDock = new ads::CDockWidget("全局变量");
+    gvDock->setWidget(m_globalVarPanel);
+    m_dockManager->addDockWidget(ads::RightDockWidgetArea, gvDock);
+    gvDock->closeDockWidget();
+    if (m_windowMenu) m_windowMenu->addAction(gvDock->toggleViewAction());
 
     // ── 蓝图浮动窗口：每个实例按需创建独立 Dock（见 floatBp）──────────────
 
@@ -1195,6 +1227,7 @@ BlueprintEditor* EditorWindow::ensureBpInstance(const QString& tabId) {
     inst.isLevelBp = isLevelBlueprintTab(tabId);
     inst.editor = new BlueprintEditor();
     inst.editor->setProjectRoot(m_project.path);
+    inst.editor->setGlobalVarDefs(m_globalVarDefs);
 
     if (inst.isLevelBp) {
         inst.dataPath = levelPathOfBlueprintTab(tabId);
@@ -1271,6 +1304,12 @@ void EditorWindow::onProjectSettings() {
     dlg->deleteLater();
 }
 
+void EditorWindow::reloadGlobalVarDefs() {
+    m_globalVarDefs = GlobalVars::load(m_project.path);
+    for (auto it = m_bpInstances.begin(); it != m_bpInstances.end(); ++it)
+        if (it.value().editor) it.value().editor->setGlobalVarDefs(m_globalVarDefs);
+}
+
 void EditorWindow::startRuntime() {
     if (m_runtime) return;
     const int index = m_docTabBar->currentIndex();
@@ -1284,6 +1323,7 @@ void EditorWindow::startRuntime() {
     if (!doc || !m_viewport) return;
 
     m_runtime = new BPRuntime(doc, this);
+    m_runtime->setGlobalVars(&m_globalVars);
     m_uiRuntime = new UIRuntime(m_project.path, this);
     m_runtime->setUIRuntime(m_uiRuntime);
     connect(m_uiRuntime, &UIRuntime::uiStateChanged, this, [this]() {

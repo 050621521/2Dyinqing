@@ -28,6 +28,8 @@ public:
     void appendPrintLog(const QString& text) { m_printLog << text; }
 
     void setUIRuntime(UIRuntime* ui);
+    // 全局变量表（由 EditorWindow 持有，跨关卡保留）
+    void setGlobalVars(QMap<QString, QString>* g) { m_globalVars = g; }
 
 signals:
     void stateChanged();
@@ -54,7 +56,8 @@ private:
     QList<BPConnection> m_connections;
     QList<ActorData>    m_actors;
     QStringList         m_printLog;
-    QMap<QString, QString> m_varStore;  // 运行时变量表（name → value）
+    QMap<QString, QString> m_varStore;  // 本关运行内变量表（name → value）
+    QMap<QString, QString>* m_globalVars = nullptr;  // 全局变量表（EditorWindow 持有）
 
     UIRuntime*             m_uiRuntime = nullptr;
     QMap<QString, QString> m_uiRefs;      // nodeId(UI.Create) → instanceId
