@@ -526,6 +526,10 @@ void EditorWindow::setupCentralArea() {
             m_dockManager->addDockWidget(ads::LeftDockWidgetArea, m_gvDock);
             m_layoutManager->saveLayout("默认布局");
         }
+        // 初始按当前标签决定显隐（非蓝图页隐藏）
+        if (m_gvDock && m_docTabBar)
+            m_gvDock->toggleView(isAnyBlueprintTab(
+                m_docTabBar->tabData(m_docTabBar->currentIndex()).toString()));
     });
 }
 
@@ -844,6 +848,8 @@ void EditorWindow::onTabChanged(int index) {
     const QString path = m_docTabBar->tabData(index).toString();
     if (m_runtime && path != DocTabBar::kGameViewTabData)
         stopRuntime();
+    // 变量面板（我的蓝图）只在蓝图编辑器里显示
+    if (m_gvDock) m_gvDock->toggleView(isAnyBlueprintTab(path));
     if (!m_sceneOutliner || !m_detailsPanel) return;
 
     for (auto& conn : m_tabConnections) disconnect(conn);

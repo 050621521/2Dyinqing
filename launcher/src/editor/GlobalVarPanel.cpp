@@ -7,6 +7,8 @@
 #include <QLineEdit>
 #include <QComboBox>
 #include <QPushButton>
+#include <QToolButton>
+#include <QMenu>
 #include <QPixmap>
 #include <QPainter>
 #include <QIcon>
@@ -93,9 +95,40 @@ void GlobalVarPanel::reload() {
 void GlobalVarPanel::rebuildList() {
     const int keep = m_list->currentRow();
     m_list->clear();
-    for (const GlobalVarDef& d : m_vars) {
-        auto* it = new QListWidgetItem(typeIcon(d.type), d.name);
-        m_list->addItem(it);
+    for (int i = 0; i < m_vars.size(); ++i) {
+        const GlobalVarDef& d = m_vars[i];
+        auto* item = new QListWidgetItem(m_list);
+        auto* w = new QWidget();
+        auto* h = new QHBoxLayout(w);
+        h->setContentsMargins(6, 2, 6, 2);
+        auto* nameLbl = new QLabel(d.name, w);
+        // 可点的类型色块：点开弹所有类型
+        auto* pill = new QToolButton(w);
+        pill->setText(GlobalVars::typeLabel(d.type));
+        pill->setPopupMode(QToolButton::InstantPopup);
+        pill->setCursor(Qt::PointingHandCursor);
+        pill->setStyleSheet(QString(
+            "QToolButton{background:%1;color:white;border:none;border-radius:8px;padding:1px 10px;}"
+            "QToolButton::menu-indicator{image:none;}").arg(colorForType(d.type).name()));
+        auto* menu = new QMenu(pill);
+        auto addType = [this, menu, i](const QString& label, const QString& type) {
+            menu->addAction(label, this, [this, i, type]() {
+                if (i < 0 || i >= m_vars.size()) return;
+                m_vars[i].type = type;
+                commit();
+                rebuildList();
+            });
+        };
+        addType("数值", "number");
+        addType("布尔", "bool");
+        addType("字符串", "string");
+        for (const EnumDef& e : Enums::loadAll(m_projectRoot))
+            addType("枚举(" + e.name + ")", "enum:" + e.name);
+        pill->setMenu(menu);
+        h->addWidget(nameLbl, 1);
+        h->addWidget(pill, 0);
+        item->setSizeHint(w->sizeHint());
+        m_list->setItemWidget(item, w);
     }
     if (keep >= 0 && keep < m_vars.size()) m_list->setCurrentRow(keep);
 }
