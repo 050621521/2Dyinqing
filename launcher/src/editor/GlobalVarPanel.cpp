@@ -12,6 +12,7 @@
 #include <QPixmap>
 #include <QPainter>
 #include <QIcon>
+#include <QEvent>
 
 static QColor colorForType(const QString& type) {
     if (type == "number") return QColor(0x3a, 0x7a, 0xd4);   // 蓝
@@ -133,8 +134,21 @@ void GlobalVarPanel::rebuildList() {
         h->addWidget(pill, 0);
         item->setSizeHint(w->sizeHint());
         m_list->setItemWidget(item, w);
+        // 行点击 → 选中（自定义行控件会吞点击，靠事件过滤器转发）
+        w->setProperty("varRow", i);
+        w->installEventFilter(this);
+        nameLbl->setProperty("varRow", i);
+        nameLbl->installEventFilter(this);
     }
     if (keep >= 0 && keep < m_vars.size()) m_list->setCurrentRow(keep);
+}
+
+bool GlobalVarPanel::eventFilter(QObject* obj, QEvent* e) {
+    if (e->type() == QEvent::MouseButtonPress) {
+        const QVariant r = obj->property("varRow");
+        if (r.isValid()) { m_list->setCurrentRow(r.toInt()); }
+    }
+    return QWidget::eventFilter(obj, e);
 }
 
 void GlobalVarPanel::fillTypeCombo(const QString& current) {

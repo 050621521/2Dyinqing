@@ -21,6 +21,9 @@ signals:
     void changed();
     void varRenamed(const QString& oldName, const QString& newName);
 
+protected:
+    bool eventFilter(QObject* obj, QEvent* e) override;   // 行点击 → 选中
+
 private:
     void reload();
     void rebuildList();

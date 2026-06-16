@@ -537,12 +537,14 @@ void EditorWindow::setupCentralArea() {
             healed = true;
         }
         if (healed) m_layoutManager->saveLayout("默认布局");
-        // 初始按当前标签决定显隐（非蓝图页隐藏）
+        // 初始按当前标签决定显隐
         if (m_docTabBar) {
             const bool bp = isAnyBlueprintTab(
                 m_docTabBar->tabData(m_docTabBar->currentIndex()).toString());
             if (m_gvDock)         m_gvDock->toggleView(bp);
             if (m_varDetailsDock) m_varDetailsDock->toggleView(bp);
+            if (m_outlineDockW)   m_outlineDockW->toggleView(!bp);
+            if (m_detailsDockW)   m_detailsDockW->toggleView(!bp);
         }
     });
 }
@@ -862,10 +864,12 @@ void EditorWindow::onTabChanged(int index) {
     const QString path = m_docTabBar->tabData(index).toString();
     if (m_runtime && path != DocTabBar::kGameViewTabData)
         stopRuntime();
-    // 变量面板（我的蓝图）+ 变量细节 只在蓝图编辑器里显示
+    // 上下文切换：蓝图页显示"我的蓝图"+蓝图"细节"，隐藏视口的大纲/细节；视口页反之
     const bool bpCtx = isAnyBlueprintTab(path);
     if (m_gvDock)         m_gvDock->toggleView(bpCtx);
     if (m_varDetailsDock) m_varDetailsDock->toggleView(bpCtx);
+    if (m_outlineDockW)   m_outlineDockW->toggleView(!bpCtx);
+    if (m_detailsDockW)   m_detailsDockW->toggleView(!bpCtx);
     if (!m_sceneOutliner || !m_detailsPanel) return;
 
     for (auto& conn : m_tabConnections) disconnect(conn);
