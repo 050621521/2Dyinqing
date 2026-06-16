@@ -97,6 +97,7 @@ private:
     ads::CDockWidget*  m_detailsDockW = nullptr;
     ads::CDockWidget*  m_cbDockW      = nullptr;
     ads::CDockWidget*  m_gvDock       = nullptr;
+    ads::CDockWidget*  m_varDetailsDock = nullptr;  // 蓝图上下文的"细节"（变量属性）
     ContentBrowser*    m_contentBrowser = nullptr;
 
     QStackedWidget* m_centralStack    = nullptr;

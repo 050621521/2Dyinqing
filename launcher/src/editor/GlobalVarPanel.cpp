@@ -53,14 +53,18 @@ GlobalVarPanel::GlobalVarPanel(QWidget* parent) : QWidget(parent) {
     m_list->setObjectName("globalVarList");
     lay->addWidget(m_list, 1);
 
-    // 细节区
-    lay->addWidget(new QLabel("细节", this));
+    // 细节内容：独立成一个面板（由 EditorWindow 放进单独的"细节"停靠面板）
+    m_detailsWidget = new QWidget();
+    m_detailsWidget->setObjectName("varDetailsPanel");
+    auto* dlay = new QVBoxLayout(m_detailsWidget);
+    dlay->setContentsMargins(10, 10, 10, 10);
     auto* form = new QFormLayout();
-    m_nameEdit  = new QLineEdit(this);
-    m_typeCombo = new QComboBox(this);
-    form->addRow("名字", m_nameEdit);
-    form->addRow("类型", m_typeCombo);
-    lay->addLayout(form);
+    m_nameEdit  = new QLineEdit(m_detailsWidget);
+    m_typeCombo = new QComboBox(m_detailsWidget);
+    form->addRow("变量名", m_nameEdit);
+    form->addRow("类型",   m_typeCombo);
+    dlay->addLayout(form);
+    dlay->addStretch(1);
 
     connect(addBtn, &QPushButton::clicked, this, &GlobalVarPanel::addVar);
     connect(delBtn, &QPushButton::clicked, this, &GlobalVarPanel::removeSelected);

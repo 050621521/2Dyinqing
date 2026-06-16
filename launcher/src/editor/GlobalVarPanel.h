@@ -14,6 +14,8 @@ public:
     explicit GlobalVarPanel(QWidget* parent = nullptr);
     void setProjectRoot(const QString& root);
     void refreshEnums();   // 枚举资产变化时刷新类型下拉
+    // 细节编辑控件（独立成一个"细节"停靠面板，不在变量列表面板里）
+    QWidget* detailsWidget() const { return m_detailsWidget; }
 
 signals:
     void changed();
@@ -31,9 +33,10 @@ private:
     void fillTypeCombo(const QString& current);
 
     QString             m_projectRoot;
-    QList<GlobalVarDef> m_vars;     // 内存模型
-    QListWidget*        m_list      = nullptr;
-    QLineEdit*          m_nameEdit  = nullptr;
-    QComboBox*          m_typeCombo = nullptr;
-    bool                m_loading   = false;
+    QList<GlobalVarDef> m_vars;        // 内存模型
+    QListWidget*        m_list        = nullptr;
+    QWidget*            m_detailsWidget = nullptr;  // 独立"细节"面板内容
+    QLineEdit*          m_nameEdit    = nullptr;
+    QComboBox*          m_typeCombo   = nullptr;
+    bool                m_loading     = false;
 };
