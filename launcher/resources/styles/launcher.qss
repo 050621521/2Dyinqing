@@ -429,6 +429,12 @@ QDockWidget#bottomStatusDock > QWidget { background: #1a1a1a; }
 }
 #sceneTree::item:selected { background: #0d3a6a; color: #fff; }
 #sceneTree::item:hover:!selected { background: #252525; }
+
+/* 我的蓝图：变量列表选中/悬停高亮（行控件透明，底色由 item 绘制） */
+#globalVarList { background: transparent; border: none; }
+#globalVarList::item { padding: 2px 0; }
+#globalVarList::item:selected { background: #0d3a6a; }
+#globalVarList::item:hover:!selected { background: #252525; }
 #sceneTreeHeader {
     background: #222;
     color: #888;

@@ -780,9 +780,9 @@ bool BlueprintEditor::isPinConnected(const QString& nodeId, const QString& pinKe
 }
 
 bool BlueprintEditor::isPinExec(const QString& typeId, const QString& pinKey, bool isOutput) const {
-    // 分支控制：value 是数据输入，其余（exec_in / case_* / default）都是 exec
+    // 分支控制：value 和 caseval_* 是数据输入（可接任意数据源），其余（exec_in / case_* / default）才是 exec
     if (typeId == "Flow.Switch")
-        return pinKey != "value";
+        return pinKey != "value" && !pinKey.startsWith("caseval_");
     if (typeId == "Global.Set") return pinKey == "exec_in" || pinKey == "exec_out";
     if (typeId == "Global.Get") return false;
     const NodeDef* def = findNodeDef(typeId);
@@ -1477,6 +1477,16 @@ void BlueprintEditor::drawDanglingWire(QPainter& p) {
 // ── 滚轮缩放 ──────────────────────────────────────────────────────────
 
 void BlueprintEditor::wheelEvent(QWheelEvent* e) {
+    // 弹出列表（选择控件 / UI 资源 / 连线落点菜单）内滚动时，
+    // 列表滚到顶/底边界会把滚轮事件冒泡到这里，不应缩放画布——直接放行给列表。
+    const QPoint wp = e->position().toPoint();
+    auto overPopup = [&](QWidget* p) {
+        return p && p->isVisible() && p->geometry().contains(wp);
+    };
+    if (overPopup(m_paramEditPopup) || overPopup(m_uiAssetPopup) || overPopup(m_wireDropPopup)) {
+        e->ignore();
+        return;
+    }
     cancelInlineEdit();
     const float factor = e->angleDelta().y() > 0 ? 1.15f : (1.0f / 1.15f);
     float newZoom = qBound(0.1f, m_zoom * factor, 3.0f);

@@ -372,7 +372,7 @@ void EditorWindow::setupCentralArea() {
             this, [this](const QString& bpClass) { openBpClassTab(bpClass); });
     m_detailsDockW = new ads::CDockWidget("细节");
     m_detailsDockW->setWidget(m_detailsPanel);
-    m_dockManager->addDockWidget(
+    auto* detailsArea = m_dockManager->addDockWidget(
         ads::BottomDockWidgetArea, m_detailsDockW, rightArea);
 
     // ── 内容浏览器（底部，默认隐藏）─────────────────────────────────
@@ -459,12 +459,17 @@ void EditorWindow::setupCentralArea() {
     m_gvDock = new ads::CDockWidget("我的蓝图");
     m_gvDock->setWidget(m_globalVarPanel);
     // 停靠在画布左侧，像虚幻"我的蓝图"常驻可见
-    auto* leftArea = m_dockManager->addDockWidget(ads::LeftDockWidgetArea, m_gvDock);
+    m_dockManager->addDockWidget(ads::LeftDockWidgetArea, m_gvDock);
     if (m_windowMenu) m_windowMenu->addAction(m_gvDock->toggleViewAction());
-    // 蓝图上下文的"细节"面板：变量属性（名字/类型），独立于视口的大纲/细节
-    m_varDetailsDock = new ads::CDockWidget("细节");
+    // 蓝图上下文的"细节"面板：变量属性（名字/类型），独立于视口的大纲/细节。
+    // 注意：objectName 必须唯一（ADS 用它做 map 键），否则与视口"细节"键冲突
+    // 会在 restoreState 时把其中一个 dock 搞悬空 → toggleView 段错误。显示标题仍设为"细节"。
+    m_varDetailsDock = new ads::CDockWidget("变量细节");
+    m_varDetailsDock->setWindowTitle("细节");
     m_varDetailsDock->setWidget(m_globalVarPanel->detailsWidget());
-    m_dockManager->addDockWidget(ads::BottomDockWidgetArea, m_varDetailsDock, leftArea);
+    // 像虚幻蓝图编辑器：我的蓝图在左、细节在右——与视口"细节"共用右下区域
+    // （同一时刻只显示一个，由 onTabChanged 切换）。
+    m_dockManager->addDockWidget(ads::CenterDockWidgetArea, m_varDetailsDock, detailsArea);
 
     // ── 蓝图浮动窗口：每个实例按需创建独立 Dock（见 floatBp）──────────────
 
@@ -532,8 +537,9 @@ void EditorWindow::setupCentralArea() {
             healed = true;
         }
         if (m_varDetailsDock && (m_varDetailsDock->isFloating() || m_varDetailsDock->isClosed())) {
-            m_dockManager->addDockWidget(ads::BottomDockWidgetArea, m_varDetailsDock,
-                                         m_gvDock ? m_gvDock->dockAreaWidget() : nullptr);
+            // 与视口"细节"共用右下区域（虚幻蓝图编辑器：细节在右）
+            m_dockManager->addDockWidget(ads::CenterDockWidgetArea, m_varDetailsDock,
+                                         m_detailsDockW ? m_detailsDockW->dockAreaWidget() : nullptr);
             healed = true;
         }
         if (healed) m_layoutManager->saveLayout("默认布局");

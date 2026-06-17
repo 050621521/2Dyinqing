@@ -13,6 +13,7 @@
 #include <QPainter>
 #include <QIcon>
 #include <QEvent>
+#include <QInputDialog>
 
 static QColor colorForType(const QString& type) {
     if (type == "number") return QColor(0x3a, 0x7a, 0xd4);   // 蓝
@@ -67,9 +68,11 @@ GlobalVarPanel::GlobalVarPanel(QWidget* parent) : QWidget(parent) {
     dlay->addLayout(form);
     dlay->addStretch(1);
 
+    m_list->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(addBtn, &QPushButton::clicked, this, &GlobalVarPanel::addVar);
     connect(delBtn, &QPushButton::clicked, this, &GlobalVarPanel::removeSelected);
     connect(m_list, &QListWidget::currentRowChanged, this, [this](int) { onSelectionChanged(); });
+    connect(m_list, &QListWidget::customContextMenuRequested, this, &GlobalVarPanel::showContextMenu);
     connect(m_nameEdit, &QLineEdit::editingFinished, this, &GlobalVarPanel::onNameEdited);
     connect(m_typeCombo, &QComboBox::currentIndexChanged, this, [this](int) {
         if (!m_loading) onTypeChanged();
@@ -134,7 +137,9 @@ void GlobalVarPanel::rebuildList() {
         h->addWidget(pill, 0);
         item->setSizeHint(w->sizeHint());
         m_list->setItemWidget(item, w);
-        // 行点击 → 选中（自定义行控件会吞点击，靠事件过滤器转发）
+        // 行点击 → 选中：在行容器/名字标签上装事件过滤器转发到 setCurrentRow。
+        // 不能用 WA_TransparentForMouseEvents（会连子控件 pill 一起透明，色块菜单失效）。
+        // 类型色块 pill 是子控件，自己消费点击开菜单，不会触发这里。
         w->setProperty("varRow", i);
         w->installEventFilter(this);
         nameLbl->setProperty("varRow", i);
@@ -146,7 +151,7 @@ void GlobalVarPanel::rebuildList() {
 bool GlobalVarPanel::eventFilter(QObject* obj, QEvent* e) {
     if (e->type() == QEvent::MouseButtonPress) {
         const QVariant r = obj->property("varRow");
-        if (r.isValid()) { m_list->setCurrentRow(r.toInt()); }
+        if (r.isValid()) m_list->setCurrentRow(r.toInt());
     }
     return QWidget::eventFilter(obj, e);
 }
@@ -215,6 +220,32 @@ void GlobalVarPanel::removeSelected() {
     m_vars.removeAt(row);
     commit();
     rebuildList();
+}
+
+void GlobalVarPanel::showContextMenu(const QPoint& pos) {
+    const int row = m_list->currentRow();
+    if (row < 0 || row >= m_vars.size()) return;
+
+    QMenu menu(this);
+    menu.addAction("重命名", this, [this, row]() {
+        if (row < 0 || row >= m_vars.size()) return;
+        bool ok = false;
+        const QString newName = QInputDialog::getText(
+            this, "重命名变量", "新变量名：",
+            QLineEdit::Normal, m_vars[row].name, &ok);
+        if (!ok || newName.trimmed().isEmpty() || newName.trimmed() == m_vars[row].name) return;
+        const QString trimmed = newName.trimmed();
+        for (int i = 0; i < m_vars.size(); ++i)
+            if (i != row && m_vars[i].name == trimmed) return;
+        const QString oldName = m_vars[row].name;
+        m_vars[row].name = trimmed;
+        emit varRenamed(oldName, trimmed);
+        rebuildList();
+        commit();
+    });
+    menu.addSeparator();
+    menu.addAction("删除", this, &GlobalVarPanel::removeSelected);
+    menu.exec(m_list->viewport()->mapToGlobal(pos));
 }
 
 void GlobalVarPanel::commit() {

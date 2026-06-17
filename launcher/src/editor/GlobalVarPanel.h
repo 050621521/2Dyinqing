@@ -22,7 +22,7 @@ signals:
     void varRenamed(const QString& oldName, const QString& newName);
 
 protected:
-    bool eventFilter(QObject* obj, QEvent* e) override;   // 行点击 → 选中
+    bool eventFilter(QObject* obj, QEvent* e) override;   // 行/名字点击 → 选中
 
 private:
     void reload();
@@ -32,6 +32,7 @@ private:
     void onTypeChanged();
     void addVar();
     void removeSelected();
+    void showContextMenu(const QPoint& pos);
     void commit();                 // m_vars → project.json + emit changed
     void fillTypeCombo(const QString& current);
 
