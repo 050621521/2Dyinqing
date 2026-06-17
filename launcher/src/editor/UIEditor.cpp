@@ -509,6 +509,27 @@ void UIEditorCanvas::rebuildSnapCandidates() {
         if (m_selectedIds.contains(w.id)) continue;
         pushRect(resolveRect(w.id), SnapLine::Widget);
     }
+    // 背景场景物体 + 摄像机区域（复用 drawScenePreview 的投影方式）
+    if (m_level) {
+        const QList<ActorData>& actors = m_level->sortedActors();
+        const ActorData* cam = nullptr;
+        for (const ActorData& a : actors)
+            if (a.cameraIsMain && (a.bpClass == "builtin/Camera" || a.components.contains("摄像机组件"))) { cam = &a; break; }
+        if (cam) {
+            const QRectF camRect(0, 0, m_canonicalW, m_canonicalH);
+            pushRect(camRect, SnapLine::Camera);  // 摄像机可视区域
+            const float aspect = cam->cameraResH > 0 ? (float)cam->cameraResW / cam->cameraResH : 1.7778f;
+            const float scale  = qMin((float)camRect.width()  / (cam->cameraSize * aspect * 2.0f),
+                                      (float)camRect.height() / (cam->cameraSize * 2.0f));
+            for (const ActorData& a : actors) {
+                if (!a.active) continue;
+                if (a.bpClass == "builtin/Camera" || a.components.contains("摄像机组件")) continue;
+                const QPointF c = cameraWorldToScreen({a.x, a.y}, camRect, *cam);
+                float half = qMax(24.0f, 40.0f * scale) * 0.5f;
+                pushRect(QRectF(c.x() - half, c.y() - half, half * 2, half * 2), SnapLine::Scene);
+            }
+        }
+    }
 }
 
 void UIEditorCanvas::drawSnapGuides(QPainter& p) const {
