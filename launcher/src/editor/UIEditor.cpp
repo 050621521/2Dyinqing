@@ -978,10 +978,12 @@ QString UIEditorCanvas::hitTest(QPointF pos, const QString& parentId, const QRec
 }
 
 void UIEditorCanvas::mousePressEvent(QMouseEvent* e) {
-    // 中键：开始平移
-    if (e->button() == Qt::MiddleButton) {
-        m_panning  = true;
-        m_panStart = e->pos();
+    // 右键：开始平移（拖动则平移，未拖动则在松开时弹出菜单）
+    if (e->button() == Qt::RightButton) {
+        m_panning     = true;
+        m_panStart    = e->pos();
+        m_panPressPos = e->pos();
+        m_panMoved    = false;
         setCursor(Qt::ClosedHandCursor);
         return;
     }
@@ -1101,10 +1103,11 @@ void UIEditorCanvas::mouseMoveEvent(QMouseEvent* e) {
     m_mouseScreenPos = e->position();
     if (m_aidRuler) update();  // 刷新标尺指示刻线
 
-    // 中键平移
+    // 右键平移
     if (m_panning) {
         m_panOffset += QPointF(e->pos() - m_panStart);
         m_panStart = e->pos();
+        if ((e->pos() - m_panPressPos).manhattanLength() > 4) m_panMoved = true;
         update();
         return;
     }
@@ -1260,10 +1263,11 @@ void UIEditorCanvas::mouseReleaseEvent(QMouseEvent* e) {
         return;
     }
 
-    // 中键：结束平移
-    if (m_panning && e->button() == Qt::MiddleButton) {
+    // 右键：结束平移；未拖动则弹出上下文菜单
+    if (m_panning && e->button() == Qt::RightButton) {
         m_panning = false;
         setCursor(Qt::ArrowCursor);
+        if (!m_panMoved) showCanvasMenu(e->globalPosition().toPoint());
         return;
     }
 
@@ -1304,6 +1308,11 @@ void UIEditorCanvas::mouseReleaseEvent(QMouseEvent* e) {
 }
 
 void UIEditorCanvas::contextMenuEvent(QContextMenuEvent* e) {
+    // 右键由 mousePress/Release 自行处理（拖动=平移，单击=弹菜单），此处屏蔽默认菜单。
+    e->accept();
+}
+
+void UIEditorCanvas::showCanvasMenu(const QPoint& globalPos) {
     QMenu menu(this);
     QMenu* addMenu = menu.addMenu("添加控件");
     const QStringList types = {
@@ -1314,7 +1323,7 @@ void UIEditorCanvas::contextMenuEvent(QContextMenuEvent* e) {
         addMenu->addAction(t, [this, t]() { if (onAddWidget) onAddWidget(t); });
     if (!m_selectedIds.isEmpty())
         menu.addAction("删除选中", [this]() { if (onDeleteSelected) onDeleteSelected(); });
-    menu.exec(e->globalPos());
+    menu.exec(globalPos);
 }
 
 void UIEditorCanvas::dragEnterEvent(QDragEnterEvent* e) {

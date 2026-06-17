@@ -80,6 +80,7 @@ protected:
     void dropEvent(QDropEvent*) override;
 
 private:
+    void    showCanvasMenu(const QPoint& globalPos);   // 右键单击弹出的画布菜单
     QRectF  widgetScreenRect(const UIWidget& w, const QRectF& parentRect) const;
     void    renderWidget(QPainter& p, const UIWidget& w, const QRectF& parentRect) const;
     void    renderChildren(QPainter& p, const QString& parentId,
@@ -169,6 +170,8 @@ private:
     QPointF m_panOffset;
     bool    m_panning          = false;
     QPoint  m_panStart;
+    QPoint  m_panPressPos;                     // 右键按下原点(区分单击/拖动)
+    bool    m_panMoved         = false;        // 右键期间是否真的拖动过
     int     m_canonicalW       = 1920;
     int     m_canonicalH       = 1080;
     bool    m_zoomInitialized  = false;
