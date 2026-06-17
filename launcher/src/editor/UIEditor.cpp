@@ -1044,6 +1044,8 @@ void UIEditorCanvas::mousePressEvent(QMouseEvent* e) {
                 m_dragStart    = pos;
                 m_resizeInitX  = w.x;  m_resizeInitY = w.y;
                 m_resizeInitW  = w.width; m_resizeInitH = w.height;
+                m_resizeStartWorldRect = resolveRect(m_selectedId);
+                if (m_aidSnap) rebuildSnapCandidates();
                 if (onResizeBegan) onResizeBegan(m_selectedId);
                 return;
             }
@@ -1132,6 +1134,38 @@ void UIEditorCanvas::mouseMoveEvent(QMouseEvent* e) {
     if (m_resizing && !m_selectedId.isEmpty() && m_doc) {
         const QPointF d = pos - m_dragStart;
         float dx = (float)d.x(), dy = (float)d.y();
+
+        // 吸附：把正在拖动的那条边吸到候选线（世界坐标，阈值 8px/zoom）
+        m_activeGuides.clear();
+        if (m_aidSnap) {
+            const QRectF sr  = m_resizeStartWorldRect;
+            const double thr = 8.0 / m_zoom;
+            const bool movesLeft   = (m_resizeHandle==ResizeHandle::TL||m_resizeHandle==ResizeHandle::L ||m_resizeHandle==ResizeHandle::BL);
+            const bool movesRight  = (m_resizeHandle==ResizeHandle::TR||m_resizeHandle==ResizeHandle::R ||m_resizeHandle==ResizeHandle::BR);
+            const bool movesTop    = (m_resizeHandle==ResizeHandle::TL||m_resizeHandle==ResizeHandle::T ||m_resizeHandle==ResizeHandle::TR);
+            const bool movesBottom = (m_resizeHandle==ResizeHandle::BL||m_resizeHandle==ResizeHandle::B ||m_resizeHandle==ResizeHandle::BR);
+            if (movesLeft || movesRight) {
+                const double edgeX = (movesLeft ? sr.left() : sr.right()) + dx;
+                double best = thr, adj = 0; SnapLine hitLn; bool hit = false;
+                for (const SnapLine& ln : m_snap.candidates()) {
+                    if (!ln.vertical) continue;
+                    const double dd = std::abs(ln.pos - edgeX);
+                    if (dd < best) { best = dd; adj = ln.pos - edgeX; hitLn = ln; hit = true; }
+                }
+                if (hit) { dx += (float)adj; m_activeGuides.append(hitLn); }
+            }
+            if (movesTop || movesBottom) {
+                const double edgeY = (movesTop ? sr.top() : sr.bottom()) + dy;
+                double best = thr, adj = 0; SnapLine hitLn; bool hit = false;
+                for (const SnapLine& ln : m_snap.candidates()) {
+                    if (ln.vertical) continue;
+                    const double dd = std::abs(ln.pos - edgeY);
+                    if (dd < best) { best = dd; adj = ln.pos - edgeY; hitLn = ln; hit = true; }
+                }
+                if (hit) { dy += (float)adj; m_activeGuides.append(hitLn); }
+            }
+        }
+
         float nx = m_resizeInitX, ny = m_resizeInitY;
         float nw = m_resizeInitW, nh = m_resizeInitH;
         switch (m_resizeHandle) {
@@ -1275,7 +1309,9 @@ void UIEditorCanvas::mouseReleaseEvent(QMouseEvent* e) {
         if (onResizeEnded) onResizeEnded();
         m_resizing = false;
         m_resizeHandle = ResizeHandle::None;
+        m_activeGuides.clear();
         setCursor(Qt::ArrowCursor);
+        update();
         return;
     }
 

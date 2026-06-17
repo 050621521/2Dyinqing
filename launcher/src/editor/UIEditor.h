@@ -152,6 +152,7 @@ private:
     ResizeHandle m_resizeHandle  = ResizeHandle::None;
     float        m_resizeInitX   = 0, m_resizeInitY = 0;
     float        m_resizeInitW   = 0, m_resizeInitH = 0;
+    QRectF       m_resizeStartWorldRect;   // 缩放起始世界矩形（吸附用）
 
     ResizeHandle hitResizeHandle(QPointF pos, const UIWidget& w) const;
 
