@@ -420,10 +420,14 @@ void UIEditorCanvas::paintEvent(QPaintEvent*) {
             }
         }
 
+        if (m_aidAnchor) drawAnchorBadge(p, /*screenPhase=*/false);
+
         drawSnapGuides(p);
     }
 
     p.restore();
+
+    if (m_aidAnchor) drawAnchorBadge(p, /*screenPhase=*/true);
 
     // 框选矩形保持屏幕空间
     if (m_rubberBanding && !m_rubberRect.isNull()) {
@@ -653,6 +657,92 @@ void UIEditorCanvas::drawMeasureHints(QPainter& p) const {
                      QString::number(gap), pillBg);
         }
     }
+}
+
+void UIEditorCanvas::drawAnchorBadge(QPainter& p, bool screenPhase) const {
+    if (!m_doc || m_selectedIds.size() != 1) return;
+    const QString id = m_selectedId;
+    if (id.isEmpty()) return;
+
+    const QRectF r  = resolveRect(id);
+    const QRectF pr = parentWorldRect(id);
+    if (r.isNull() || pr.isNull()) return;
+
+    // 锚点字符串 → 父矩形 9 宫格位置
+    QString anchor = "左上";
+    for (const UIWidget& w : m_doc->widgets()) {
+        if (w.id == id) { anchor = w.anchor; break; }
+    }
+    // 9 个取值：左上/正上/右上/左中/居中/右中/左下/正下/右下
+    auto anchorPoint = [&]() -> QPointF {
+        // 横向：首字 左→left / 右→right / 正,居→center
+        double ax = anchor.startsWith("右") ? pr.right()
+                  : anchor.startsWith("左") ? pr.left()
+                  : pr.center().x();
+        // 纵向：末字 上→top / 下→bottom / 中→center
+        double ay = anchor.endsWith("上") ? pr.top()
+                  : anchor.endsWith("下") ? pr.bottom()
+                  : pr.center().y();
+        return QPointF(ax, ay);
+    };
+    const QPointF ap = anchorPoint();
+
+    if (!screenPhase) {
+        // ── 世界空间段 ──
+        const double lw = 1.0 / m_zoom;
+        // 锚点十字标记
+        const double cs = 8.0 / m_zoom; // 十字臂长（屏幕≈8px）
+        p.setPen(QPen(QColor(255, 180, 0), lw));
+        p.setBrush(Qt::NoBrush);
+        p.drawLine(QPointF(ap.x() - cs, ap.y()), QPointF(ap.x() + cs, ap.y()));
+        p.drawLine(QPointF(ap.x(), ap.y() - cs), QPointF(ap.x(), ap.y() + cs));
+        p.drawEllipse(ap, cs * 0.4, cs * 0.4);
+
+        // 边距虚线（控件四边 → 父矩形对应边）
+        QPen dash(QColor(255, 180, 0, 200), lw, Qt::DashLine);
+        p.setPen(dash);
+        const double cy = r.center().y();
+        const double cx = r.center().x();
+        p.drawLine(QPointF(pr.left(),  cy), QPointF(r.left(),   cy)); // 左
+        p.drawLine(QPointF(r.right(),  cy), QPointF(pr.right(), cy)); // 右
+        p.drawLine(QPointF(cx, pr.top()),    QPointF(cx, r.top()));    // 上
+        p.drawLine(QPointF(cx, r.bottom()),  QPointF(cx, pr.bottom()));// 下
+        return;
+    }
+
+    // ── 屏幕空间段：边距数值药丸 ──
+    auto drawPill = [&](const QPointF& center, const QString& text, const QColor& bg) {
+        QFont f = p.font();
+        f.setPointSizeF(qMax(8.0, f.pointSizeF()));
+        p.setFont(f);
+        const QRectF tb = p.boundingRect(QRectF(0, 0, 1000, 100),
+                                         Qt::AlignLeft | Qt::AlignVCenter, text);
+        const double padX = 6.0, padY = 3.0;
+        QRectF pill(0, 0, tb.width() + padX * 2, tb.height() + padY * 2);
+        pill.moveCenter(center);
+        p.setPen(Qt::NoPen);
+        p.setBrush(bg);
+        p.drawRoundedRect(pill, pill.height() / 2.0, pill.height() / 2.0);
+        p.setPen(Qt::white);
+        p.drawText(pill, Qt::AlignCenter, text);
+    };
+    const QColor pillBg(40, 30, 10, 220);
+
+    const QRectF rs  = worldRectToScreen(r);
+    const QRectF prs = worldRectToScreen(pr);
+    const int mL = qRound(r.left()   - pr.left());
+    const int mT = qRound(r.top()    - pr.top());
+    const int mR = qRound(pr.right() - r.right());
+    const int mB = qRound(pr.bottom()- r.bottom());
+
+    drawPill(QPointF((prs.left() + rs.left()) / 2.0, rs.center().y()),
+             QString::number(mL), pillBg);
+    drawPill(QPointF((rs.right() + prs.right()) / 2.0, rs.center().y()),
+             QString::number(mR), pillBg);
+    drawPill(QPointF(rs.center().x(), (prs.top() + rs.top()) / 2.0),
+             QString::number(mT), pillBg);
+    drawPill(QPointF(rs.center().x(), (rs.bottom() + prs.bottom()) / 2.0),
+             QString::number(mB), pillBg);
 }
 
 QRectF UIEditorCanvas::parentWorldRect(const QString& widgetId) const {

@@ -115,6 +115,14 @@ public:
     void setAidMeasure(bool on) { m_aidMeasure = on; update(); }
 private:
 
+    // ── 锚点 / 边距可视化 ──
+    bool m_aidAnchor = true;
+    // screenPhase=false：世界空间段（锚点标记 + 边距虚线）；true：屏幕空间段（边距数值药丸）
+    void drawAnchorBadge(QPainter& p, bool screenPhase) const;
+public:
+    void setAidAnchor(bool on) { m_aidAnchor = on; update(); }
+private:
+
     // 像素吸附
     bool m_pixelSnapEnabled = true;
     int  m_snapGrid         = 1;
