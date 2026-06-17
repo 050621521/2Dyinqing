@@ -14,6 +14,7 @@
 #include <QCheckBox>
 #include <QPushButton>
 #include <QComboBox>
+#include <QAction>
 #include <QColorDialog>
 #include <QDialog>
 #include <QListWidget>
@@ -1443,6 +1444,26 @@ UIEditor::UIEditor(QWidget* parent) : QWidget(parent) {
     snapCombo->addItems({"1px", "5px", "10px"});
     snapCombo->setFixedWidth(48);
     alignLay->addWidget(snapCombo);
+
+    // ── "辅助"下拉开关：智能吸附 / 标尺 / 锚点边距 / 测量提示 ──
+    auto* aidBtn = new QToolButton(alignBar);
+    aidBtn->setText("辅助");
+    aidBtn->setObjectName("vpTBBtn");
+    aidBtn->setPopupMode(QToolButton::InstantPopup);
+    auto* aidMenu = new QMenu(aidBtn);
+    auto addAid = [&](const QString& text, std::function<void(bool)> f) {
+        QAction* a = aidMenu->addAction(text);
+        a->setCheckable(true);
+        a->setChecked(true);
+        connect(a, &QAction::toggled, this, [f](bool on) { f(on); });
+    };
+    addAid("智能吸附", [this](bool on) { m_canvas->setAidSnap(on); });
+    addAid("标尺",     [this](bool on) { m_canvas->setAidRuler(on); });
+    addAid("锚点边距", [this](bool on) { m_canvas->setAidAnchor(on); });
+    addAid("测量提示", [this](bool on) { m_canvas->setAidMeasure(on); });
+    aidBtn->setMenu(aidMenu);
+    alignLay->addWidget(aidBtn);
+
     alignLay->addStretch();
 
     // 通用对齐操作辅助：快照 before → 执行 → 快照 after → 推 undo
