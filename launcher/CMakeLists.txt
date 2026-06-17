@@ -51,6 +51,7 @@ set(SOURCES
     src/models/UIDocument.cpp
     src/editor/UIRuntime.cpp
     src/editor/UIEditor.cpp
+    src/editor/UISnapGuides.cpp
 )
 
 set(HEADERS
@@ -85,6 +86,7 @@ set(HEADERS
     src/models/UIDocument.h
     src/editor/UIRuntime.h
     src/editor/UIEditor.h
+    src/editor/UISnapGuides.h
 )
 
 qt_add_executable(launcher ${SOURCES} ${HEADERS} resources/resources.qrc)
