@@ -432,6 +432,8 @@ void UIEditorCanvas::paintEvent(QPaintEvent*) {
         p.drawRect(m_rubberRect);
     }
 
+    if (m_aidMeasure) drawMeasureHints(p);
+
     // 缩放比例提示
     if (m_zoom != 1.0f) {
         const QString zoomText = QString("%1%").arg(qRound(m_zoom * 100));
@@ -548,6 +550,108 @@ void UIEditorCanvas::drawSnapGuides(QPainter& p) const {
         p.setPen(QPen(colorOf(ln.kind), 1.0 / m_zoom));
         if (ln.vertical) p.drawLine(QPointF(ln.pos, ln.spanLo), QPointF(ln.pos, ln.spanHi));
         else             p.drawLine(QPointF(ln.spanLo, ln.pos), QPointF(ln.spanHi, ln.pos));
+    }
+}
+
+void UIEditorCanvas::drawMeasureHints(QPainter& p) const {
+    if (!m_doc || m_selectedIds.size() != 1) return;
+    const QString id = m_selectedId;
+    if (id.isEmpty()) return;
+
+    // 屏幕空间药丸标签：圆角矩形底 + 居中文字
+    auto drawPill = [&](const QPointF& center, const QString& text, const QColor& bg) {
+        QFont f = p.font();
+        f.setPointSizeF(qMax(8.0, f.pointSizeF()));
+        p.setFont(f);
+        const QRectF tb = p.boundingRect(QRectF(0, 0, 1000, 100),
+                                         Qt::AlignLeft | Qt::AlignVCenter, text);
+        const double padX = 6.0, padY = 3.0;
+        QRectF pill(0, 0, tb.width() + padX * 2, tb.height() + padY * 2);
+        pill.moveCenter(center);
+        p.setPen(Qt::NoPen);
+        p.setBrush(bg);
+        p.drawRoundedRect(pill, pill.height() / 2.0, pill.height() / 2.0);
+        p.setPen(Qt::white);
+        p.drawText(pill, Qt::AlignCenter, text);
+    };
+
+    const QColor pillBg(20, 20, 24, 220);
+
+    // 1) 拖动 / 缩放中：被选控件旁画 宽×高（+移动时 x,y）
+    if (m_dragging || m_resizing) {
+        const QRectF world  = resolveRect(id);
+        const QRectF screen = worldRectToScreen(world);
+        // 取整世界像素：用 resolveRect 的宽高（世界单位=像素）
+        const QString sizeText = QString("%1 × %2")
+            .arg(qRound(world.width())).arg(qRound(world.height()));
+        drawPill(QPointF(screen.center().x(), screen.top() - 14.0), sizeText, pillBg);
+
+        if (m_dragging) {
+            // 取控件自身的 x/y（相对父锚点偏移）
+            for (const UIWidget& w : m_doc->widgets()) {
+                if (w.id != id) continue;
+                const QString posText = QString("%1, %2")
+                    .arg(qRound(w.x)).arg(qRound(w.y));
+                drawPill(QPointF(screen.center().x(), screen.bottom() + 14.0), posText, pillBg);
+                break;
+            }
+        }
+        return;
+    }
+
+    // 2) 选中 + 悬停另一控件：两控件之间画双向箭头 + 间距数值
+    if (m_hoverId.isEmpty() || m_hoverId == id) return;
+
+    const QRectF a = worldRectToScreen(resolveRect(id));
+    const QRectF b = worldRectToScreen(resolveRect(m_hoverId));
+    if (a.isNull() || b.isNull()) return;
+
+    const QColor arrowColor(0, 200, 255);
+    auto drawArrow = [&](const QPointF& from, const QPointF& to) {
+        p.setPen(QPen(arrowColor, 1.5));
+        p.drawLine(from, to);
+        const double len = QLineF(from, to).length();
+        if (len < 1.0) return;
+        const QPointF dir = (to - from) / len;
+        const QPointF nrm(-dir.y(), dir.x());
+        const double h = 6.0;
+        // 两端箭头
+        p.drawLine(from, from + dir * h + nrm * (h * 0.6));
+        p.drawLine(from, from + dir * h - nrm * (h * 0.6));
+        p.drawLine(to, to - dir * h + nrm * (h * 0.6));
+        p.drawLine(to, to - dir * h - nrm * (h * 0.6));
+    };
+
+    // 水平间距（a 在 b 左侧或右侧，且垂直方向有重叠区）
+    const double vOverlapLo = qMax(a.top(), b.top());
+    const double vOverlapHi = qMin(a.bottom(), b.bottom());
+    if (vOverlapHi > vOverlapLo) {
+        const double midY = (vOverlapLo + vOverlapHi) / 2.0;
+        double x1 = 0, x2 = 0; bool has = false;
+        if (b.left() >= a.right())      { x1 = a.right(); x2 = b.left(); has = true; }
+        else if (a.left() >= b.right()) { x1 = b.right(); x2 = a.left(); has = true; }
+        if (has && x2 - x1 >= 1.0) {
+            drawArrow(QPointF(x1, midY), QPointF(x2, midY));
+            const int gap = qRound((x2 - x1) / m_zoom);
+            drawPill(QPointF((x1 + x2) / 2.0, midY - 12.0),
+                     QString::number(gap), pillBg);
+        }
+    }
+
+    // 垂直间距
+    const double hOverlapLo = qMax(a.left(), b.left());
+    const double hOverlapHi = qMin(a.right(), b.right());
+    if (hOverlapHi > hOverlapLo) {
+        const double midX = (hOverlapLo + hOverlapHi) / 2.0;
+        double y1 = 0, y2 = 0; bool has = false;
+        if (b.top() >= a.bottom())      { y1 = a.bottom(); y2 = b.top(); has = true; }
+        else if (a.top() >= b.bottom()) { y1 = b.bottom(); y2 = a.top(); has = true; }
+        if (has && y2 - y1 >= 1.0) {
+            drawArrow(QPointF(midX, y1), QPointF(midX, y2));
+            const int gap = qRound((y2 - y1) / m_zoom);
+            drawPill(QPointF(midX + 12.0, (y1 + y2) / 2.0),
+                     QString::number(gap), pillBg);
+        }
     }
 }
 
@@ -816,6 +920,17 @@ void UIEditorCanvas::mouseMoveEvent(QMouseEvent* e) {
             }
             break;
         }
+    }
+
+    // 测量提示：单选且未拖动时记录鼠标下的另一控件
+    if (!m_dragging && !m_resizing && m_doc && m_selectedIds.size() == 1) {
+        const QRectF vp = getViewportRect();
+        const QString hovered = hitTest(pos, {}, vp);
+        const QString newHover = (hovered != m_selectedId) ? hovered : QString();
+        if (newHover != m_hoverId) { m_hoverId = newHover; update(); }
+    } else if (!m_hoverId.isEmpty()) {
+        m_hoverId.clear();
+        update();
     }
 
     if (m_rubberBanding) {

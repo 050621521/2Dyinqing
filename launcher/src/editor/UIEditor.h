@@ -107,6 +107,14 @@ public:
     void setAidSnap(bool on) { m_aidSnap = on; update(); }
 private:
 
+    // ── 间距 / 尺寸测量提示 ──
+    bool    m_aidMeasure = true;
+    QString m_hoverId;                       // 选中态下悬停的另一控件
+    void drawMeasureHints(QPainter& p) const;
+public:
+    void setAidMeasure(bool on) { m_aidMeasure = on; update(); }
+private:
+
     // 像素吸附
     bool m_pixelSnapEnabled = true;
     int  m_snapGrid         = 1;
