@@ -95,6 +95,7 @@ private:
     QPointF        m_dragStart;
     float          m_dragInitX = 0, m_dragInitY = 0;
     QHash<QString, QPointF> m_dragStartPositions; // 多选拖拽起始位置
+    QHash<QString, QRectF>  m_dragStartWorldRects; // 拖拽起始世界矩形（吸附用，避免反馈震荡）
     mutable QHash<QString, QPixmap> m_pixmapCache;
 
     // ── 智能对齐参考线 ──

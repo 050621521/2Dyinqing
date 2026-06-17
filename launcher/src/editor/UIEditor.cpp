@@ -1073,9 +1073,12 @@ void UIEditorCanvas::mousePressEvent(QMouseEvent* e) {
             m_dragging = true;
             m_dragStart = pos;
             m_dragStartPositions.clear();
+            m_dragStartWorldRects.clear();
             for (const UIWidget& w : m_doc->widgets())
-                if (m_selectedIds.contains(w.id))
+                if (m_selectedIds.contains(w.id)) {
                     m_dragStartPositions[w.id] = {w.x, w.y};
+                    m_dragStartWorldRects[w.id] = resolveRect(w.id);
+                }
             if (m_aidSnap) rebuildSnapCandidates();
             if (onDragBegan) onDragBegan(m_selectedIds.values());
         }
@@ -1189,12 +1192,10 @@ void UIEditorCanvas::mouseMoveEvent(QMouseEvent* e) {
         float newY = (float)(start.y() + totalDelta.y());
         m_activeGuides.clear();
         if (m_aidSnap) {
-            // 候选线是世界矩形坐标(resolveRect)，所以 movingRect 也要用世界矩形。
-            // sel 为拖动前的世界矩形；本帧世界位移量 = (newX-start.x, newY-start.y)（UI 单位=世界单位）。
-            QRectF sel = resolveRect(m_selectedId);
-            QPointF startPos = m_dragStartPositions.value(m_selectedId, {});
-            QRectF mr(sel.left() + (newX - startPos.x()), sel.top() + (newY - startPos.y()),
-                      sel.width(), sel.height());
+            // 候选线是世界矩形坐标。movingRect 必须用「拖动起始」世界矩形 + 本帧位移，
+            // 不能用当前 resolveRect（已含上一帧吸附结果），否则每帧自我累加 → 反馈震荡。
+            QRectF startRect = m_dragStartWorldRects.value(m_selectedId, resolveRect(m_selectedId));
+            QRectF mr = startRect.translated(totalDelta.x(), totalDelta.y());
             SnapResult sr = m_snap.snap(mr, 8.0 / m_zoom);
             newX += (float)sr.dx; newY += (float)sr.dy;
             m_activeGuides = sr.activeLines;
@@ -1212,10 +1213,9 @@ void UIEditorCanvas::mouseMoveEvent(QMouseEvent* e) {
             bool first = true;
             QRectF box;
             for (const QString& id : m_selectedIds) {
-                QRectF sel = resolveRect(id);
-                QPointF startPos = m_dragStartPositions.value(id, {});
-                // 本帧位移量同样用世界位移：startPos 是控件偏移起点，totalDelta 是世界位移。
-                QRectF moved = sel.translated(totalDelta.x(), totalDelta.y());
+                // 用「拖动起始」世界矩形 + 本帧位移，避免反馈震荡（同单选分支）。
+                QRectF startRect = m_dragStartWorldRects.value(id, resolveRect(id));
+                QRectF moved = startRect.translated(totalDelta.x(), totalDelta.y());
                 if (first) { box = moved; first = false; }
                 else box = box.united(moved);
             }
