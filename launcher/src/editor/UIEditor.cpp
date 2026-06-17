@@ -419,6 +419,8 @@ void UIEditorCanvas::paintEvent(QPaintEvent*) {
                                   maxX - minX + 12.0f/m_zoom, maxY - minY + 12.0f/m_zoom));
             }
         }
+
+        drawSnapGuides(p);
     }
 
     p.restore();
@@ -488,6 +490,44 @@ QRectF UIEditorCanvas::resolveRect(const QString& widgetId) const {
 
 QRectF UIEditorCanvas::worldRectOf(const QString& widgetId) const {
     return resolveRect(widgetId);
+}
+
+void UIEditorCanvas::rebuildSnapCandidates() {
+    m_snap.clear();
+    if (!m_doc) return;
+    const QRectF vp = getViewportRect();
+    auto pushRect = [&](const QRectF& r, SnapLine::Kind k) {
+        const double vs[3] = { r.left(), r.center().x(), r.right() };
+        const double hs[3] = { r.top(),  r.center().y(), r.bottom() };
+        for (double x : vs) m_snap.addLine({true,  x, k, r.top(),  r.bottom()});
+        for (double y : hs) m_snap.addLine({false, y, k, r.left(), r.right()});
+    };
+    // 画布边界 + 中心
+    pushRect(vp, SnapLine::Canvas);
+    // 其它控件（排除选区）
+    for (const UIWidget& w : m_doc->widgets()) {
+        if (m_selectedIds.contains(w.id)) continue;
+        pushRect(resolveRect(w.id), SnapLine::Widget);
+    }
+}
+
+void UIEditorCanvas::drawSnapGuides(QPainter& p) const {
+    if (m_activeGuides.isEmpty()) return;
+    auto colorOf = [](SnapLine::Kind k) -> QColor {
+        switch (k) {
+            case SnapLine::Widget: return QColor(0, 220, 220);
+            case SnapLine::Canvas: return QColor(230, 0, 200);
+            case SnapLine::Scene:  return QColor(255, 150, 0);
+            case SnapLine::Camera: return QColor(255, 220, 0);
+            case SnapLine::Guide:  return QColor(0, 220, 0);
+        }
+        return Qt::white;
+    };
+    for (const SnapLine& ln : m_activeGuides) {
+        p.setPen(QPen(colorOf(ln.kind), 1.0 / m_zoom));
+        if (ln.vertical) p.drawLine(QPointF(ln.pos, ln.spanLo), QPointF(ln.pos, ln.spanHi));
+        else             p.drawLine(QPointF(ln.spanLo, ln.pos), QPointF(ln.spanHi, ln.pos));
+    }
 }
 
 QRectF UIEditorCanvas::parentWorldRect(const QString& widgetId) const {
@@ -689,6 +729,7 @@ void UIEditorCanvas::mousePressEvent(QMouseEvent* e) {
             for (const UIWidget& w : m_doc->widgets())
                 if (m_selectedIds.contains(w.id))
                     m_dragStartPositions[w.id] = {w.x, w.y};
+            if (m_aidSnap) rebuildSnapCandidates();
             if (onDragBegan) onDragBegan(m_selectedIds.values());
         }
         update();
@@ -771,20 +812,51 @@ void UIEditorCanvas::mouseMoveEvent(QMouseEvent* e) {
         QPointF start = m_dragStartPositions.value(m_selectedId, {});
         float newX = (float)(start.x() + totalDelta.x());
         float newY = (float)(start.y() + totalDelta.y());
-        if (m_pixelSnapEnabled) {
+        m_activeGuides.clear();
+        if (m_aidSnap) {
+            // 候选线是世界矩形坐标(resolveRect)，所以 movingRect 也要用世界矩形。
+            // sel 为拖动前的世界矩形；本帧世界位移量 = (newX-start.x, newY-start.y)（UI 单位=世界单位）。
+            QRectF sel = resolveRect(m_selectedId);
+            QPointF startPos = m_dragStartPositions.value(m_selectedId, {});
+            QRectF mr(sel.left() + (newX - startPos.x()), sel.top() + (newY - startPos.y()),
+                      sel.width(), sel.height());
+            SnapResult sr = m_snap.snap(mr, 8.0 / m_zoom);
+            newX += (float)sr.dx; newY += (float)sr.dy;
+            m_activeGuides = sr.activeLines;
+        } else if (m_pixelSnapEnabled) {
             newX = std::round(newX / m_snapGrid) * m_snapGrid;
             newY = std::round(newY / m_snapGrid) * m_snapGrid;
         }
         if (onWidgetMoved) onWidgetMoved(m_selectedId, newX, newY);
     } else {
         // 多选：批量移动
+        float snapDx = 0, snapDy = 0;
+        m_activeGuides.clear();
+        if (m_aidSnap) {
+            // 用选区 bounding box 作 movingRect 吸附一次，得 dx/dy 统一加到每个控件。
+            bool first = true;
+            QRectF box;
+            for (const QString& id : m_selectedIds) {
+                QRectF sel = resolveRect(id);
+                QPointF startPos = m_dragStartPositions.value(id, {});
+                // 本帧位移量同样用世界位移：startPos 是控件偏移起点，totalDelta 是世界位移。
+                QRectF moved = sel.translated(totalDelta.x(), totalDelta.y());
+                if (first) { box = moved; first = false; }
+                else box = box.united(moved);
+            }
+            if (!first) {
+                SnapResult sr = m_snap.snap(box, 8.0 / m_zoom);
+                snapDx = (float)sr.dx; snapDy = (float)sr.dy;
+                m_activeGuides = sr.activeLines;
+            }
+        }
         QHash<QString, QPointF> positions;
         for (const UIWidget& w : m_doc->widgets()) {
             if (!m_selectedIds.contains(w.id)) continue;
             QPointF start = m_dragStartPositions.value(w.id, {w.x, w.y});
-            float newX = (float)(start.x() + totalDelta.x());
-            float newY = (float)(start.y() + totalDelta.y());
-            if (m_pixelSnapEnabled) {
+            float newX = (float)(start.x() + totalDelta.x()) + snapDx;
+            float newY = (float)(start.y() + totalDelta.y()) + snapDy;
+            if (!m_aidSnap && m_pixelSnapEnabled) {
                 newX = std::round(newX / m_snapGrid) * m_snapGrid;
                 newY = std::round(newY / m_snapGrid) * m_snapGrid;
             }
@@ -836,6 +908,7 @@ void UIEditorCanvas::mouseReleaseEvent(QMouseEvent* e) {
         if (onDragEnded) onDragEnded(m_selectedIds.values());
     m_dragging = false;
     m_dragStartPositions.clear();
+    if (!m_activeGuides.isEmpty()) { m_activeGuides.clear(); update(); }
 }
 
 void UIEditorCanvas::contextMenuEvent(QContextMenuEvent* e) {

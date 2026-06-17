@@ -3,6 +3,7 @@
 #include <functional>
 #include "models/UIDocument.h"
 #include "models/LevelDocument.h"
+#include "editor/UISnapGuides.h"
 #include <QWidget>
 #include <QTreeWidget>
 #include <QScrollArea>
@@ -14,6 +15,7 @@
 #include <functional>
 
 class QToolButton;
+class QPainter;
 
 // ── AnchorPicker（3×3 锚点选择器）────────────────────────────────────────
 class AnchorPicker : public QWidget {
@@ -94,6 +96,16 @@ private:
     float          m_dragInitX = 0, m_dragInitY = 0;
     QHash<QString, QPointF> m_dragStartPositions; // 多选拖拽起始位置
     mutable QHash<QString, QPixmap> m_pixmapCache;
+
+    // ── 智能对齐参考线 ──
+    UISnapGuides       m_snap;
+    QVector<SnapLine>  m_activeGuides;
+    bool               m_aidSnap = true;
+    void rebuildSnapCandidates();           // 拖动/缩放开始时收集候选
+    void drawSnapGuides(QPainter& p) const; // 世界变换内绘制高亮线
+public:
+    void setAidSnap(bool on) { m_aidSnap = on; update(); }
+private:
 
     // 像素吸附
     bool m_pixelSnapEnabled = true;
