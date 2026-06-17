@@ -123,6 +123,18 @@ public:
     void setAidAnchor(bool on) { m_aidAnchor = on; update(); }
 private:
 
+    // ── 标尺 + 拖拽辅助线（Guide）──
+    bool m_aidRuler = true;
+    QVector<double> m_guidesX, m_guidesY;     // 世界坐标（仅内存）
+    int  m_draggingGuide = -1;                // 正在拖动的 guide 索引
+    bool m_dragGuideVertical = false;
+    static constexpr int kRulerSize = 20;     // 标尺厚度(屏幕像素)
+    QPointF m_mouseScreenPos;                  // 最近鼠标屏幕位置(标尺指示线)
+    void drawRulers(QPainter& p) const;
+public:
+    void setAidRuler(bool on) { m_aidRuler = on; update(); }
+private:
+
     // 像素吸附
     bool m_pixelSnapEnabled = true;
     int  m_snapGrid         = 1;

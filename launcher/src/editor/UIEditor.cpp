@@ -425,9 +425,21 @@ void UIEditorCanvas::paintEvent(QPaintEvent*) {
         drawSnapGuides(p);
     }
 
+    // 已放置的 Guide：绿色虚线，世界变换内贯穿画布矩形
+    if (m_aidRuler && (!m_guidesX.isEmpty() || !m_guidesY.isEmpty())) {
+        const QRectF vp = getViewportRect();
+        QPen gp(QColor(0, 220, 0), 1.0 / m_zoom, Qt::DashLine);
+        p.setPen(gp);
+        p.setBrush(Qt::NoBrush);
+        for (double x : m_guidesX) p.drawLine(QPointF(x, vp.top()), QPointF(x, vp.bottom()));
+        for (double y : m_guidesY) p.drawLine(QPointF(vp.left(), y), QPointF(vp.right(), y));
+    }
+
     p.restore();
 
     if (m_aidAnchor) drawAnchorBadge(p, /*screenPhase=*/true);
+
+    if (m_aidRuler) drawRulers(p);
 
     // 框选矩形保持屏幕空间
     if (m_rubberBanding && !m_rubberRect.isNull()) {
@@ -536,6 +548,9 @@ void UIEditorCanvas::rebuildSnapCandidates() {
             }
         }
     }
+    // 拖拽辅助线 Guide
+    for (double x : m_guidesX) m_snap.addLine({true,  x, SnapLine::Guide, vp.top(),  vp.bottom()});
+    for (double y : m_guidesY) m_snap.addLine({false, y, SnapLine::Guide, vp.left(), vp.right()});
 }
 
 void UIEditorCanvas::drawSnapGuides(QPainter& p) const {
@@ -555,6 +570,82 @@ void UIEditorCanvas::drawSnapGuides(QPainter& p) const {
         if (ln.vertical) p.drawLine(QPointF(ln.pos, ln.spanLo), QPointF(ln.pos, ln.spanHi));
         else             p.drawLine(QPointF(ln.spanLo, ln.pos), QPointF(ln.spanHi, ln.pos));
     }
+}
+
+void UIEditorCanvas::drawRulers(QPainter& p) const {
+    const QColor barBg(28, 28, 32);
+    const QColor tickCol(150, 150, 160);
+    const QColor textCol(190, 190, 200);
+    const int W = width(), H = height();
+
+    // 选取刻度间隔：让相邻刻度屏幕间距落在约 50–120px
+    const double steps[] = { 50, 100, 200, 500 };
+    double worldStep = steps[0];
+    for (double s : steps) {
+        const double screenGap = s * m_zoom;
+        worldStep = s;
+        if (screenGap >= 50.0) break;  // 第一个屏幕间距 >=50px 的档
+    }
+
+    QFont f = p.font();
+    f.setPointSizeF(qMax(7.0, f.pointSizeF() - 1.0));
+    p.setFont(f);
+
+    // 上标尺背景
+    p.setPen(Qt::NoPen);
+    p.setBrush(barBg);
+    p.drawRect(QRectF(0, 0, W, kRulerSize));
+    // 左标尺背景
+    p.drawRect(QRectF(0, 0, kRulerSize, H));
+
+    // 上标尺刻度（竖线）：世界 x → 屏幕 x
+    p.setPen(QPen(tickCol, 1.0));
+    {
+        const QPointF wl = screenToCanvas(QPointF(kRulerSize, 0));
+        const QPointF wr = screenToCanvas(QPointF(W, 0));
+        const double startX = std::floor(wl.x() / worldStep) * worldStep;
+        for (double wx = startX; wx <= wr.x(); wx += worldStep) {
+            const double sx = worldRectToScreen(QRectF(wx, 0, 0, 0)).left();
+            if (sx < kRulerSize) continue;
+            p.setPen(QPen(tickCol, 1.0));
+            p.drawLine(QPointF(sx, kRulerSize - 6), QPointF(sx, kRulerSize));
+            p.setPen(textCol);
+            p.drawText(QRectF(sx + 2, 1, 48, kRulerSize - 2),
+                       Qt::AlignLeft | Qt::AlignVCenter, QString::number(qRound(wx)));
+        }
+    }
+    // 左标尺刻度（横线）：世界 y → 屏幕 y
+    {
+        const QPointF wt = screenToCanvas(QPointF(0, kRulerSize));
+        const QPointF wb = screenToCanvas(QPointF(0, H));
+        const double startY = std::floor(wt.y() / worldStep) * worldStep;
+        for (double wy = startY; wy <= wb.y(); wy += worldStep) {
+            const double sy = worldRectToScreen(QRectF(0, wy, 0, 0)).top();
+            if (sy < kRulerSize) continue;
+            p.setPen(QPen(tickCol, 1.0));
+            p.drawLine(QPointF(kRulerSize - 6, sy), QPointF(kRulerSize, sy));
+            p.save();
+            p.setPen(textCol);
+            p.translate(kRulerSize - 8, sy + 2);
+            p.rotate(-90);
+            p.drawText(QRectF(0, -kRulerSize + 1, 48, kRulerSize - 2),
+                       Qt::AlignLeft | Qt::AlignVCenter, QString::number(qRound(wy)));
+            p.restore();
+        }
+    }
+
+    // 跟随鼠标的指示刻线
+    const QPointF m = m_mouseScreenPos;
+    if (m.x() > kRulerSize || m.y() > kRulerSize) {
+        p.setPen(QPen(QColor(0, 200, 255), 1.0));
+        if (m.x() > kRulerSize) p.drawLine(QPointF(m.x(), 0), QPointF(m.x(), kRulerSize));
+        if (m.y() > kRulerSize) p.drawLine(QPointF(0, m.y()), QPointF(kRulerSize, m.y()));
+    }
+
+    // 左上角方块：标尺显隐按钮
+    p.setPen(QPen(QColor(90, 90, 100), 1.0));
+    p.setBrush(QColor(45, 45, 52));
+    p.drawRect(QRectF(0.5, 0.5, kRulerSize - 1, kRulerSize - 1));
 }
 
 void UIEditorCanvas::drawMeasureHints(QPainter& p) const {
@@ -899,6 +990,46 @@ void UIEditorCanvas::mousePressEvent(QMouseEvent* e) {
     const QRectF  vp  = getViewportRect();
     const QPointF pos = screenToCanvas(e->position());  // 转为画布坐标
 
+    // ── 标尺 / Guide 交互（优先拦截，避免与控件选择冲突）──
+    if (m_aidRuler) {
+        const QPointF sp = e->position();
+        const double sx = sp.x(), sy = sp.y();
+        // 左上角方块：切换标尺显隐
+        if (sx < kRulerSize && sy < kRulerSize) {
+            m_aidRuler = !m_aidRuler;
+            update();
+            return;
+        }
+        // 命中已有 Guide（鼠标接近某条 guide 屏幕位置阈值内）→ 拖动它
+        const double hitThr = 6.0;  // 屏幕像素
+        for (int i = 0; i < m_guidesX.size(); ++i) {
+            const double gsx = worldRectToScreen(QRectF(m_guidesX[i], 0, 0, 0)).left();
+            if (gsx >= kRulerSize && std::abs(sx - gsx) <= hitThr && sy > kRulerSize) {
+                m_draggingGuide = i; m_dragGuideVertical = true;
+                update(); return;
+            }
+        }
+        for (int i = 0; i < m_guidesY.size(); ++i) {
+            const double gsy = worldRectToScreen(QRectF(0, m_guidesY[i], 0, 0)).top();
+            if (gsy >= kRulerSize && std::abs(sy - gsy) <= hitThr && sx > kRulerSize) {
+                m_draggingGuide = i; m_dragGuideVertical = false;
+                update(); return;
+            }
+        }
+        // 上标尺区：新建水平 Guide（横线，吸附 y）
+        if (sy < kRulerSize && sx > kRulerSize) {
+            m_guidesY.append(screenToCanvas(sp).y());
+            m_draggingGuide = m_guidesY.size() - 1; m_dragGuideVertical = false;
+            update(); return;
+        }
+        // 左标尺区：新建垂直 Guide（竖线，吸附 x）
+        if (sx < kRulerSize && sy > kRulerSize) {
+            m_guidesX.append(screenToCanvas(sp).x());
+            m_draggingGuide = m_guidesX.size() - 1; m_dragGuideVertical = true;
+            update(); return;
+        }
+    }
+
     // 先检测缩放手柄（主选控件存在时）
     if (!m_selectedId.isEmpty() && !ctrl && m_doc) {
         for (const UIWidget& w : m_doc->widgets()) {
@@ -963,6 +1094,9 @@ void UIEditorCanvas::mousePressEvent(QMouseEvent* e) {
 }
 
 void UIEditorCanvas::mouseMoveEvent(QMouseEvent* e) {
+    m_mouseScreenPos = e->position();
+    if (m_aidRuler) update();  // 刷新标尺指示刻线
+
     // 中键平移
     if (m_panning) {
         m_panOffset += QPointF(e->pos() - m_panStart);
@@ -972,6 +1106,20 @@ void UIEditorCanvas::mouseMoveEvent(QMouseEvent* e) {
     }
 
     const QPointF pos = screenToCanvas(e->position());
+
+    // ── 拖动 Guide ──
+    if (m_draggingGuide >= 0) {
+        const QPointF w = screenToCanvas(e->position());
+        if (m_dragGuideVertical) {
+            if (m_draggingGuide < m_guidesX.size()) m_guidesX[m_draggingGuide] = w.x();
+            setCursor(Qt::SizeHorCursor);
+        } else {
+            if (m_draggingGuide < m_guidesY.size()) m_guidesY[m_draggingGuide] = w.y();
+            setCursor(Qt::SizeVerCursor);
+        }
+        update();
+        return;
+    }
 
     // 缩放拖拽
     if (m_resizing && !m_selectedId.isEmpty() && m_doc) {
@@ -1094,6 +1242,23 @@ void UIEditorCanvas::mouseMoveEvent(QMouseEvent* e) {
 }
 
 void UIEditorCanvas::mouseReleaseEvent(QMouseEvent* e) {
+    // ── 结束 Guide 拖动：落在标尺区内则删除 ──
+    if (m_draggingGuide >= 0 && e->button() == Qt::LeftButton) {
+        const QPointF sp = e->position();
+        const bool onRuler = (sp.x() < kRulerSize) || (sp.y() < kRulerSize);
+        if (onRuler) {
+            if (m_dragGuideVertical) {
+                if (m_draggingGuide < m_guidesX.size()) m_guidesX.remove(m_draggingGuide);
+            } else {
+                if (m_draggingGuide < m_guidesY.size()) m_guidesY.remove(m_draggingGuide);
+            }
+        }
+        m_draggingGuide = -1;
+        setCursor(Qt::ArrowCursor);
+        update();
+        return;
+    }
+
     // 中键：结束平移
     if (m_panning && e->button() == Qt::MiddleButton) {
         m_panning = false;
