@@ -36,6 +36,14 @@ BPRuntime::BPRuntime(const LevelDocument* doc, QObject* parent)
     m_connections = doc->bpConnections();
     m_actors      = doc->actors();
 
+    // 局部变量：每次运行初始化为类型零值（数组=空数组）
+    for (const GlobalVarDef& d : doc->localVars()) {
+        if      (d.type == "number")          m_varStore[d.name] = BPValue::fromNumber(0);
+        else if (d.type == "bool")            m_varStore[d.name] = BPValue::fromBool(false);
+        else if (d.type.startsWith("array:")) m_varStore[d.name] = BPValue::fromArray({});
+        else                                  m_varStore[d.name] = BPValue::fromString("");
+    }
+
     // 工程根：关卡在 {project}/Levels/x.level，上溯一级
     QString projectRoot;
     if (!doc->filePath().isEmpty()) {
@@ -258,6 +266,12 @@ QString BPRuntime::executeNode(const QString& nodeId) {
         return "exec_out";
     }
 
+    if (node->type == "Local.Set") {
+        const QString name = node->params.value("varName");
+        if (!name.isEmpty()) m_varStore[name] = resolveDataPin(nodeId, "value");
+        return "exec_out";
+    }
+
     if (node->type == "Var.SetNumber" || node->type == "Var.SetBool" || node->type == "Var.SetString") {
         QString name  = resolveDataPin(nodeId, "name");
         QString value = resolveDataPin(nodeId, "value");
@@ -269,9 +283,10 @@ QString BPRuntime::executeNode(const QString& nodeId) {
     if (node->type == "Array.Add"       || node->type == "Array.RemoveAt"
      || node->type == "Array.RemoveValue" || node->type == "Array.SetAt"
      || node->type == "Array.Clear") {
-        const QString name = node->params.value("varName");
-        if (m_globalVars && !name.isEmpty()) {
-            BPValue cur = m_globalVars->value(name);
+        const QString name  = node->params.value("varName");
+        const bool    local = node->params.value("scope") == "local";  // 否则全局
+        if (!name.isEmpty() && (local || m_globalVars)) {
+            BPValue cur = local ? m_varStore.value(name) : m_globalVars->value(name);
             QList<BPValue>& arr = cur.arrayRef();
             if (node->type == "Array.Add") {
                 arr.append(resolveDataPin(nodeId, "value"));
@@ -288,7 +303,8 @@ QString BPRuntime::executeNode(const QString& nodeId) {
                 const int i = (int)resolveDataPin(nodeId, "index").toNumber();
                 if (i >= 0 && i < arr.size()) arr[i] = resolveDataPin(nodeId, "value");
             }
-            (*m_globalVars)[name] = cur;
+            if (local) m_varStore[name] = cur;
+            else       (*m_globalVars)[name] = cur;
         }
         return "exec_out";
     }
@@ -457,6 +473,9 @@ BPValue BPRuntime::resolveOutputPin(const QString& nodeId, const QString& pinKey
     // 全局变量读取
     if (node->type == "Global.Get")
         return m_globalVars ? m_globalVars->value(node->params.value("varName")) : BPValue();
+
+    if (node->type == "Local.Get")
+        return m_varStore.value(node->params.value("varName"));
 
     // 运行时变量读取（数值/布尔/字符串共用同一张表）
     if (node->type == "Var.GetNumber" || node->type == "Var.GetBool" || node->type == "Var.GetString") {

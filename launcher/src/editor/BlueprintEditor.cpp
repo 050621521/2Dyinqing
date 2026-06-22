@@ -103,7 +103,8 @@ QString switchCaseValue(const BPNode& node, const QString& id) {
 // 宏调用 Macro:: / 入口出口 Macro.Entry|Exit / 全局变量 Global.Get|Set
 bool isMacroNodeType(const QString& t) {
     return t.startsWith("Macro::") || t == "Macro.Entry" || t == "Macro.Exit"
-        || t == "Global.Get" || t == "Global.Set";
+        || t == "Global.Get" || t == "Global.Set"
+        || t == "Local.Get"  || t == "Local.Set";
 }
 
 // 新建 Flow.Switch 时给一组默认分支，避免空节点
@@ -747,6 +748,13 @@ QString BlueprintEditor::globalVarType(const QString& name) const {
     return QString();
 }
 
+QString BlueprintEditor::localVarType(const QString& name) const {
+    if (m_doc)
+        for (const GlobalVarDef& d : m_doc->localVars())
+            if (d.name == name) return d.type;
+    return QString();
+}
+
 BlueprintEditor::ValueKind BlueprintEditor::kindFromGlobalType(const QString& type) const {
     if (type == "bool")   return ValueKind::Bool;
     if (type == "number") return ValueKind::Number;
@@ -760,6 +768,9 @@ BlueprintEditor::enumValuesForPin(const BPNode& node, const QString& key) const 
     QString enumName;
     if ((node.type == "Global.Get" || node.type == "Global.Set") && key == "value") {
         const QString t = globalVarType(node.params.value("varName"));
+        if (t.startsWith("enum:")) enumName = t.mid(5);
+    } else if ((node.type == "Local.Get" || node.type == "Local.Set") && key == "value") {
+        const QString t = localVarType(node.params.value("varName"));
         if (t.startsWith("enum:")) enumName = t.mid(5);
     } else if (node.type == "Flow.Switch" && key.startsWith("caseval_")) {
         enumName = node.params.value("enum");
@@ -796,6 +807,17 @@ QList<BlueprintEditor::PinDef> BlueprintEditor::effectivePins(const BPNode& node
                  {"exec_out", "exec", true, true},
                  {"value", QString(), false, false,
                   kindFromGlobalType(globalVarType(node.params.value("varName")))} };
+    }
+    // 局部变量节点：值引脚类型由局部变量声明决定
+    if (node.type == "Local.Get") {
+        return { {"value", QString(), false, true,
+                  kindFromGlobalType(localVarType(node.params.value("varName")))} };
+    }
+    if (node.type == "Local.Set") {
+        return { {"exec_in",  "exec", true, false},
+                 {"exec_out", "exec", true, true},
+                 {"value", QString(), false, false,
+                  kindFromGlobalType(localVarType(node.params.value("varName")))} };
     }
     // 宏调用节点：引脚来自所引用宏的接口（输入在前、输出在后）
     if (node.type.startsWith("Macro::")) {
@@ -933,8 +955,8 @@ bool BlueprintEditor::isPinExec(const QString& typeId, const QString& pinKey, bo
     // 分支控制：value 和 caseval_* 是数据输入（可接任意数据源），其余（exec_in / case_* / default）才是 exec
     if (typeId == "Flow.Switch")
         return pinKey != "value" && !pinKey.startsWith("caseval_");
-    if (typeId == "Global.Set") return pinKey == "exec_in" || pinKey == "exec_out";
-    if (typeId == "Global.Get") return false;
+    if (typeId == "Global.Set" || typeId == "Local.Set") return pinKey == "exec_in" || pinKey == "exec_out";
+    if (typeId == "Global.Get" || typeId == "Local.Get") return false;
     const NodeDef* def = findNodeDef(typeId);
     if (!def) return false;
     for (const PinDef& pd : def->pins)
@@ -1282,6 +1304,12 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
         const bool undefined = globalVarType(vn).isEmpty();
         displayName = (node.type == "Global.Get" ? "获取 " : "设置 ")
                     + (vn.isEmpty() ? "全局变量" : vn) + (undefined && !vn.isEmpty() ? " (未定义)" : "");
+    } else if (node.type == "Local.Get" || node.type == "Local.Set") {
+        headerColor = QColor("#2a4a2a");
+        const QString vn = node.params.value("varName");
+        const bool undefined = localVarType(vn).isEmpty();
+        displayName = (node.type == "Local.Get" ? "获取 " : "设置 ")
+                    + (vn.isEmpty() ? "局部变量" : vn) + (undefined && !vn.isEmpty() ? " (未定义)" : "");
     } else {  // Macro:: 调用节点
         headerColor = QColor("#3a2a5a");
         QString nm = node.params.value("macroName");
@@ -2549,6 +2577,40 @@ void BlueprintEditor::showContextMenu(const QPoint& pos, const QPoint& globalPos
             } else {
                 gvMenu->addAction("获取 " + vn, [makeGlobalNode]() { makeGlobalNode("Global.Get"); });
                 gvMenu->addAction("设置 " + vn, [makeGlobalNode]() { makeGlobalNode("Global.Set"); });
+            }
+        }
+    }
+    // 局部变量：仅关卡蓝图（m_doc）有；数组操作节点带 scope=local 标记
+    if (m_doc && !m_doc->localVars().isEmpty()) {
+        auto* lvMenu = menu.addMenu("局部变量");
+        for (const GlobalVarDef& lv : m_doc->localVars()) {
+            const QString vn = lv.name;
+            auto makeLocalNode = [this, vn, canvasPos](const QString& type) {
+                if (!m_doc) return;
+                BPNode node;
+                node.id   = QUuid::createUuid().toString(QUuid::WithoutBraces);
+                node.type = type;
+                node.x = (float)canvasPos.x(); node.y = (float)canvasPos.y();
+                node.params["varName"] = vn;
+                node.params["scope"]   = "local";   // 数组操作据此选局部变量表
+                auto refresh = [this]() { notifyModified(); update(); };
+                m_bpUndoStack->push(new BPNodeAddCmd(m_bpClass, m_doc, node, refresh));
+                selectSingleNode(node.id);
+                update();
+            };
+            if (lv.type.startsWith("array:")) {
+                auto* arrSub = lvMenu->addMenu(vn + "（数组）");
+                arrSub->addAction("获取 " + vn, [makeLocalNode]() { makeLocalNode("Local.Get"); });
+                arrSub->addAction("设置 " + vn, [makeLocalNode]() { makeLocalNode("Local.Set"); });
+                arrSub->addSeparator();
+                arrSub->addAction("添加元素",   [makeLocalNode]() { makeLocalNode("Array.Add"); });
+                arrSub->addAction("按索引移除", [makeLocalNode]() { makeLocalNode("Array.RemoveAt"); });
+                arrSub->addAction("按值移除",   [makeLocalNode]() { makeLocalNode("Array.RemoveValue"); });
+                arrSub->addAction("设置元素",   [makeLocalNode]() { makeLocalNode("Array.SetAt"); });
+                arrSub->addAction("清空数组",   [makeLocalNode]() { makeLocalNode("Array.Clear"); });
+            } else {
+                lvMenu->addAction("获取 " + vn, [makeLocalNode]() { makeLocalNode("Local.Get"); });
+                lvMenu->addAction("设置 " + vn, [makeLocalNode]() { makeLocalNode("Local.Set"); });
             }
         }
     }

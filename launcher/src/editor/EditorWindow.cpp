@@ -506,7 +506,9 @@ void EditorWindow::setupCentralArea() {
     connect(m_globalVarPanel, &GlobalVarPanel::varRenamed, this,
             [this](const QString& oldN, const QString& newN) {
         auto isGlobalRef = [&](const BPNode& n) {
-            return (n.type == "Global.Get" || n.type == "Global.Set")
+            const bool isGlobalArrayOp = n.type.startsWith("Array.")
+                                      && n.params.value("scope") != "local";
+            return (n.type == "Global.Get" || n.type == "Global.Set" || isGlobalArrayOp)
                 && n.params.value("varName") == oldN;
         };
         for (LevelDocument* doc : m_openLevels.values())
@@ -548,6 +550,21 @@ void EditorWindow::setupCentralArea() {
                 doc->setLocalVars(vars);
         });
     connect(m_localVarPanel, &GlobalVarPanel::changed, this, [this]() {
+        for (auto it = m_bpInstances.begin(); it != m_bpInstances.end(); ++it)
+            if (it.value().editor) it.value().editor->update();
+    });
+    // 局部变量改名：同步当前关卡蓝图里引用它的 Local.*/数组操作 节点
+    connect(m_localVarPanel, &GlobalVarPanel::varRenamed, this,
+            [this](const QString& oldN, const QString& newN) {
+        LevelDocument* doc = m_openLevels.value(m_activeLevelPath, nullptr);
+        if (!doc) return;
+        for (const BPNode& n : doc->bpNodes()) {
+            const bool isLocalArrayOp = n.type.startsWith("Array.")
+                                     && n.params.value("scope") == "local";
+            const bool ref = (n.type == "Local.Get" || n.type == "Local.Set" || isLocalArrayOp)
+                          && n.params.value("varName") == oldN;
+            if (ref) { BPNode nn = n; nn.params["varName"] = newN; doc->updateBPNode(nn); }
+        }
         for (auto it = m_bpInstances.begin(); it != m_bpInstances.end(); ++it)
             if (it.value().editor) it.value().editor->update();
     });
