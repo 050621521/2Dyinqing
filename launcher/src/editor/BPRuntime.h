@@ -61,6 +61,10 @@ private:
     QMap<QString, BPValue> m_varStore;  // 本关运行内变量表（name → value）
     QMap<QString, BPValue>* m_globalVars = nullptr;  // 全局变量表（EditorWindow 持有）
 
+    // ForEach 迭代状态：nodeId → (当前元素, 当前索引)，循环体内的输出引脚读取它
+    struct LoopState { BPValue element; int index = 0; };
+    QHash<QString, LoopState> m_loopState;
+
     UIRuntime*             m_uiRuntime = nullptr;
     QMap<QString, QString> m_uiRefs;      // nodeId(UI.Create) → instanceId
     QMap<QString, int>     m_dropdownIndex; // UI.OnDropdownChanged nodeId → 最新索引

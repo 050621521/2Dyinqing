@@ -293,6 +293,18 @@ QString BPRuntime::executeNode(const QString& nodeId) {
         return "exec_out";
     }
 
+    // 遍历(ForEach)：对数组快照逐元素执行循环体（每次迭代独立 visited），完成后走 completed
+    if (node->type == "Flow.ForEach") {
+        const QList<BPValue> arr = resolveDataPin(nodeId, "array").toArray();  // 快照
+        for (int i = 0; i < arr.size(); ++i) {
+            m_loopState[nodeId] = {arr[i], i};
+            QSet<QString> bodyVisited;                  // 每次迭代独立上下文，循环体可重入
+            executeChain(nodeId, "loop_body", &bodyVisited);
+        }
+        m_loopState.remove(nodeId);
+        return "completed";
+    }
+
     if (node->type == "Action.MoveActor") {
         QString actorId = resolveDataPin(nodeId, "actorId");
         float dx = resolveDataPin(nodeId, "dx").toString().toFloat();
@@ -507,6 +519,16 @@ BPValue BPRuntime::resolveOutputPin(const QString& nodeId, const QString& pinKey
                               || resolveDataPin(nodeId, "b").toBool());
     if (node->type == "Logic.Not" && pinKey == "result")
         return BPValue::fromBool(!resolveDataPin(nodeId, "value").toBool());
+
+    // 遍历(ForEach) 的循环体输出：当前元素 / 当前索引（仅迭代期间有效）
+    if (node->type == "Flow.ForEach") {
+        auto it = m_loopState.constFind(nodeId);
+        if (it != m_loopState.constEnd()) {
+            if (pinKey == "current") return it->element;
+            if (pinKey == "index")   return BPValue::fromNumber(it->index);
+        }
+        return BPValue();
+    }
 
     // ── 数组数据节点（纯数据）──────────────────────────────────────────────
     if (node->type == "Array.Make" && pinKey == "result")

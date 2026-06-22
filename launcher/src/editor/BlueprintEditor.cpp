@@ -603,6 +603,16 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
             "Array.Clear", "清空数组", QColor("#2a4a4a"),
             {{"exec_in","exec",true,false},{"exec_out","exec",true,true}}
         },
+        // ── 遍历(ForEach)：循环体每元素触发一次，完成后走 completed ───────────
+        {
+            "Flow.ForEach", "遍历数组", QColor("#2a5a3a"),
+            {{"exec_in","exec",true,false},
+             {"array","数组",false,false,ValueKind::Array},
+             {"loop_body","循环体",true,true},
+             {"current","当前元素",false,true,ValueKind::Any},
+             {"index","当前索引",false,true,ValueKind::Number},
+             {"completed","完成",true,true}}
+        },
     };
     return defs;
 }
