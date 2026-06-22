@@ -1,6 +1,7 @@
 #pragma once
 #include "models/LevelDocument.h"
 #include "models/BPClass.h"
+#include "models/BPValue.h"
 #include <QObject>
 #include <QSet>
 #include <QMap>
@@ -32,8 +33,8 @@ private:
     void    executeChain(const QString& fromNodeId, const QString& fromPin,
                          QSet<QString>* visited = nullptr);
     QString executeNode(const QString& nodeId);
-    QString resolveDataPin(const QString& nodeId, const QString& pinKey);
-    QString resolveOutputPin(const QString& nodeId, const QString& pinKey);
+    BPValue resolveDataPin(const QString& nodeId, const QString& pinKey);
+    BPValue resolveOutputPin(const QString& nodeId, const QString& pinKey);
     const BPNode* findNode(const QString& id) const;
     ActorData*    findSelf();
 

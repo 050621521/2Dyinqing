@@ -1,5 +1,6 @@
 #pragma once
 #include "models/LevelDocument.h"
+#include "models/BPValue.h"
 #include <QObject>
 #include <QSet>
 #include <QTimer>
@@ -25,14 +26,15 @@ public:
     QList<ActorData>&       mutableActors()  { return m_actors; }
     float                   lastDt()   const { return m_lastDt; }
     const QStringList&      printLog() const { return m_printLog; }
-    void appendPrintLog(const QString& text) { m_printLog << text; }
+    void appendPrintLog(const QString& text) { m_printLog << text; emit printAppended(text); }
 
     void setUIRuntime(UIRuntime* ui);
     // 全局变量表（由 EditorWindow 持有，跨关卡保留）
-    void setGlobalVars(QMap<QString, QString>* g) { m_globalVars = g; }
+    void setGlobalVars(QMap<QString, BPValue>* g) { m_globalVars = g; }
 
 signals:
     void stateChanged();
+    void printAppended(const QString& text);  // 运行时打印 → 复现录制时序记录
     void loadLevelRequested(const QString& levelName);
     void backLevelRequested();   // 返回上一关：由 EditorWindow 弹关卡历史栈处理
 
@@ -47,8 +49,8 @@ private:
     void    executeChain(const QString& fromNodeId, const QString& fromPin,
                          QSet<QString>* visited = nullptr);
     QString executeNode(const QString& nodeId);
-    QString resolveDataPin(const QString& nodeId, const QString& pinKey);
-    QString resolveOutputPin(const QString& nodeId, const QString& pinKey);
+    BPValue resolveDataPin(const QString& nodeId, const QString& pinKey);
+    BPValue resolveOutputPin(const QString& nodeId, const QString& pinKey);
     const BPNode*    findNode(const QString& id) const;
     const ActorData* findActorByName(const QString& name) const;
 
@@ -56,8 +58,8 @@ private:
     QList<BPConnection> m_connections;
     QList<ActorData>    m_actors;
     QStringList         m_printLog;
-    QMap<QString, QString> m_varStore;  // 本关运行内变量表（name → value）
-    QMap<QString, QString>* m_globalVars = nullptr;  // 全局变量表（EditorWindow 持有）
+    QMap<QString, BPValue> m_varStore;  // 本关运行内变量表（name → value）
+    QMap<QString, BPValue>* m_globalVars = nullptr;  // 全局变量表（EditorWindow 持有）
 
     UIRuntime*             m_uiRuntime = nullptr;
     QMap<QString, QString> m_uiRefs;      // nodeId(UI.Create) → instanceId

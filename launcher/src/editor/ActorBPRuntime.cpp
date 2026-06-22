@@ -68,7 +68,7 @@ QString ActorBPRuntime::executeNode(const QString& nodeId) {
         return "exec_out";
     }
     if (node->type == "Flow.Branch") {
-        const QString cond = resolveDataPin(nodeId, "condition").toLower();
+        const QString cond = resolveDataPin(nodeId, "condition").toString().toLower();
         const bool truthy = !cond.isEmpty() && cond != "0" && cond != "false";
         return truthy ? "true" : "false";
     }
@@ -77,16 +77,16 @@ QString ActorBPRuntime::executeNode(const QString& nodeId) {
 
     // ── Self 变换节点 ─────────────────────────────────────────────────
     if (node->type == "Self.SetPosition") {
-        self->x = resolveDataPin(nodeId, "x").toFloat();
-        self->y = resolveDataPin(nodeId, "y").toFloat();
+        self->x = resolveDataPin(nodeId, "x").toString().toFloat();
+        self->y = resolveDataPin(nodeId, "y").toString().toFloat();
         return "exec_out";
     }
     if (node->type == "Self.SetRotation") {
-        self->rotation = resolveDataPin(nodeId, "angle").toFloat();
+        self->rotation = resolveDataPin(nodeId, "angle").toString().toFloat();
         return "exec_out";
     }
     if (node->type == "Self.SetActive") {
-        const QString v = resolveDataPin(nodeId, "active").toLower();
+        const QString v = resolveDataPin(nodeId, "active").toString().toLower();
         self->active = (v == "true" || v == "1");
         return "exec_out";
     }
@@ -98,39 +98,39 @@ QString ActorBPRuntime::executeNode(const QString& nodeId) {
     }
     if (node->type == "Self.Sprite.SetColor") {
         self->spriteColor = QColor(
-            resolveDataPin(nodeId, "r").toInt(),
-            resolveDataPin(nodeId, "g").toInt(),
-            resolveDataPin(nodeId, "b").toInt(),
-            resolveDataPin(nodeId, "a").toInt()
+            resolveDataPin(nodeId, "r").toString().toInt(),
+            resolveDataPin(nodeId, "g").toString().toInt(),
+            resolveDataPin(nodeId, "b").toString().toInt(),
+            resolveDataPin(nodeId, "a").toString().toInt()
         );
         return "exec_out";
     }
     if (node->type == "Self.Sprite.SetFlipX") {
-        const QString v = resolveDataPin(nodeId, "flip").toLower();
+        const QString v = resolveDataPin(nodeId, "flip").toString().toLower();
         self->flipX = (v == "true" || v == "1");
         return "exec_out";
     }
     if (node->type == "Self.Sprite.SetFlipY") {
-        const QString v = resolveDataPin(nodeId, "flip").toLower();
+        const QString v = resolveDataPin(nodeId, "flip").toString().toLower();
         self->flipY = (v == "true" || v == "1");
         return "exec_out";
     }
     if (node->type == "Self.Sprite.SetVisible") {
-        const QString v = resolveDataPin(nodeId, "visible").toLower();
+        const QString v = resolveDataPin(nodeId, "visible").toString().toLower();
         self->spriteVisible = (v == "true" || v == "1");
         return "exec_out";
     }
 
     // ── Self 摄像机节点 ───────────────────────────────────────────────
     if (node->type == "Self.Camera.SetSize") {
-        self->cameraSize = resolveDataPin(nodeId, "size").toFloat();
+        self->cameraSize = resolveDataPin(nodeId, "size").toString().toFloat();
         return "exec_out";
     }
     if (node->type == "Self.Camera.SetBackground") {
         self->cameraBackground = QColor(
-            resolveDataPin(nodeId, "r").toInt(),
-            resolveDataPin(nodeId, "g").toInt(),
-            resolveDataPin(nodeId, "b").toInt()
+            resolveDataPin(nodeId, "r").toString().toInt(),
+            resolveDataPin(nodeId, "g").toString().toInt(),
+            resolveDataPin(nodeId, "b").toString().toInt()
         );
         return "exec_out";
     }
@@ -139,20 +139,20 @@ QString ActorBPRuntime::executeNode(const QString& nodeId) {
         return "exec_out";
     }
     if (node->type == "Self.Camera.SetFollowOffset") {
-        self->followOffsetX = resolveDataPin(nodeId, "x").toFloat();
-        self->followOffsetY = resolveDataPin(nodeId, "y").toFloat();
+        self->followOffsetX = resolveDataPin(nodeId, "x").toString().toFloat();
+        self->followOffsetY = resolveDataPin(nodeId, "y").toString().toFloat();
         return "exec_out";
     }
     if (node->type == "Self.Camera.SetSmooth") {
-        self->followLerpSpeed = resolveDataPin(nodeId, "speed").toFloat();
+        self->followLerpSpeed = resolveDataPin(nodeId, "speed").toString().toFloat();
         return "exec_out";
     }
     if (node->type == "Self.Camera.SetBoundary") {
         self->confinerEnabled = true;
-        self->confinerMinX = resolveDataPin(nodeId, "minX").toFloat();
-        self->confinerMaxX = resolveDataPin(nodeId, "maxX").toFloat();
-        self->confinerMinY = resolveDataPin(nodeId, "minY").toFloat();
-        self->confinerMaxY = resolveDataPin(nodeId, "maxY").toFloat();
+        self->confinerMinX = resolveDataPin(nodeId, "minX").toString().toFloat();
+        self->confinerMaxX = resolveDataPin(nodeId, "maxX").toString().toFloat();
+        self->confinerMinY = resolveDataPin(nodeId, "minY").toString().toFloat();
+        self->confinerMaxY = resolveDataPin(nodeId, "maxY").toString().toFloat();
         return "exec_out";
     }
     if (node->type == "Self.Camera.ClearFollow") {
@@ -206,21 +206,21 @@ QString ActorBPRuntime::executeNode(const QString& nodeId) {
     if (node->type == "UI.SetValue") {
         if (m_uiRuntime) {
             auto [ui, widget] = splitWidgetRef(resolveDataPin(nodeId, "widgetRef"));
-            m_uiRuntime->setValueByName(ui, widget, resolveDataPin(nodeId, "value").toFloat());
+            m_uiRuntime->setValueByName(ui, widget, resolveDataPin(nodeId, "value").toString().toFloat());
         }
         return "exec_out";
     }
     if (node->type == "UI.SetPosition") {
         if (m_uiRuntime)
             m_uiRuntime->setPositionByName(splitWidgetRef(resolveDataPin(nodeId, "widgetRef")).first,
-                                           resolveDataPin(nodeId, "x").toFloat(),
-                                           resolveDataPin(nodeId, "y").toFloat());
+                                           resolveDataPin(nodeId, "x").toString().toFloat(),
+                                           resolveDataPin(nodeId, "y").toString().toFloat());
         return "exec_out";
     }
     if (node->type == "UI.SetVisible") {
         if (m_uiRuntime) {
             auto [ui, widget] = splitWidgetRef(resolveDataPin(nodeId, "widgetRef"));
-            const QString v = resolveDataPin(nodeId, "visible").toLower();
+            const QString v = resolveDataPin(nodeId, "visible").toString().toLower();
             m_uiRuntime->setWidgetVisibleByName(ui, widget, v == "true" || v == "1");
         }
         return "exec_out";
@@ -229,7 +229,7 @@ QString ActorBPRuntime::executeNode(const QString& nodeId) {
     return {};
 }
 
-QString ActorBPRuntime::resolveDataPin(const QString& nodeId, const QString& pinKey) {
+BPValue ActorBPRuntime::resolveDataPin(const QString& nodeId, const QString& pinKey) {
     for (const BPConnection& c : m_bpClass->connections) {
         if (c.toNode == nodeId && c.toPin == pinKey)
             return resolveOutputPin(c.fromNode, c.fromPin);
@@ -238,7 +238,7 @@ QString ActorBPRuntime::resolveDataPin(const QString& nodeId, const QString& pin
     return node ? node->params.value(pinKey) : QString();
 }
 
-QString ActorBPRuntime::resolveOutputPin(const QString& nodeId, const QString& pinKey) {
+BPValue ActorBPRuntime::resolveOutputPin(const QString& nodeId, const QString& pinKey) {
     const BPNode* node = findNode(nodeId);
     if (!node) return {};
 

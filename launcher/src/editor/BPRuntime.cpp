@@ -246,7 +246,7 @@ QString BPRuntime::executeNode(const QString& nodeId) {
     if (!node) return {};
 
     if (node->type == "Action.Print") {
-        m_printLog << resolveDataPin(nodeId, "text");
+        appendPrintLog(resolveDataPin(nodeId, "text"));
         return "exec_out";
     }
 
@@ -267,8 +267,8 @@ QString BPRuntime::executeNode(const QString& nodeId) {
 
     if (node->type == "Action.MoveActor") {
         QString actorId = resolveDataPin(nodeId, "actorId");
-        float dx = resolveDataPin(nodeId, "dx").toFloat();
-        float dy = resolveDataPin(nodeId, "dy").toFloat();
+        float dx = resolveDataPin(nodeId, "dx").toString().toFloat();
+        float dy = resolveDataPin(nodeId, "dy").toString().toFloat();
         for (ActorData& a : m_actors) {
             if (a.id == actorId) {
                 a.x += dx;
@@ -293,7 +293,7 @@ QString BPRuntime::executeNode(const QString& nodeId) {
 
     if (node->type == "Action.SetActive") {
         QString actorId = resolveDataPin(nodeId, "actorId");
-        QString val     = resolveDataPin(nodeId, "active").toLower();
+        QString val     = resolveDataPin(nodeId, "active").toString().toLower();
         bool active = (val == "true" || val == "1");
         for (ActorData& a : m_actors) {
             if (a.id == actorId) { a.active = active; break; }
@@ -302,7 +302,7 @@ QString BPRuntime::executeNode(const QString& nodeId) {
     }
 
     if (node->type == "Flow.Branch") {
-        QString cond = resolveDataPin(nodeId, "condition").toLower();
+        QString cond = resolveDataPin(nodeId, "condition").toString().toLower();
         bool truthy = !cond.isEmpty() && cond != "0" && cond != "false";
         return truthy ? "true" : "false";
     }
@@ -367,21 +367,21 @@ QString BPRuntime::executeNode(const QString& nodeId) {
     if (node->type == "UI.SetValue") {
         if (m_uiRuntime) {
             auto [ui, widget] = splitWidgetRef(resolveDataPin(nodeId, "widgetRef"));
-            m_uiRuntime->setValueByName(ui, widget, resolveDataPin(nodeId, "value").toFloat());
+            m_uiRuntime->setValueByName(ui, widget, resolveDataPin(nodeId, "value").toString().toFloat());
         }
         return "exec_out";
     }
     if (node->type == "UI.SetPosition") {
         if (m_uiRuntime)
             m_uiRuntime->setPositionByName(splitWidgetRef(resolveDataPin(nodeId, "widgetRef")).first,
-                                           resolveDataPin(nodeId, "x").toFloat(),
-                                           resolveDataPin(nodeId, "y").toFloat());
+                                           resolveDataPin(nodeId, "x").toString().toFloat(),
+                                           resolveDataPin(nodeId, "y").toString().toFloat());
         return "exec_out";
     }
     if (node->type == "UI.SetVisible") {
         if (m_uiRuntime) {
             auto [ui, widget] = splitWidgetRef(resolveDataPin(nodeId, "widgetRef"));
-            const QString val = resolveDataPin(nodeId, "visible").toLower();
+            const QString val = resolveDataPin(nodeId, "visible").toString().toLower();
             m_uiRuntime->setWidgetVisibleByName(ui, widget,
                                                 !val.isEmpty() && val != "0" && val != "false");
         }
@@ -391,7 +391,7 @@ QString BPRuntime::executeNode(const QString& nodeId) {
     return {};
 }
 
-QString BPRuntime::resolveDataPin(const QString& nodeId, const QString& pinKey) {
+BPValue BPRuntime::resolveDataPin(const QString& nodeId, const QString& pinKey) {
     for (const BPConnection& c : m_connections) {
         if (c.toNode == nodeId && c.toPin == pinKey)
             return resolveOutputPin(c.fromNode, c.fromPin);
@@ -400,7 +400,7 @@ QString BPRuntime::resolveDataPin(const QString& nodeId, const QString& pinKey) 
     return node ? node->params.value(pinKey) : QString();
 }
 
-QString BPRuntime::resolveOutputPin(const QString& nodeId, const QString& pinKey) {
+BPValue BPRuntime::resolveOutputPin(const QString& nodeId, const QString& pinKey) {
     const BPNode* node = findNode(nodeId);
     if (!node) return {};
 
@@ -416,7 +416,7 @@ QString BPRuntime::resolveOutputPin(const QString& nodeId, const QString& pinKey
 
     // 全局变量读取
     if (node->type == "Global.Get")
-        return m_globalVars ? m_globalVars->value(node->params.value("varName")) : QString();
+        return m_globalVars ? m_globalVars->value(node->params.value("varName")) : BPValue();
 
     // 运行时变量读取（数值/布尔/字符串共用同一张表）
     if (node->type == "Var.GetNumber" || node->type == "Var.GetBool" || node->type == "Var.GetString") {
@@ -426,35 +426,35 @@ QString BPRuntime::resolveOutputPin(const QString& nodeId, const QString& pinKey
 
     // 数值转字符串（去掉多余的小数零）
     if (node->type == "Var.NumberToString" && pinKey == "text") {
-        float v = resolveDataPin(nodeId, "number").toFloat();
+        float v = resolveDataPin(nodeId, "number").toString().toFloat();
         return QString::number(v, 'f', 6).remove(QRegularExpression("0+$")).remove(QRegularExpression("\\.$"));
     }
 
     // 数学运算
     if (node->type == "Math.Add" && pinKey == "result") {
-        float a = resolveDataPin(nodeId, "a").toFloat();
-        float b = resolveDataPin(nodeId, "b").toFloat();
+        float a = resolveDataPin(nodeId, "a").toString().toFloat();
+        float b = resolveDataPin(nodeId, "b").toString().toFloat();
         return QString::number(a + b);
     }
     if (node->type == "Math.Sub" && pinKey == "result") {
-        float a = resolveDataPin(nodeId, "a").toFloat();
-        float b = resolveDataPin(nodeId, "b").toFloat();
+        float a = resolveDataPin(nodeId, "a").toString().toFloat();
+        float b = resolveDataPin(nodeId, "b").toString().toFloat();
         return QString::number(a - b);
     }
     if (node->type == "Math.Mul" && pinKey == "result") {
-        float a = resolveDataPin(nodeId, "a").toFloat();
-        float b = resolveDataPin(nodeId, "b").toFloat();
+        float a = resolveDataPin(nodeId, "a").toString().toFloat();
+        float b = resolveDataPin(nodeId, "b").toString().toFloat();
         return QString::number(a * b);
     }
     if (node->type == "Math.Div" && pinKey == "result") {
-        float a = resolveDataPin(nodeId, "a").toFloat();
-        float b = resolveDataPin(nodeId, "b").toFloat();
+        float a = resolveDataPin(nodeId, "a").toString().toFloat();
+        float b = resolveDataPin(nodeId, "b").toString().toFloat();
         return (b != 0.0f) ? QString::number(a / b) : QString("0");
     }
     if (node->type == "Math.Clamp" && pinKey == "result") {
-        float v   = resolveDataPin(nodeId, "value").toFloat();
-        float mn  = resolveDataPin(nodeId, "min").toFloat();
-        float mx  = resolveDataPin(nodeId, "max").toFloat();
+        float v   = resolveDataPin(nodeId, "value").toString().toFloat();
+        float mn  = resolveDataPin(nodeId, "min").toString().toFloat();
+        float mx  = resolveDataPin(nodeId, "max").toString().toFloat();
         return QString::number(std::clamp(v, mn, mx));
     }
 
@@ -473,9 +473,9 @@ QString BPRuntime::resolveOutputPin(const QString& nodeId, const QString& pinKey
                ? "true" : "false";
     }
     if (node->type == "Logic.Compare" && pinKey == "result") {
-        float a   = resolveDataPin(nodeId, "a").toFloat();
-        float b   = resolveDataPin(nodeId, "b").toFloat();
-        QString op = resolveDataPin(nodeId, "op").trimmed();
+        float a   = resolveDataPin(nodeId, "a").toString().toFloat();
+        float b   = resolveDataPin(nodeId, "b").toString().toFloat();
+        QString op = resolveDataPin(nodeId, "op").toString().trimmed();
         bool res = false;
         if      (op == "==") res = (a == b);
         else if (op == "!=") res = (a != b);

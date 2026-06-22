@@ -7,6 +7,7 @@
 #include <QButtonGroup>
 #include <QStackedWidget>
 #include <QUndoStack>
+#include <QElapsedTimer>
 
 class QTabBar;
 class QMenu;
@@ -45,6 +46,7 @@ signals:
 
 protected:
     void closeEvent(QCloseEvent* e) override;
+    bool eventFilter(QObject* o, QEvent* e) override;   // 菜单栏尺寸变化时重定位录制按钮
 
 private:
     void setupMenuBar();
@@ -77,6 +79,8 @@ private slots:
     void startRuntime();
     void stopRuntime();
     void togglePauseRuntime();
+    void toggleRecording();        // 复现录制：开始/停止
+    void positionRecordButton();   // 把录制按钮摆到“窗口”菜单右侧
 
 private:
     ProjectInfo  m_project;
@@ -128,6 +132,11 @@ private:
     QMenu*         m_windowMenu    = nullptr;
     QMenu*         m_layoutMenu    = nullptr;
 
+    // 复现录制
+    QToolButton*  m_recordBtn     = nullptr;
+    QTimer*       m_recordTimer    = nullptr;   // 录制中刷新计时显示
+    QElapsedTimer m_recordClock;
+
     QButtonGroup* m_toolBtnGroup = nullptr;
     QToolButton*  m_runBtn       = nullptr;
     QToolButton*  m_pauseBtn     = nullptr;
@@ -142,7 +151,7 @@ private:
     // 全局变量：声明（项目级）+ 运行时值（跨关卡保留、点运行清空）
     QList<GlobalVarDef>     m_globalVarDefs;
     QList<EnumDef>          m_enumDefs;
-    QMap<QString, QString>  m_globalVars;
+    QMap<QString, BPValue>  m_globalVars;
     GlobalVarPanel*         m_globalVarPanel = nullptr;
     class EnumEditor*       m_enumEditor = nullptr;   // 中央页签：枚举编辑
     void reloadGlobalVarDefs();   // 从 project.json 重读并推给所有蓝图编辑器
@@ -150,6 +159,8 @@ private:
     UIRuntime* m_uiRuntime = nullptr;
     UIEditor*  m_uiEditor  = nullptr;
     QList<ActorBPRuntime*>   m_actorRuntimes;
+    // 跨上下文单键编辑快捷键（F/Esc/Delete/退格）：运行时挂起，避免抢占游戏按键
+    QList<class QShortcut*>   m_editorSingleKeyShortcuts;
     QMap<QString, BPClass*>  m_openBpClasses;
     QMap<QString, UIDocument*> m_openUIDocs;
     float m_ppu = 100.0f;
