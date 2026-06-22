@@ -19,7 +19,8 @@ static QColor colorForType(const QString& type) {
     if (type == "number") return QColor(0x3a, 0x7a, 0xd4);   // 蓝
     if (type == "bool")   return QColor(0xc0, 0x50, 0x50);   // 红
     if (type == "string") return QColor(0xd0, 0x6a, 0xb0);   // 粉
-    if (type.startsWith("enum:")) return QColor(0x2a, 0x9a, 0x8a); // 青
+    if (type.startsWith("enum:"))  return QColor(0x2a, 0x9a, 0x8a); // 青
+    if (type.startsWith("array:")) return QColor(0x6c, 0x9c, 0xd6); // 数组：蓝
     return QColor(0x88, 0x88, 0x88);
 }
 
@@ -130,8 +131,14 @@ void GlobalVarPanel::rebuildList() {
         addType("数值", "number");
         addType("布尔", "bool");
         addType("字符串", "string");
-        for (const EnumDef& e : Enums::loadAll(m_projectRoot))
+        const auto enumsForPill = Enums::loadAll(m_projectRoot);
+        for (const EnumDef& e : enumsForPill)
             addType("枚举(" + e.name + ")", "enum:" + e.name);
+        addType("数组(数值)",   "array:number");
+        addType("数组(布尔)",   "array:bool");
+        addType("数组(字符串)", "array:string");
+        for (const EnumDef& e : enumsForPill)
+            addType("数组(枚举(" + e.name + "))", "array:enum:" + e.name);
         pill->setMenu(menu);
         h->addWidget(nameLbl, 1);
         h->addWidget(pill, 0);
@@ -162,8 +169,14 @@ void GlobalVarPanel::fillTypeCombo(const QString& current) {
     m_typeCombo->addItem("数值",   "number");
     m_typeCombo->addItem("布尔",   "bool");
     m_typeCombo->addItem("字符串", "string");
-    for (const EnumDef& e : Enums::loadAll(m_projectRoot))
+    const auto enumsForCombo = Enums::loadAll(m_projectRoot);
+    for (const EnumDef& e : enumsForCombo)
         m_typeCombo->addItem("枚举(" + e.name + ")", "enum:" + e.name);
+    m_typeCombo->addItem("数组(数值)",   "array:number");
+    m_typeCombo->addItem("数组(布尔)",   "array:bool");
+    m_typeCombo->addItem("数组(字符串)", "array:string");
+    for (const EnumDef& e : enumsForCombo)
+        m_typeCombo->addItem("数组(枚举(" + e.name + "))", "array:enum:" + e.name);
     for (int i = 0; i < m_typeCombo->count(); ++i)
         if (m_typeCombo->itemData(i).toString() == current) { m_typeCombo->setCurrentIndex(i); break; }
     m_loading = false;

@@ -107,6 +107,7 @@ QString GlobalVars::typeLabel(const QString& type) {
     if (type == "number") return "数值";
     if (type == "bool")   return "布尔";
     if (type == "string") return "字符串";
-    if (type.startsWith("enum:")) return "枚举(" + type.mid(5) + ")";
+    if (type.startsWith("enum:"))  return "枚举(" + type.mid(5) + ")";
+    if (type.startsWith("array:")) return "数组(" + typeLabel(type.mid(6)) + ")";
     return type;
 }

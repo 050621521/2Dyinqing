@@ -682,9 +682,11 @@ QString BlueprintEditor::globalVarType(const QString& name) const {
 }
 
 BlueprintEditor::ValueKind BlueprintEditor::kindFromGlobalType(const QString& type) const {
-    if (type == "bool") return ValueKind::Bool;
-    if (type.startsWith("enum:")) return ValueKind::EnumRef;
-    return ValueKind::Text;   // number/string 打字
+    if (type == "bool")   return ValueKind::Bool;
+    if (type == "number") return ValueKind::Number;
+    if (type.startsWith("array:")) return ValueKind::Array;
+    if (type.startsWith("enum:"))  return ValueKind::EnumRef;
+    return ValueKind::Text;   // string 打字
 }
 
 QList<QPair<QString, QString>>
