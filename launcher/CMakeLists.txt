@@ -30,6 +30,7 @@ set(SOURCES
     src/launcher/SearchBar.cpp
     src/models/ProjectManager.cpp
     src/models/LevelDocument.cpp
+    src/models/BPValue.cpp
     src/editor/EditorWindow.cpp
     src/editor/Viewport2D.cpp
     src/editor/SceneOutliner.cpp
@@ -40,6 +41,7 @@ set(SOURCES
     src/editor/BPRuntime.cpp
     src/editor/ActorBPRuntime.cpp
     src/editor/LayoutManager.cpp
+    src/editor/Recorder.cpp
     src/editor/DocTabBar.cpp
     src/editor/BlueprintFloatWindow.cpp
     src/editor/GameViewport.cpp
@@ -64,6 +66,7 @@ set(HEADERS
     src/models/ProjectInfo.h
     src/models/ProjectManager.h
     src/models/ActorTypeUtils.h
+    src/models/BPValue.h
     src/editor/EditorWindow.h
     src/editor/Viewport2D.h
     src/editor/SceneOutliner.h
@@ -75,6 +78,7 @@ set(HEADERS
     src/editor/BPRuntime.h
     src/editor/ActorBPRuntime.h
     src/editor/LayoutManager.h
+    src/editor/Recorder.h
     src/editor/DocTabBar.h
     src/editor/BlueprintFloatWindow.h
     src/editor/GameViewport.h
