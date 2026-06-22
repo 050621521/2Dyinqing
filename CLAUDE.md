@@ -175,6 +175,10 @@ Actor 类型定义在 `src/models/ActorTypeUtils.h`（跨文件共享，避免�
 | Action.BackLevel | 返回上一关 |
 | Flow.Branch | 条件分支 |
 | Flow.Switch | 分支控制 |
+| Math.Arith | 数值运算 |
+| Logic.Cmp | 比较 |
+| Logic.Bool | 逻辑 |
+| Logic.Negate | 取反 |
 | Global.Get | 获取全局变量 |
 | Global.Set | 设置全局变量 |
 | Macro::* | 自定义节点 |

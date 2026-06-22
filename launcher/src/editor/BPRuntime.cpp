@@ -486,6 +486,46 @@ BPValue BPRuntime::resolveOutputPin(const QString& nodeId, const QString& pinKey
         return res ? "true" : "false";
     }
 
+    // ── 新版运算节点（运算符下拉，类型化 BPValue 求值）────────────────────
+    if (node->type == "Math.Arith" && pinKey == "result") {
+        const double a = resolveDataPin(nodeId, "a").toNumber();
+        const double b = resolveDataPin(nodeId, "b").toNumber();
+        const QString op = resolveDataPin(nodeId, "op").toString();
+        double r = 0.0;
+        if      (op == "+") r = a + b;
+        else if (op == "-") r = a - b;
+        else if (op == "×") r = a * b;
+        else if (op == "÷") r = (b != 0.0) ? a / b : 0.0;          // 除 0 → 0
+        else if (op == "%") r = (b != 0.0) ? std::fmod(a, b) : 0.0; // 取余 0 → 0
+        else                r = a + b;                              // 默认/空 → 加
+        return BPValue::fromNumber(r);
+    }
+    if (node->type == "Logic.Cmp" && pinKey == "result") {
+        const BPValue va = resolveDataPin(nodeId, "a");
+        const BPValue vb = resolveDataPin(nodeId, "b");
+        const QString op = resolveDataPin(nodeId, "op").toString();
+        bool res = false;
+        if      (op == "=") res = va.typedEquals(vb);              // 类型感知相等
+        else if (op == "≠") res = !va.typedEquals(vb);
+        else {                                                     // 大小比较按数值
+            const double a = va.toNumber(), b = vb.toNumber();
+            if      (op == ">")  res = (a >  b);
+            else if (op == "≥")  res = (a >= b);
+            else if (op == "<")  res = (a <  b);
+            else if (op == "≤")  res = (a <= b);
+            else                 res = (a >  b);                   // 默认/空 → 大于
+        }
+        return BPValue::fromBool(res);
+    }
+    if (node->type == "Logic.Bool" && pinKey == "result") {
+        const bool a = resolveDataPin(nodeId, "a").toBool();
+        const bool b = resolveDataPin(nodeId, "b").toBool();
+        const QString op = resolveDataPin(nodeId, "op").toString();
+        return BPValue::fromBool(op == "或" ? (a || b) : (a && b));
+    }
+    if (node->type == "Logic.Negate" && pinKey == "result")
+        return BPValue::fromBool(!resolveDataPin(nodeId, "a").toBool());
+
     if (node->type == "Var.GetActorPos") {
         QString actorId = resolveDataPin(nodeId, "actorId");
         for (const ActorData& a : m_actors) {

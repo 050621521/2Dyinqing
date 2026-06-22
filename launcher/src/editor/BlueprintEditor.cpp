@@ -108,13 +108,31 @@ bool isMacroNodeType(const QString& t) {
 
 // 新建 Flow.Switch 时给一组默认分支，避免空节点
 void seedSwitchDefaults(BPNode& node) {
-    if (node.type != "Flow.Switch") return;
-    if (!node.params.value("branches").isEmpty()) return;
-    QList<SwitchBranch> def;
-    def.append({QUuid::createUuid().toString(QUuid::WithoutBraces), ""});
-    def.append({QUuid::createUuid().toString(QUuid::WithoutBraces), ""});
-    node.params["branches"]   = serializeSwitchBranches(def);
-    node.params["hasDefault"] = "false";
+    if (node.type == "Flow.Switch") {
+        if (!node.params.value("branches").isEmpty()) return;
+        QList<SwitchBranch> def;
+        def.append({QUuid::createUuid().toString(QUuid::WithoutBraces), ""});
+        def.append({QUuid::createUuid().toString(QUuid::WithoutBraces), ""});
+        node.params["branches"]   = serializeSwitchBranches(def);
+        node.params["hasDefault"] = "false";
+        return;
+    }
+    // 新版运算节点：默认运算符（避免初始空白）
+    if (node.params.value("op").isEmpty()) {
+        if      (node.type == "Math.Arith") node.params["op"] = "+";
+        else if (node.type == "Logic.Cmp")  node.params["op"] = ">";
+        else if (node.type == "Logic.Bool") node.params["op"] = "与";
+    }
+}
+
+// 已弃用节点：保留求值与渲染（旧蓝图可正常打开运行），但从创建菜单隐藏。
+// 这些已被新版下拉运算节点取代。
+static bool isDeprecatedNodeType(const QString& typeId) {
+    static const QSet<QString> dep = {
+        "Math.Add", "Math.Sub", "Math.Mul", "Math.Div",
+        "Logic.Compare", "Logic.And", "Logic.Or", "Logic.Not"
+    };
+    return dep.contains(typeId);
 }
 } // namespace
 
@@ -495,6 +513,33 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
             "Logic.Or", "逻辑或", QColor("#3a2a5a"),
             {{"a","A",false,false},{"b","B",false,false},{"result","结果",false,true}}
         },
+        // ── 新版运算节点（运算符下拉；取代上面旧的零散运算节点）─────────────
+        {
+            "Math.Arith", "数值运算", QColor("#1a2a5a"),
+            {{"a","A",false,false,ValueKind::Number},
+             {"op","运算符",false,false,ValueKind::EnumRef},
+             {"b","B",false,false,ValueKind::Number},
+             {"result","结果",false,true,ValueKind::Number}}
+        },
+        {
+            "Logic.Cmp", "比较", QColor("#3a2a5a"),
+            {{"a","A",false,false,ValueKind::Any},
+             {"op","运算符",false,false,ValueKind::EnumRef},
+             {"b","B",false,false,ValueKind::Any},
+             {"result","结果",false,true,ValueKind::Bool}}
+        },
+        {
+            "Logic.Bool", "逻辑", QColor("#3a2a5a"),
+            {{"a","A",false,false,ValueKind::Bool},
+             {"op","运算符",false,false,ValueKind::EnumRef},
+             {"b","B",false,false,ValueKind::Bool},
+             {"result","结果",false,true,ValueKind::Bool}}
+        },
+        {
+            "Logic.Negate", "取反", QColor("#3a2a5a"),
+            {{"a","A",false,false,ValueKind::Bool},
+             {"result","结果",false,true,ValueKind::Bool}}
+        },
     };
     return defs;
 }
@@ -637,6 +682,17 @@ BlueprintEditor::ValueKind BlueprintEditor::kindFromGlobalType(const QString& ty
 
 QList<QPair<QString, QString>>
 BlueprintEditor::enumValuesForPin(const BPNode& node, const QString& key) const {
+    // 新版运算节点的运算符下拉（固定选项，显示名=键值）
+    if (key == "op") {
+        auto pairs = [](std::initializer_list<const char*> xs) {
+            QList<QPair<QString, QString>> r;
+            for (const char* x : xs) r.append({QString::fromUtf8(x), QString::fromUtf8(x)});
+            return r;
+        };
+        if (node.type == "Math.Arith") return pairs({"+", "-", "×", "÷", "%"});
+        if (node.type == "Logic.Cmp")  return pairs({">", "≥", "<", "≤", "=", "≠"});
+        if (node.type == "Logic.Bool") return pairs({"与", "或"});
+    }
     QString enumName;
     if ((node.type == "Global.Get" || node.type == "Global.Set") && key == "value") {
         const QString t = globalVarType(node.params.value("varName"));
@@ -2447,6 +2503,7 @@ void BlueprintEditor::showContextMenu(const QPoint& pos, const QPoint& globalPos
 
     for (const NodeDef& def : nodeDefs()) {
         if (!isSelfNodeVisible(def.typeId)) continue;
+        if (isDeprecatedNodeType(def.typeId)) continue;
         QMenu* target = def.typeId.startsWith("Event.Key.")  ? keyMenu    :
                         def.typeId.startsWith("Event.")      ? eventMenu  :
                         def.typeId.startsWith("Action.")     ? actionMenu :
@@ -2593,6 +2650,7 @@ void BlueprintEditor::showWireDropPopup(QPoint screenPos) {
     for (const NodeDef& def : nodeDefs()) {
         // 过滤不适用于当前上下文的 Self 节点
         if (!isSelfNodeVisible(def.typeId)) continue;
+        if (isDeprecatedNodeType(def.typeId)) continue;
 
         QString compatPin;
         for (const PinDef& pd : def.pins) {
