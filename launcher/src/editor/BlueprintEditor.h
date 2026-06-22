@@ -59,7 +59,10 @@ private:
         ActorRef,   // 下拉：场景 Actor 列表（写回 id）
         UIRef,      // 下拉：项目 UI 文件（含控件展开，特殊弹窗）
         WidgetRef,  // 下拉：项目所有 UI 的控件（写回 "UI名::控件名"）
-        EnumRef     // 下拉：某枚举的选项（选项按节点实例推导）
+        EnumRef,    // 下拉：某枚举的选项（选项按节点实例推导）
+        Number,     // 数值（绿色），原地 QLineEdit
+        Array,      // 数组（蓝色），整条线承载列表
+        Any         // 通配：接受任意类型（比较等节点用）
     };
     struct PinDef {
         QString   key;
@@ -213,6 +216,12 @@ private:
     const BPNode* findNode(const QString& id) const;
     bool isPinConnected(const QString& nodeId, const QString& pinKey, bool isOutput) const;
     bool isPinExec(const QString& typeId, const QString& pinKey, bool isOutput) const;
+    // 取某节点实例某引脚的数据类型（按 effectivePins 推导，含动态引脚）
+    ValueKind pinKindOf(const BPNode& node, const QString& pinKey, bool isOutput) const;
+    // 数据引脚连线兼容：数组↔标量禁止，Any 通配，其余标量允许（运行时 BPValue 兜底转换）
+    static bool dataKindsCompatible(ValueKind from, ValueKind to);
+    // 数据引脚/连线配色
+    static QColor kindColor(ValueKind k);
 
     // 绘制
     void drawBackground(QPainter& p);
@@ -220,8 +229,10 @@ private:
     void drawNodes(QPainter& p);
     void drawDanglingWire(QPainter& p);
     void drawNode(QPainter& p, const BPNode& node);
-    void drawPin(QPainter& p, QPointF center, bool isExec, bool connected);
-    void drawBezier(QPainter& p, QPointF from, QPointF to, bool isExec);
+    void drawPin(QPainter& p, QPointF center, bool isExec, bool connected,
+                 ValueKind kind = ValueKind::Text);
+    void drawBezier(QPainter& p, QPointF from, QPointF to, bool isExec,
+                    ValueKind kind = ValueKind::Text);
 
     // 拖线松开弹窗
     void showWireDropPopup(QPoint screenPos);

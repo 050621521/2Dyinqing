@@ -553,6 +553,9 @@ BlueprintEditor::ValueKind BlueprintEditor::kindFromString(const QString& s) {
     if (s == "ActorRef")  return ValueKind::ActorRef;
     if (s == "UIRef")     return ValueKind::UIRef;
     if (s == "WidgetRef") return ValueKind::WidgetRef;
+    if (s == "Number")    return ValueKind::Number;
+    if (s == "Array")     return ValueKind::Array;
+    if (s == "Any")       return ValueKind::Any;
     return ValueKind::Text;
 }
 
@@ -563,7 +566,34 @@ QString BlueprintEditor::kindToString(ValueKind k) {
         case ValueKind::ActorRef:  return "ActorRef";
         case ValueKind::UIRef:     return "UIRef";
         case ValueKind::WidgetRef: return "WidgetRef";
+        case ValueKind::Number:    return "Number";
+        case ValueKind::Array:     return "Array";
+        case ValueKind::Any:       return "Any";
         default:                   return "Text";
+    }
+}
+
+BlueprintEditor::ValueKind BlueprintEditor::pinKindOf(
+    const BPNode& node, const QString& pinKey, bool isOutput) const {
+    for (const PinDef& pd : effectivePins(node))
+        if (pd.key == pinKey && pd.isOutput == isOutput) return pd.kind;
+    return ValueKind::Text;
+}
+
+bool BlueprintEditor::dataKindsCompatible(ValueKind from, ValueKind to) {
+    if (from == ValueKind::Any || to == ValueKind::Any) return true;     // 通配
+    const bool fromArr = (from == ValueKind::Array);
+    const bool toArr   = (to   == ValueKind::Array);
+    return fromArr == toArr;   // 同为数组或同为标量才允许；数组↔标量禁止
+}
+
+QColor BlueprintEditor::kindColor(ValueKind k) {
+    switch (k) {
+        case ValueKind::Number: return QColor(0x6c, 0xc6, 0x6c);  // 绿
+        case ValueKind::Bool:   return QColor(0xd0, 0x6c, 0x6c);  // 红
+        case ValueKind::Array:  return QColor(0x6c, 0x9c, 0xd6);  // 蓝
+        case ValueKind::Any:    return QColor(0xdd, 0xdd, 0xdd);  // 中性浅灰
+        default:                return QColor(0xcc, 0xcc, 0xcc);  // 文本/引用：原灰
     }
 }
 
@@ -1052,8 +1082,9 @@ void BlueprintEditor::drawBackground(QPainter& p) {
             p.drawEllipse(QPointF(x, y), 1.2, 1.2);
 }
 
-void BlueprintEditor::drawBezier(QPainter& p, QPointF from, QPointF to, bool isExec) {
-    const QColor color = isExec ? QColor(0xe0, 0x7a, 0x30) : QColor(0xcc, 0xcc, 0xcc);
+void BlueprintEditor::drawBezier(QPainter& p, QPointF from, QPointF to, bool isExec,
+                                 ValueKind kind) {
+    const QColor color = isExec ? QColor(0xe0, 0x7a, 0x30) : kindColor(kind);
     p.setPen(QPen(color, qMax(1.5, 2.0 * m_zoom), Qt::SolidLine, Qt::RoundCap));
     p.setBrush(Qt::NoBrush);
 
@@ -1075,6 +1106,7 @@ void BlueprintEditor::drawConnections(QPainter& p) {
         QPointF to   = pinCenter(*toNode,   conn.toPin,   false);
         if (from.isNull() || to.isNull()) continue;
         bool isExec  = isPinExec(fromNode->type, conn.fromPin, true);
+        ValueKind kind = pinKindOf(*fromNode, conn.fromPin, true);
 
         if (conn.id == m_selectedConnId) {
             // 选中高亮：先画宽白边再画本色
@@ -1086,13 +1118,14 @@ void BlueprintEditor::drawConnections(QPainter& p) {
             path.cubicTo(from + QPointF(dx, 0), to - QPointF(dx, 0), to);
             p.drawPath(path);
         }
-        drawBezier(p, from, to, isExec);
+        drawBezier(p, from, to, isExec, kind);
     }
 }
 
-void BlueprintEditor::drawPin(QPainter& p, QPointF center, bool isExec, bool connected) {
+void BlueprintEditor::drawPin(QPainter& p, QPointF center, bool isExec, bool connected,
+                              ValueKind kind) {
     const QColor execColor(0xe0, 0x7a, 0x30);
-    const QColor dataColor(0xcc, 0xcc, 0xcc);
+    const QColor dataColor = kindColor(kind);
     const QColor emptyBg(0x22, 0x22, 0x22);
 
     if (isExec) {
@@ -1280,7 +1313,7 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
     for (const PinDef& pd : effectivePins(node)) {
         QPointF pc = pinCenter(node, pd.key, pd.isOutput);
         bool connected = isPinConnected(node.id, pd.key, pd.isOutput);
-        drawPin(p, pc, pd.isExec, connected);
+        drawPin(p, pc, pd.isExec, connected, pd.kind);
 
         // 标签
         p.setPen(QColor(0xaa, 0xaa, 0xaa));
@@ -1469,9 +1502,10 @@ void BlueprintEditor::drawDanglingWire(QPainter& p) {
     QPointF from = pinCenter(*fromNode, m_wireFromPin, m_wireFromIsOutput);
     QPointF to   = canvasToScreen(m_wireCursorPos);
     bool isExec  = isPinExec(fromNode->type, m_wireFromPin, m_wireFromIsOutput);
+    ValueKind kind = pinKindOf(*fromNode, m_wireFromPin, m_wireFromIsOutput);
 
     if (!m_wireFromIsOutput) qSwap(from, to);
-    drawBezier(p, from, to, isExec);
+    drawBezier(p, from, to, isExec, kind);
 }
 
 // ── 滚轮缩放 ──────────────────────────────────────────────────────────
@@ -2152,7 +2186,12 @@ void BlueprintEditor::mouseReleaseEvent(QMouseEvent* e) {
             if (fromNodePtr && toNodePtr) {
                 bool fromExec = isPinExec(fromNodePtr->type, fromPin, true);
                 bool toExec   = isPinExec(toNodePtr->type,   toPin,   false);
-                typeOk = (fromExec == toExec);
+                if (fromExec == toExec) {
+                    // exec-exec 总允许；data-data 再按值类型兼容判定
+                    typeOk = fromExec
+                        || dataKindsCompatible(pinKindOf(*fromNodePtr, fromPin, true),
+                                               pinKindOf(*toNodePtr,   toPin,   false));
+                }
             }
 
             if (typeOk) {
