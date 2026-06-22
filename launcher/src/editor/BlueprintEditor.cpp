@@ -108,29 +108,20 @@ bool isMacroNodeType(const QString& t) {
 
 // 新建 Flow.Switch 时给一组默认分支，避免空节点
 void seedSwitchDefaults(BPNode& node) {
-    if (node.type == "Flow.Switch") {
-        if (!node.params.value("branches").isEmpty()) return;
-        QList<SwitchBranch> def;
-        def.append({QUuid::createUuid().toString(QUuid::WithoutBraces), ""});
-        def.append({QUuid::createUuid().toString(QUuid::WithoutBraces), ""});
-        node.params["branches"]   = serializeSwitchBranches(def);
-        node.params["hasDefault"] = "false";
-        return;
-    }
-    // 新版运算节点：默认运算符（避免初始空白）
-    if (node.params.value("op").isEmpty()) {
-        if      (node.type == "Math.Arith") node.params["op"] = "+";
-        else if (node.type == "Logic.Cmp")  node.params["op"] = ">";
-        else if (node.type == "Logic.Bool") node.params["op"] = "与";
-    }
+    if (node.type != "Flow.Switch") return;
+    if (!node.params.value("branches").isEmpty()) return;
+    QList<SwitchBranch> def;
+    def.append({QUuid::createUuid().toString(QUuid::WithoutBraces), ""});
+    def.append({QUuid::createUuid().toString(QUuid::WithoutBraces), ""});
+    node.params["branches"]   = serializeSwitchBranches(def);
+    node.params["hasDefault"] = "false";
 }
 
 // 已弃用节点：保留求值与渲染（旧蓝图可正常打开运行），但从创建菜单隐藏。
 // 这些已被新版下拉运算节点取代。
 static bool isDeprecatedNodeType(const QString& typeId) {
     static const QSet<QString> dep = {
-        "Math.Add", "Math.Sub", "Math.Mul", "Math.Div",
-        "Logic.Compare", "Logic.And", "Logic.Or", "Logic.Not"
+        "Logic.Compare"   // 旧「数值比较」(op 输入式)，已被 Cmp.* 系列取代
     };
     return dep.contains(typeId);
 }
@@ -473,72 +464,88 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
             "Var.NumberToString", "数值转字符串", QColor("#3a3a4a"),
             {{"number","数值",false,false},{"text","文本",false,true}}
         },
-        // ── 数学运算 ─────────────────────────────────────────────────────
+        // ── 数学运算（虚幻式：一符一节点，标题即符号）───────────────────
         {
-            "Math.Add", "加法", QColor("#1a2a5a"),
-            {{"a","A",false,false},{"b","B",false,false},{"result","结果",false,true}}
+            "Math.Add", "+", QColor("#1a2a5a"),
+            {{"a","A",false,false,ValueKind::Number},{"b","B",false,false,ValueKind::Number},
+             {"result","",false,true,ValueKind::Number}}
         },
         {
-            "Math.Sub", "减法", QColor("#1a2a5a"),
-            {{"a","A",false,false},{"b","B",false,false},{"result","结果",false,true}}
+            "Math.Sub", "-", QColor("#1a2a5a"),
+            {{"a","A",false,false,ValueKind::Number},{"b","B",false,false,ValueKind::Number},
+             {"result","",false,true,ValueKind::Number}}
         },
         {
-            "Math.Mul", "乘法", QColor("#1a2a5a"),
-            {{"a","A",false,false},{"b","B",false,false},{"result","结果",false,true}}
+            "Math.Mul", "×", QColor("#1a2a5a"),
+            {{"a","A",false,false,ValueKind::Number},{"b","B",false,false,ValueKind::Number},
+             {"result","",false,true,ValueKind::Number}}
         },
         {
-            "Math.Div", "除法", QColor("#1a2a5a"),
-            {{"a","A",false,false},{"b","B",false,false},{"result","结果",false,true}}
+            "Math.Div", "÷", QColor("#1a2a5a"),
+            {{"a","A",false,false,ValueKind::Number},{"b","B",false,false,ValueKind::Number},
+             {"result","",false,true,ValueKind::Number}}
+        },
+        {
+            "Math.Mod", "%", QColor("#1a2a5a"),
+            {{"a","A",false,false,ValueKind::Number},{"b","B",false,false,ValueKind::Number},
+             {"result","",false,true,ValueKind::Number}}
         },
         {
             "Math.Clamp", "数值夹取", QColor("#1a2a5a"),
-            {{"value","数值",false,false},{"min","最小",false,false},
-             {"max","最大",false,false},{"result","结果",false,true}}
+            {{"value","数值",false,false,ValueKind::Number},{"min","最小",false,false,ValueKind::Number},
+             {"max","最大",false,false,ValueKind::Number},{"result","结果",false,true,ValueKind::Number}}
         },
-        // ── 逻辑运算 ─────────────────────────────────────────────────────
+        // ── 比较运算（虚幻式：一符一节点）─────────────────────────────────
+        {
+            "Cmp.GT", ">", QColor("#3a2a5a"),
+            {{"a","A",false,false,ValueKind::Any},{"b","B",false,false,ValueKind::Any},
+             {"result","",false,true,ValueKind::Bool}}
+        },
+        {
+            "Cmp.GE", "≥", QColor("#3a2a5a"),
+            {{"a","A",false,false,ValueKind::Any},{"b","B",false,false,ValueKind::Any},
+             {"result","",false,true,ValueKind::Bool}}
+        },
+        {
+            "Cmp.LT", "<", QColor("#3a2a5a"),
+            {{"a","A",false,false,ValueKind::Any},{"b","B",false,false,ValueKind::Any},
+             {"result","",false,true,ValueKind::Bool}}
+        },
+        {
+            "Cmp.LE", "≤", QColor("#3a2a5a"),
+            {{"a","A",false,false,ValueKind::Any},{"b","B",false,false,ValueKind::Any},
+             {"result","",false,true,ValueKind::Bool}}
+        },
+        {
+            "Cmp.EQ", "=", QColor("#3a2a5a"),
+            {{"a","A",false,false,ValueKind::Any},{"b","B",false,false,ValueKind::Any},
+             {"result","",false,true,ValueKind::Bool}}
+        },
+        {
+            "Cmp.NE", "≠", QColor("#3a2a5a"),
+            {{"a","A",false,false,ValueKind::Any},{"b","B",false,false,ValueKind::Any},
+             {"result","",false,true,ValueKind::Bool}}
+        },
+        // ── 逻辑运算（虚幻式：一符一节点）─────────────────────────────────
+        {
+            "Logic.And", "与", QColor("#3a2a5a"),
+            {{"a","A",false,false,ValueKind::Bool},{"b","B",false,false,ValueKind::Bool},
+             {"result","",false,true,ValueKind::Bool}}
+        },
+        {
+            "Logic.Or", "或", QColor("#3a2a5a"),
+            {{"a","A",false,false,ValueKind::Bool},{"b","B",false,false,ValueKind::Bool},
+             {"result","",false,true,ValueKind::Bool}}
+        },
+        {
+            "Logic.Not", "非", QColor("#3a2a5a"),
+            {{"value","",false,false,ValueKind::Bool},{"result","",false,true,ValueKind::Bool}}
+        },
+        // 旧「数值比较」（op 输入引脚式）：保留定义以渲染旧蓝图，已从菜单隐藏
         {
             "Logic.Compare", "数值比较", QColor("#3a2a5a"),
             {{"a","A",false,false},{"op","运算符",false,false},
              {"b","B",false,false},{"result","结果",false,true}}
-        },
-        {
-            "Logic.Not", "逻辑非", QColor("#3a2a5a"),
-            {{"value","布尔值",false,false},{"result","结果",false,true}}
-        },
-        {
-            "Logic.And", "逻辑与", QColor("#3a2a5a"),
-            {{"a","A",false,false},{"b","B",false,false},{"result","结果",false,true}}
-        },
-        {
-            "Logic.Or", "逻辑或", QColor("#3a2a5a"),
-            {{"a","A",false,false},{"b","B",false,false},{"result","结果",false,true}}
-        },
-        // ── 新版运算节点（运算符下拉；取代上面旧的零散运算节点）─────────────
-        {
-            "Math.Arith", "数值运算", QColor("#1a2a5a"),
-            {{"a","A",false,false,ValueKind::Number},
-             {"op","运算符",false,false,ValueKind::EnumRef},
-             {"b","B",false,false,ValueKind::Number},
-             {"result","结果",false,true,ValueKind::Number}}
-        },
-        {
-            "Logic.Cmp", "比较", QColor("#3a2a5a"),
-            {{"a","A",false,false,ValueKind::Any},
-             {"op","运算符",false,false,ValueKind::EnumRef},
-             {"b","B",false,false,ValueKind::Any},
-             {"result","结果",false,true,ValueKind::Bool}}
-        },
-        {
-            "Logic.Bool", "逻辑", QColor("#3a2a5a"),
-            {{"a","A",false,false,ValueKind::Bool},
-             {"op","运算符",false,false,ValueKind::EnumRef},
-             {"b","B",false,false,ValueKind::Bool},
-             {"result","结果",false,true,ValueKind::Bool}}
-        },
-        {
-            "Logic.Negate", "取反", QColor("#3a2a5a"),
-            {{"a","A",false,false,ValueKind::Bool},
-             {"result","结果",false,true,ValueKind::Bool}}
         },
     };
     return defs;
@@ -682,17 +689,6 @@ BlueprintEditor::ValueKind BlueprintEditor::kindFromGlobalType(const QString& ty
 
 QList<QPair<QString, QString>>
 BlueprintEditor::enumValuesForPin(const BPNode& node, const QString& key) const {
-    // 新版运算节点的运算符下拉（固定选项，显示名=键值）
-    if (key == "op") {
-        auto pairs = [](std::initializer_list<const char*> xs) {
-            QList<QPair<QString, QString>> r;
-            for (const char* x : xs) r.append({QString::fromUtf8(x), QString::fromUtf8(x)});
-            return r;
-        };
-        if (node.type == "Math.Arith") return pairs({"+", "-", "×", "÷", "%"});
-        if (node.type == "Logic.Cmp")  return pairs({">", "≥", "<", "≤", "=", "≠"});
-        if (node.type == "Logic.Bool") return pairs({"与", "或"});
-    }
     QString enumName;
     if ((node.type == "Global.Get" || node.type == "Global.Set") && key == "value") {
         const QString t = globalVarType(node.params.value("varName"));

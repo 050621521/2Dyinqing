@@ -430,52 +430,61 @@ BPValue BPRuntime::resolveOutputPin(const QString& nodeId, const QString& pinKey
         return QString::number(v, 'f', 6).remove(QRegularExpression("0+$")).remove(QRegularExpression("\\.$"));
     }
 
-    // 数学运算
-    if (node->type == "Math.Add" && pinKey == "result") {
-        float a = resolveDataPin(nodeId, "a").toString().toFloat();
-        float b = resolveDataPin(nodeId, "b").toString().toFloat();
-        return QString::number(a + b);
-    }
-    if (node->type == "Math.Sub" && pinKey == "result") {
-        float a = resolveDataPin(nodeId, "a").toString().toFloat();
-        float b = resolveDataPin(nodeId, "b").toString().toFloat();
-        return QString::number(a - b);
-    }
-    if (node->type == "Math.Mul" && pinKey == "result") {
-        float a = resolveDataPin(nodeId, "a").toString().toFloat();
-        float b = resolveDataPin(nodeId, "b").toString().toFloat();
-        return QString::number(a * b);
-    }
-    if (node->type == "Math.Div" && pinKey == "result") {
-        float a = resolveDataPin(nodeId, "a").toString().toFloat();
-        float b = resolveDataPin(nodeId, "b").toString().toFloat();
-        return (b != 0.0f) ? QString::number(a / b) : QString("0");
+    // ── 数学运算（虚幻式一符一节点，类型化 BPValue 求值）──────────────────
+    if (pinKey == "result"
+        && (node->type == "Math.Add" || node->type == "Math.Sub"
+         || node->type == "Math.Mul" || node->type == "Math.Div" || node->type == "Math.Mod")) {
+        const double a = resolveDataPin(nodeId, "a").toNumber();
+        const double b = resolveDataPin(nodeId, "b").toNumber();
+        double r = 0.0;
+        if      (node->type == "Math.Add") r = a + b;
+        else if (node->type == "Math.Sub") r = a - b;
+        else if (node->type == "Math.Mul") r = a * b;
+        else if (node->type == "Math.Div") r = (b != 0.0) ? a / b : 0.0;          // 除 0 → 0
+        else                               r = (b != 0.0) ? std::fmod(a, b) : 0.0; // 取余 0 → 0
+        return BPValue::fromNumber(r);
     }
     if (node->type == "Math.Clamp" && pinKey == "result") {
-        float v   = resolveDataPin(nodeId, "value").toString().toFloat();
-        float mn  = resolveDataPin(nodeId, "min").toString().toFloat();
-        float mx  = resolveDataPin(nodeId, "max").toString().toFloat();
-        return QString::number(std::clamp(v, mn, mx));
+        const double v  = resolveDataPin(nodeId, "value").toNumber();
+        const double mn = resolveDataPin(nodeId, "min").toNumber();
+        const double mx = resolveDataPin(nodeId, "max").toNumber();
+        return BPValue::fromNumber(std::clamp(v, mn, mx));
     }
 
-    // 逻辑运算
-    auto isTruthy = [](const QString& s) {
-        return !s.isEmpty() && s != "0" && s.toLower() != "false";
-    };
+    // ── 比较运算（虚幻式一符一节点）───────────────────────────────────────
+    if (pinKey == "result"
+        && (node->type == "Cmp.GT" || node->type == "Cmp.GE" || node->type == "Cmp.LT"
+         || node->type == "Cmp.LE" || node->type == "Cmp.EQ" || node->type == "Cmp.NE")) {
+        const BPValue va = resolveDataPin(nodeId, "a");
+        const BPValue vb = resolveDataPin(nodeId, "b");
+        bool res = false;
+        if      (node->type == "Cmp.EQ") res =  va.typedEquals(vb);  // 类型感知相等
+        else if (node->type == "Cmp.NE") res = !va.typedEquals(vb);
+        else {                                                       // 大小比较按数值
+            const double a = va.toNumber(), b = vb.toNumber();
+            if      (node->type == "Cmp.GT") res = (a >  b);
+            else if (node->type == "Cmp.GE") res = (a >= b);
+            else if (node->type == "Cmp.LT") res = (a <  b);
+            else                             res = (a <= b);
+        }
+        return BPValue::fromBool(res);
+    }
+
+    // ── 逻辑运算（虚幻式一符一节点）───────────────────────────────────────
+    if (node->type == "Logic.And" && pinKey == "result")
+        return BPValue::fromBool(resolveDataPin(nodeId, "a").toBool()
+                              && resolveDataPin(nodeId, "b").toBool());
+    if (node->type == "Logic.Or" && pinKey == "result")
+        return BPValue::fromBool(resolveDataPin(nodeId, "a").toBool()
+                              || resolveDataPin(nodeId, "b").toBool());
     if (node->type == "Logic.Not" && pinKey == "result")
-        return isTruthy(resolveDataPin(nodeId, "value")) ? "false" : "true";
-    if (node->type == "Logic.And" && pinKey == "result") {
-        return (isTruthy(resolveDataPin(nodeId, "a")) && isTruthy(resolveDataPin(nodeId, "b")))
-               ? "true" : "false";
-    }
-    if (node->type == "Logic.Or" && pinKey == "result") {
-        return (isTruthy(resolveDataPin(nodeId, "a")) || isTruthy(resolveDataPin(nodeId, "b")))
-               ? "true" : "false";
-    }
+        return BPValue::fromBool(!resolveDataPin(nodeId, "value").toBool());
+
+    // 旧「数值比较」(op 输入引脚式)：保留求值以兼容旧蓝图
     if (node->type == "Logic.Compare" && pinKey == "result") {
-        float a   = resolveDataPin(nodeId, "a").toString().toFloat();
-        float b   = resolveDataPin(nodeId, "b").toString().toFloat();
-        QString op = resolveDataPin(nodeId, "op").toString().trimmed();
+        const double a = resolveDataPin(nodeId, "a").toNumber();
+        const double b = resolveDataPin(nodeId, "b").toNumber();
+        const QString op = resolveDataPin(nodeId, "op").toString().trimmed();
         bool res = false;
         if      (op == "==") res = (a == b);
         else if (op == "!=") res = (a != b);
@@ -483,48 +492,8 @@ BPValue BPRuntime::resolveOutputPin(const QString& nodeId, const QString& pinKey
         else if (op == "<=") res = (a <= b);
         else if (op == ">")  res = (a >  b);
         else if (op == ">=") res = (a >= b);
-        return res ? "true" : "false";
-    }
-
-    // ── 新版运算节点（运算符下拉，类型化 BPValue 求值）────────────────────
-    if (node->type == "Math.Arith" && pinKey == "result") {
-        const double a = resolveDataPin(nodeId, "a").toNumber();
-        const double b = resolveDataPin(nodeId, "b").toNumber();
-        const QString op = resolveDataPin(nodeId, "op").toString();
-        double r = 0.0;
-        if      (op == "+") r = a + b;
-        else if (op == "-") r = a - b;
-        else if (op == "×") r = a * b;
-        else if (op == "÷") r = (b != 0.0) ? a / b : 0.0;          // 除 0 → 0
-        else if (op == "%") r = (b != 0.0) ? std::fmod(a, b) : 0.0; // 取余 0 → 0
-        else                r = a + b;                              // 默认/空 → 加
-        return BPValue::fromNumber(r);
-    }
-    if (node->type == "Logic.Cmp" && pinKey == "result") {
-        const BPValue va = resolveDataPin(nodeId, "a");
-        const BPValue vb = resolveDataPin(nodeId, "b");
-        const QString op = resolveDataPin(nodeId, "op").toString();
-        bool res = false;
-        if      (op == "=") res = va.typedEquals(vb);              // 类型感知相等
-        else if (op == "≠") res = !va.typedEquals(vb);
-        else {                                                     // 大小比较按数值
-            const double a = va.toNumber(), b = vb.toNumber();
-            if      (op == ">")  res = (a >  b);
-            else if (op == "≥")  res = (a >= b);
-            else if (op == "<")  res = (a <  b);
-            else if (op == "≤")  res = (a <= b);
-            else                 res = (a >  b);                   // 默认/空 → 大于
-        }
         return BPValue::fromBool(res);
     }
-    if (node->type == "Logic.Bool" && pinKey == "result") {
-        const bool a = resolveDataPin(nodeId, "a").toBool();
-        const bool b = resolveDataPin(nodeId, "b").toBool();
-        const QString op = resolveDataPin(nodeId, "op").toString();
-        return BPValue::fromBool(op == "或" ? (a || b) : (a && b));
-    }
-    if (node->type == "Logic.Negate" && pinKey == "result")
-        return BPValue::fromBool(!resolveDataPin(nodeId, "a").toBool());
 
     if (node->type == "Var.GetActorPos") {
         QString actorId = resolveDataPin(nodeId, "actorId");
