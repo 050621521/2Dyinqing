@@ -2507,7 +2507,8 @@ void BlueprintEditor::showContextMenu(const QPoint& pos, const QPoint& globalPos
                         def.typeId.startsWith("UI.")         ? uiMenu     :
                         def.typeId.startsWith("Self.")       ? selfMenu   :
                         def.typeId.startsWith("Math.")       ? mathMenu   :
-                        def.typeId.startsWith("Logic.")      ? logicMenu  : varMenu;
+                        def.typeId.startsWith("Logic.")      ? logicMenu  :
+                        def.typeId.startsWith("Cmp.")        ? logicMenu  : varMenu;
         const QString typeId = def.typeId;
         target->addAction(def.displayName, [this, typeId, canvasPos]() {
             if (!m_doc && !m_bpClass) return;
@@ -2665,7 +2666,8 @@ void BlueprintEditor::showWireDropPopup(QPoint screenPos) {
                           def.typeId.startsWith("UI.")     ? "UI"      :
                           def.typeId.startsWith("Self.")   ? "Self"    :
                           def.typeId.startsWith("Math.")   ? "数学"    :
-                          def.typeId.startsWith("Logic.")  ? "逻辑"    : "变量";
+                          def.typeId.startsWith("Logic.")  ? "逻辑"    :
+                          def.typeId.startsWith("Cmp.")    ? "逻辑"    : "变量";
         auto* ci  = getCat(catName);
         auto* ni  = new QTreeWidgetItem(ci, {def.displayName});
         ni->setData(0, Qt::UserRole,     def.typeId);
