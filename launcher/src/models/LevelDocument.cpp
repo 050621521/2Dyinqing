@@ -194,6 +194,12 @@ bool LevelDocument::load(const QString& filePath) {
         m_bpNodes.append(BPNode::fromJson(v.toObject()));
     for (const QJsonValue& v : bp["connections"].toArray())
         m_bpConnections.append(BPConnection::fromJson(v.toObject()));
+    m_localVars.clear();
+    for (const QJsonValue& v : bp["localVariables"].toArray()) {
+        const QJsonObject o = v.toObject();
+        const QString nm = o["name"].toString();
+        if (!nm.isEmpty()) m_localVars.append({nm, o["type"].toString("string")});
+    }
 
     m_dirty = false;
     return true;
@@ -207,9 +213,15 @@ bool LevelDocument::save() {
     QJsonArray nodesArr, connsArr;
     for (const BPNode& n : m_bpNodes)             nodesArr.append(n.toJson());
     for (const BPConnection& c : m_bpConnections) connsArr.append(c.toJson());
+    QJsonArray localVarsArr;
+    for (const GlobalVarDef& d : m_localVars) {
+        QJsonObject o; o["name"] = d.name; o["type"] = d.type;
+        localVarsArr.append(o);
+    }
     QJsonObject bp;
-    bp["nodes"]       = nodesArr;
-    bp["connections"] = connsArr;
+    bp["nodes"]          = nodesArr;
+    bp["connections"]    = connsArr;
+    bp["localVariables"] = localVarsArr;
 
     QJsonObject root;
     root["name"]      = m_name;
@@ -296,6 +308,11 @@ void LevelDocument::removeBPConnection(const QString& id) {
             break;
         }
     }
+}
+
+void LevelDocument::setLocalVars(const QList<GlobalVarDef>& vars) {
+    m_localVars = vars;
+    m_dirty = true;
 }
 
 LevelDocument::~LevelDocument() { delete m_undoStack; }

@@ -102,6 +102,8 @@ private:
     ads::CDockWidget*  m_cbDockW      = nullptr;
     ads::CDockWidget*  m_gvDock       = nullptr;
     ads::CDockWidget*  m_varDetailsDock = nullptr;  // 蓝图上下文的"细节"（变量属性）
+    ads::CDockWidget*  m_localVarDock = nullptr;        // 局部变量列表（关卡蓝图）
+    ads::CDockWidget*  m_localVarDetailsDock = nullptr; // 局部变量细节
     ContentBrowser*    m_contentBrowser = nullptr;
 
     QStackedWidget* m_centralStack    = nullptr;
@@ -153,6 +155,7 @@ private:
     QList<EnumDef>          m_enumDefs;
     QMap<QString, BPValue>  m_globalVars;
     GlobalVarPanel*         m_globalVarPanel = nullptr;
+    GlobalVarPanel*         m_localVarPanel  = nullptr;
     class EnumEditor*       m_enumEditor = nullptr;   // 中央页签：枚举编辑
     void reloadGlobalVarDefs();   // 从 project.json 重读并推给所有蓝图编辑器
     void openEnumTab(const QString& enumPath);

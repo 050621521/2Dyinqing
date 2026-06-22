@@ -6,6 +6,7 @@
 #include <QColor>
 #include <QMap>
 #include <QUndoStack>
+#include "editor/GlobalVars.h"   // 复用 GlobalVarDef（name+type）作为局部变量声明
 
 struct ActorData {
     QString id;
@@ -102,6 +103,10 @@ public:
     void addBPConnection(const BPConnection& conn);
     void removeBPConnection(const QString& id);
 
+    // 局部变量（本关卡蓝图私有；声明随关卡持久化，值每次运行重置）
+    const QList<GlobalVarDef>& localVars() const { return m_localVars; }
+    void setLocalVars(const QList<GlobalVarDef>& vars);
+
     QString name() const { return m_name; }
     QString filePath() const { return m_filePath; }
 
@@ -120,6 +125,7 @@ private:
 
     QList<BPNode>       m_bpNodes;
     QList<BPConnection> m_bpConnections;
+    QList<GlobalVarDef> m_localVars;
 
     QUndoStack* m_undoStack = nullptr;
 };

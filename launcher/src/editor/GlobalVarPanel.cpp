@@ -95,10 +95,17 @@ void GlobalVarPanel::refreshEnums() {
 
 void GlobalVarPanel::reload() {
     m_loading = true;
-    m_vars = GlobalVars::load(m_projectRoot);
+    m_vars = m_loadFn ? m_loadFn() : GlobalVars::load(m_projectRoot);
     rebuildList();
     m_loading = false;
     onSelectionChanged();
+}
+
+void GlobalVarPanel::bindSource(std::function<QList<GlobalVarDef>()> loadFn,
+                                std::function<void(const QList<GlobalVarDef>&)> saveFn) {
+    m_loadFn = std::move(loadFn);
+    m_saveFn = std::move(saveFn);
+    reload();
 }
 
 void GlobalVarPanel::rebuildList() {
@@ -262,6 +269,7 @@ void GlobalVarPanel::showContextMenu(const QPoint& pos) {
 }
 
 void GlobalVarPanel::commit() {
-    GlobalVars::save(m_projectRoot, m_vars);
+    if (m_saveFn) m_saveFn(m_vars);
+    else          GlobalVars::save(m_projectRoot, m_vars);
     emit changed();
 }

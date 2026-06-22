@@ -12,6 +12,8 @@
 #include "GlobalVarPanel.h"
 #include "EnumEditor.h"
 #include "LayoutManager.h"
+#include "Recorder.h"
+#include "models/ActorTypeUtils.h"
 #include "DocTabBar.h"
 #include "ProjectSettingsDialog.h"
 #include "models/LevelDocument.h"
@@ -34,6 +36,15 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QToolButton>
+#include <QWidgetAction>
+#include <QEvent>
+#include <QMouseEvent>
+#include <QKeyEvent>
+#include <QWheelEvent>
+#include <QAbstractButton>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QPushButton>
 #include <QFrame>
 #include <QSizePolicy>
@@ -48,6 +59,8 @@
 #include <QButtonGroup>
 #include <QComboBox>
 #include <QApplication>
+#include <QClipboard>
+#include <QStyle>
 #include <QAbstractSpinBox>
 #include <QTextEdit>
 
@@ -86,27 +99,36 @@ EditorWindow::EditorWindow(const ProjectInfo& project, QWidget* parent)
 
     // ── 全局编辑器快捷键（无论哪个子面板有焦点均生效）──────────────────
 
-    // Q/W/E/R 工具模式切换（仅视口 tab）
-    auto* qSc = new QShortcut(QKeySequence("Q"), this);
+    // Q/W/E/R 工具模式切换（仅场景视口）
+    // 作用域绑定到 m_viewport：仅场景视口（或其子控件）聚焦时才生效，
+    // 运行时游戏视图/蓝图视图聚焦时这些键不会被消费，直达游戏（参照虚幻关卡视口命令）。
+    auto* qSc = new QShortcut(QKeySequence("Q"), m_viewport);
+    qSc->setContext(Qt::WidgetWithChildrenShortcut);
     connect(qSc, &QShortcut::activated, this, [this]() {
         if (m_centralStack->currentIndex() == 0 && m_viewport)
             m_viewport->setToolMode(Viewport2D::ToolMode::Select);
     });
-    auto* wSc = new QShortcut(QKeySequence("W"), this);
+    auto* wSc = new QShortcut(QKeySequence("W"), m_viewport);
+    wSc->setContext(Qt::WidgetWithChildrenShortcut);
     connect(wSc, &QShortcut::activated, this, [this]() {
         if (m_centralStack->currentIndex() == 0 && m_viewport)
             m_viewport->setToolMode(Viewport2D::ToolMode::Move);
     });
-    auto* eSc = new QShortcut(QKeySequence("E"), this);
+    auto* eSc = new QShortcut(QKeySequence("E"), m_viewport);
+    eSc->setContext(Qt::WidgetWithChildrenShortcut);
     connect(eSc, &QShortcut::activated, this, [this]() {
         if (m_centralStack->currentIndex() == 0 && m_viewport)
             m_viewport->setToolMode(Viewport2D::ToolMode::Rotate);
     });
-    auto* rSc = new QShortcut(QKeySequence("R"), this);
+    auto* rSc = new QShortcut(QKeySequence("R"), m_viewport);
+    rSc->setContext(Qt::WidgetWithChildrenShortcut);
     connect(rSc, &QShortcut::activated, this, [this]() {
         if (m_centralStack->currentIndex() == 0 && m_viewport)
             m_viewport->setToolMode(Viewport2D::ToolMode::Scale);
     });
+
+    // 以下为跨上下文单键（F/Esc/Delete/退格）：蓝图/UI 编辑器也要用，无法死绑到场景视口。
+    // 改为运行时挂起：startRuntime() 禁用、stopRuntime() 恢复，运行时全部交给游戏。
 
     // F 帧居中（视口：聚焦选中；蓝图：居中所有节点）
     // ApplicationShortcut：浮动蓝图窗口聚焦时也能触发，路由由 activeBpEditor 决定
@@ -137,6 +159,9 @@ EditorWindow::EditorWindow(const ProjectInfo& project, QWidget* parent)
     auto* bsSc = new QShortcut(Qt::Key_Backspace, this);
     bsSc->setContext(Qt::ApplicationShortcut);
     connect(bsSc, &QShortcut::activated, this, deleteAction);
+
+    // 运行时需挂起的跨上下文单键快捷键（避免抢占游戏按键）
+    m_editorSingleKeyShortcuts << fSc << escSc << delSc << bsSc;
 
     // Ctrl+A 全选
     auto* selectAllSc = new QShortcut(QKeySequence::SelectAll, this);
@@ -178,6 +203,15 @@ EditorWindow::EditorWindow(const ProjectInfo& project, QWidget* parent)
         openLevelTab(defaultLevel);
 }
 
+// 复现录制：把 QJsonValue 转成可读字符串（嵌套对象/数组用紧凑 JSON）
+static QString jvalStr(const QJsonValue& v) {
+    if (v.isObject())
+        return QString::fromUtf8(QJsonDocument(v.toObject()).toJson(QJsonDocument::Compact));
+    if (v.isArray())
+        return QString::fromUtf8(QJsonDocument(v.toArray()).toJson(QJsonDocument::Compact));
+    return v.toVariant().toString();
+}
+
 // ── 1. 菜单栏 ────────────────────────────────────────────────────────
 void EditorWindow::setupMenuBar() {
     auto* mb = menuBar();
@@ -193,9 +227,39 @@ void EditorWindow::setupMenuBar() {
 
     m_windowMenu = mb->addMenu("窗口");
 
+    // 复现录制按钮：QMenuBar 不渲染内嵌 QWidgetAction，故做成菜单栏子控件，
+    // 手动定位到“窗口”菜单右侧，并随菜单栏尺寸变化重定位（见 eventFilter）。
+    m_recordBtn = new QToolButton(mb);
+    m_recordBtn->setObjectName("recordBtn");
+    m_recordBtn->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    m_recordBtn->setText("● 复现录制");
+    m_recordBtn->setToolTip("开始复现录制：记录操作时间线、状态快照与控制台日志，停止后生成文件供 AI 排查");
+    m_recordBtn->setCursor(Qt::PointingHandCursor);
+    connect(m_recordBtn, &QToolButton::clicked, this, &EditorWindow::toggleRecording);
+    mb->installEventFilter(this);
+    QTimer::singleShot(0, this, &EditorWindow::positionRecordButton);
+
+    // 顶部菜单项触发 → 复现录制（菜单动作 event filter 抓不到，用 triggered 信号）
+    connect(mb, &QMenuBar::triggered, this, [](QAction* a) {
+        if (a && !a->text().isEmpty())
+            Recorder::instance().log("菜单", QString("[%1]").arg(a->text()));
+    });
+    // 全局兜底网：录制时记录所有按钮点击、快捷键、画布缩放/平移（见 eventFilter）
+    qApp->installEventFilter(this);
+
     auto* spacer = new QWidget(mb);
     spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     mb->setCornerWidget(spacer, Qt::TopRightCorner);
+
+    m_recordTimer = new QTimer(this);
+    m_recordTimer->setInterval(500);
+    connect(m_recordTimer, &QTimer::timeout, this, [this]() {
+        if (!m_recordBtn) return;
+        const qint64 s = m_recordClock.elapsed() / 1000;
+        m_recordBtn->setText(QString("● 录制中 %1:%2  ⏹")
+            .arg(s / 60, 2, 10, QChar('0')).arg(s % 60, 2, 10, QChar('0')));
+        positionRecordButton();   // 文本变宽后重新对齐
+    });
 }
 
 // ── 2. 文档 Tab 栏 ───────────────────────────────────────────────────
@@ -471,6 +535,33 @@ void EditorWindow::setupCentralArea() {
     // （同一时刻只显示一个，由 onTabChanged 切换）。
     m_dockManager->addDockWidget(ads::CenterDockWidgetArea, m_varDetailsDock, detailsArea);
 
+    // ── 局部变量面板（绑定当前关卡蓝图文档；列表+细节同停左侧，不动右侧细节区）──
+    m_localVarPanel = new GlobalVarPanel();
+    m_localVarPanel->setProjectRoot(m_project.path);
+    m_localVarPanel->bindSource(
+        [this]() -> QList<GlobalVarDef> {
+            LevelDocument* doc = m_openLevels.value(m_activeLevelPath, nullptr);
+            return doc ? doc->localVars() : QList<GlobalVarDef>{};
+        },
+        [this](const QList<GlobalVarDef>& vars) {
+            if (LevelDocument* doc = m_openLevels.value(m_activeLevelPath, nullptr))
+                doc->setLocalVars(vars);
+        });
+    connect(m_localVarPanel, &GlobalVarPanel::changed, this, [this]() {
+        for (auto it = m_bpInstances.begin(); it != m_bpInstances.end(); ++it)
+            if (it.value().editor) it.value().editor->update();
+    });
+    m_localVarDock = new ads::CDockWidget("局部变量");
+    m_localVarDock->setWidget(m_localVarPanel);
+    m_dockManager->addDockWidget(ads::CenterDockWidgetArea, m_localVarDock,
+                                 m_gvDock->dockAreaWidget());
+    if (m_windowMenu) m_windowMenu->addAction(m_localVarDock->toggleViewAction());
+    m_localVarDetailsDock = new ads::CDockWidget("局部变量细节");
+    m_localVarDetailsDock->setWindowTitle("细节");
+    m_localVarDetailsDock->setWidget(m_localVarPanel->detailsWidget());
+    m_dockManager->addDockWidget(ads::CenterDockWidgetArea, m_localVarDetailsDock,
+                                 m_varDetailsDock->dockAreaWidget());
+
     // ── 蓝图浮动窗口：每个实例按需创建独立 Dock（见 floatBp）──────────────
 
     // ── 拖回 Tab 栏检测定时器（遍历所有浮动蓝图实例）────────────────────
@@ -659,6 +750,8 @@ QWidget* EditorWindow::buildViewportToolBar(QWidget* parent) {
         QSignalBlocker b(m_toolBtnGroup);
         if (auto* btn = m_toolBtnGroup->button(static_cast<int>(mode)))
             btn->setChecked(true);
+        static const char* names[] = {"选择", "移动", "旋转", "缩放"};
+        Recorder::instance().log("工具 →", names[static_cast<int>(mode)]);
     });
 
     sep();
@@ -872,8 +965,11 @@ void EditorWindow::onTabChanged(int index) {
         stopRuntime();
     // 上下文切换：蓝图页显示"我的蓝图"+蓝图"细节"，隐藏视口的大纲/细节；视口页反之
     const bool bpCtx = isAnyBlueprintTab(path);
+    const bool levelBpCtx = isLevelBlueprintTab(path);   // 局部变量仅关卡蓝图
     if (m_gvDock)         m_gvDock->toggleView(bpCtx);
     if (m_varDetailsDock) m_varDetailsDock->toggleView(bpCtx);
+    if (m_localVarDock)        m_localVarDock->toggleView(levelBpCtx);
+    if (m_localVarDetailsDock) m_localVarDetailsDock->toggleView(levelBpCtx);
     if (m_outlineDockW)   m_outlineDockW->toggleView(!bpCtx);
     if (m_detailsDockW)   m_detailsDockW->toggleView(!bpCtx);
     if (!m_sceneOutliner || !m_detailsPanel) return;
@@ -891,6 +987,7 @@ void EditorWindow::onTabChanged(int index) {
             if (m_openLevels.contains(levelPath)) {
                 m_activeLevelPath = levelPath;
                 m_sceneOutliner->loadLevel(m_openLevels.value(levelPath));
+                if (m_localVarPanel) m_localVarPanel->reloadFromSource();  // 局部变量随关卡切换
             }
         }
         m_activeUndoStack = ed->bpUndoStack();
@@ -959,6 +1056,12 @@ void EditorWindow::onTabChanged(int index) {
     m_activeLevelPath = path;
     m_activeUndoStack = doc->undoStack();
 
+    // 复现录制：切关卡时记录并拍快照
+    if (Recorder::instance().isRecording()) {
+        Recorder::instance().log("切关卡 →", QFileInfo(path).fileName());
+        Recorder::instance().snapshot(doc, nullptr, "切关卡后");
+    }
+
     // 设置 refresh 回调（outliner + viewport 重建）
     auto levelRefresh = [this, doc]() {
         m_sceneOutliner->loadLevel(doc);
@@ -984,12 +1087,14 @@ void EditorWindow::onTabChanged(int index) {
                                 this, [this](const ActorData& a) {
         m_detailsPanel->showActor(a);
         if (m_viewport) m_viewport->setSelectedId(a.id);
+        Recorder::instance().log("选中(大纲)", QString("\"%1\"").arg(a.name));
     });
 
     if (m_viewport) {
         m_tabConnections << connect(m_viewport, &Viewport2D::actorSelected,
                                     this, [this](const ActorData& a) {
             m_detailsPanel->showActor(a);
+            Recorder::instance().log("选中(视口)", QString("\"%1\"").arg(a.name));
         });
         m_tabConnections << connect(m_viewport, &Viewport2D::selectionChanged,
                                     this, [this](QStringList ids) {
@@ -1011,12 +1116,23 @@ void EditorWindow::onTabChanged(int index) {
             updateSaveLabel();
         });
         m_tabConnections << connect(m_viewport, &Viewport2D::actorDragging,
-                                    m_detailsPanel, &DetailsPanel::showActor);
+                                    this, [this](const ActorData& a) {
+            m_detailsPanel->showActor(a);
+            // 帧级中间值：捕捉拖动/缩放过程的轨迹（含边缘吸附震荡）；
+            // 连续相同值由 Recorder 自动合并，避免刷屏。
+            Recorder::instance().log("  ↳帧",
+                QString("\"%1\" pos(%2,%3) scale(%4,%5)")
+                    .arg(a.name).arg(a.x).arg(a.y).arg(a.scaleX).arg(a.scaleY));
+        });
         m_tabConnections << connect(m_viewport, &Viewport2D::actorTransformed,
                                     this, [this](const ActorData& a) {
             m_detailsPanel->showActor(a);
             updateTabTitle(m_docTabBar->currentIndex());
             updateSaveLabel();
+            Recorder::instance().log("变换完成",
+                QString("\"%1\" pos(%2,%3) rot%4 scale(%5,%6)")
+                    .arg(a.name).arg(a.x).arg(a.y).arg(a.rotation)
+                    .arg(a.scaleX).arg(a.scaleY));
         });
         m_tabConnections << connect(m_viewport, &Viewport2D::actorCreated,
                                     this, [this, doc](const ActorData& a) {
@@ -1024,13 +1140,16 @@ void EditorWindow::onTabChanged(int index) {
             m_detailsPanel->showActor(a);
             updateTabTitle(m_docTabBar->currentIndex());
             updateSaveLabel();
+            Recorder::instance().log("创建",
+                QString("\"%1\" (%2)").arg(a.name, bpClassLabel(a.bpClass)));
         });
         m_tabConnections << connect(m_viewport, &Viewport2D::actorRemoved,
-                                    this, [this, doc](const QString&) {
+                                    this, [this, doc](const QString& id) {
             m_sceneOutliner->loadLevel(doc);
             m_detailsPanel->clearActor();
             updateTabTitle(m_docTabBar->currentIndex());
             updateSaveLabel();
+            Recorder::instance().log("删除", QString("id=%1").arg(id));
         });
     }
 
@@ -1059,6 +1178,16 @@ void EditorWindow::onTabChanged(int index) {
             m_sceneOutliner->loadLevel(doc);
         };
         doc->undoStack()->push(new ActorModifyCmd(doc, before, after, doRefresh));
+        // diff before/after，记下具体改了哪个字段、改成什么值
+        const QJsonObject jb = before.toJson(), ja = after.toJson();
+        QStringList changes;
+        for (auto it = ja.begin(); it != ja.end(); ++it)
+            if (jb.value(it.key()) != it.value())
+                changes << QString("%1: %2→%3").arg(
+                    it.key(), jvalStr(jb.value(it.key())), jvalStr(it.value()));
+        Recorder::instance().log("修改属性", changes.isEmpty()
+            ? QString("\"%1\"").arg(after.name)
+            : QString("\"%1\" %2").arg(after.name, changes.join(", ")));
     });
 
     m_tabConnections << connect(m_sceneOutliner, &SceneOutliner::actorRemoved,
@@ -1177,6 +1306,8 @@ void EditorWindow::openLevelTab(const QString& path) {
 }
 
 void EditorWindow::closeEvent(QCloseEvent* e) {
+    // 录制中关窗：先落盘，避免丢失录制
+    if (Recorder::instance().isRecording()) Recorder::instance().stopRecording();
     for (int i = 0; i < m_docTabBar->count(); ++i) {
         const QString path = m_docTabBar->tabData(i).toString();
         LevelDocument* doc = m_openLevels.value(path);
@@ -1468,6 +1599,13 @@ void EditorWindow::startRuntime() {
         startRuntime();
     }, Qt::QueuedConnection);
 
+    // 复现录制：运行时打印按时序进时间线 + 运行前快照
+    connect(m_runtime, &BPRuntime::printAppended, this, [](const QString& text) {
+        Recorder::instance().log("打印", QString("\"%1\"").arg(text));
+    });
+    Recorder::instance().log("▶运行", "");
+    Recorder::instance().snapshot(doc, m_runtime, "运行前");
+
     m_viewport->setRuntimeMode(true, m_runtime->actors());
     m_runtime->triggerBeginPlay();
 
@@ -1537,6 +1675,10 @@ void EditorWindow::startRuntime() {
         });
         m_gameViewport->setFocus();
     }
+
+    // 运行时挂起跨上下文单键编辑快捷键（F/Esc/Delete/退格），把按键全交给游戏
+    for (QShortcut* sc : m_editorSingleKeyShortcuts)
+        if (sc) sc->setEnabled(false);
 }
 
 void EditorWindow::togglePauseRuntime() {
@@ -1546,6 +1688,9 @@ void EditorWindow::togglePauseRuntime() {
 
 void EditorWindow::stopRuntime() {
     if (!m_runtime) return;
+    // 复现录制：运行结束前抓一份运行时快照（含打印累计）
+    Recorder::instance().snapshot(nullptr, m_runtime, "运行后");
+    Recorder::instance().log("■停止运行", "");
     disconnect(m_runtime, nullptr, this, nullptr);
     if (m_viewport) disconnect(m_viewport, &Viewport2D::keyPressed, this, nullptr);
     qDeleteAll(m_actorRuntimes);
@@ -1554,6 +1699,10 @@ void EditorWindow::stopRuntime() {
     m_runtime = nullptr;
     delete m_uiRuntime;
     m_uiRuntime = nullptr;
+
+    // 停止运行：恢复运行时被挂起的编辑器快捷键
+    for (QShortcut* sc : m_editorSingleKeyShortcuts)
+        if (sc) sc->setEnabled(true);
 
     if (m_viewport) {
         m_viewport->setRuntimeMode(false);
@@ -1567,6 +1716,108 @@ void EditorWindow::stopRuntime() {
     if (m_runBtn)   m_runBtn->setEnabled(true);
     if (m_pauseBtn) { m_pauseBtn->setChecked(false); m_pauseBtn->setEnabled(false); }
     if (m_stopBtn)  m_stopBtn->setEnabled(false);
+}
+
+void EditorWindow::toggleRecording() {
+    Recorder& rec = Recorder::instance();
+    auto restyle = [this]() {
+        m_recordBtn->style()->unpolish(m_recordBtn);
+        m_recordBtn->style()->polish(m_recordBtn);
+    };
+    if (!rec.isRecording()) {
+        const QString levelName = m_activeLevelPath.isEmpty()
+            ? QString() : QFileInfo(m_activeLevelPath).fileName();
+        static const char* toolNames[] = {"选择", "移动", "旋转", "缩放"};
+        int tid = m_toolBtnGroup ? m_toolBtnGroup->checkedId() : 0;
+        if (tid < 0 || tid > 3) tid = 0;
+        rec.startRecording(m_project, levelName, int(m_ppu), toolNames[tid]);
+        m_recordClock.start();
+        m_recordTimer->start();
+        m_recordBtn->setText("● 录制中 00:00  ⏹");
+        m_recordBtn->setProperty("recording", true);
+        restyle();
+        positionRecordButton();
+    } else {
+        const QString path = rec.stopRecording();
+        m_recordTimer->stop();
+        m_recordBtn->setText("● 复现录制");
+        m_recordBtn->setProperty("recording", false);
+        restyle();
+        positionRecordButton();
+        if (!path.isEmpty()) {
+            QApplication::clipboard()->setText(path);
+            QMessageBox::information(this, "复现录制已保存",
+                QString("已保存到：\n%1\n\n路径已复制到剪贴板。发给 AI，或直接说“录好了”即可。")
+                    .arg(path));
+        } else {
+            QMessageBox::warning(this, "复现录制", "保存失败：未找到项目目录。");
+        }
+    }
+}
+
+void EditorWindow::positionRecordButton() {
+    if (!m_recordBtn || !m_windowMenu) return;
+    auto* mb = menuBar();
+    const QRect r = mb->actionGeometry(m_windowMenu->menuAction());
+    if (r.isNull()) return;
+    m_recordBtn->adjustSize();
+    const int h = qMax(m_recordBtn->sizeHint().height(), 22);
+    const int y = (mb->height() - h) / 2;
+    m_recordBtn->setGeometry(r.right() + 10, y, m_recordBtn->sizeHint().width(), h);
+    m_recordBtn->raise();
+    m_recordBtn->show();
+}
+
+bool EditorWindow::eventFilter(QObject* o, QEvent* e) {
+    const QEvent::Type t = e->type();
+    if (o == menuBar() &&
+        (t == QEvent::Resize || t == QEvent::Show || t == QEvent::LayoutRequest)) {
+        positionRecordButton();
+    }
+
+    // 全局兜底网：录制时记录 UI 层操作，覆盖所有面板/对话框
+    if (Recorder::instance().isRecording()) {
+        switch (t) {
+        case QEvent::MouseButtonPress: {
+            auto* me = static_cast<QMouseEvent*>(e);
+            if (me->button() == Qt::LeftButton) {
+                // 按钮点击 → 用按钮文字/提示/objectName 作语义标签（跳过录制按钮自身）
+                if (auto* b = qobject_cast<QAbstractButton*>(o); b && b != m_recordBtn) {
+                    QString lbl = b->text();
+                    if (lbl.isEmpty()) lbl = b->toolTip();
+                    if (lbl.isEmpty()) lbl = b->objectName();
+                    if (!lbl.isEmpty())
+                        Recorder::instance().log("点击", QString("[%1]").arg(lbl.simplified()));
+                }
+            } else if (me->button() == Qt::RightButton &&
+                       (o == m_viewport || o == m_gameViewport)) {
+                Recorder::instance().log("平移画布", "");
+            }
+            break;
+        }
+        case QEvent::Wheel:
+            if (o == m_viewport || o == m_gameViewport)
+                Recorder::instance().log("缩放画布", "");
+            break;
+        case QEvent::KeyPress: {
+            auto* ke = static_cast<QKeyEvent*>(e);
+            const bool hasMod = ke->modifiers() &
+                (Qt::ControlModifier | Qt::MetaModifier | Qt::AltModifier);
+            const int k = ke->key();
+            const bool isModKey = (k == Qt::Key_Control || k == Qt::Key_Shift ||
+                                   k == Qt::Key_Alt || k == Qt::Key_Meta);
+            // 仅记带修饰键的快捷键（撤销/重做/保存/复制粘贴等），跳过文本输入与纯修饰键
+            if (hasMod && !isModKey && !ke->isAutoRepeat() && !isTextInputFocused()) {
+                const QString s = QKeySequence(k | int(ke->modifiers()))
+                                      .toString(QKeySequence::NativeText);
+                if (!s.isEmpty()) Recorder::instance().log("快捷键", s);
+            }
+            break;
+        }
+        default: break;
+        }
+    }
+    return QMainWindow::eventFilter(o, e);
 }
 
 void EditorWindow::openBlueprintTab() {
