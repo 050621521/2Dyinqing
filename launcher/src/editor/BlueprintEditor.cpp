@@ -125,6 +125,14 @@ static bool isDeprecatedNodeType(const QString& typeId) {
     };
     return dep.contains(typeId);
 }
+
+// 数组变量操作节点：varName 由「全局变量」菜单按变量烤入，因此从通用创建菜单隐藏。
+static bool isVarBoundArrayOp(const QString& typeId) {
+    static const QSet<QString> ops = {
+        "Array.Add", "Array.RemoveAt", "Array.RemoveValue", "Array.SetAt", "Array.Clear"
+    };
+    return ops.contains(typeId);
+}
 } // namespace
 
 // ── 节点类型注册 ──────────────────────────────────────────────────────
@@ -546,6 +554,54 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
             "Logic.Compare", "数值比较", QColor("#3a2a5a"),
             {{"a","A",false,false},{"op","运算符",false,false},
              {"b","B",false,false},{"result","结果",false,true}}
+        },
+        // ── 数组数据节点（纯数据，作用于流入的数组值）─────────────────────
+        {
+            "Array.Make", "创建空数组", QColor("#2a4a4a"),
+            {{"result","",false,true,ValueKind::Array}}
+        },
+        {
+            "Array.Length", "数组长度", QColor("#2a4a4a"),
+            {{"array","数组",false,false,ValueKind::Array},
+             {"result","长度",false,true,ValueKind::Number}}
+        },
+        {
+            "Array.Get", "获取元素", QColor("#2a4a4a"),
+            {{"array","数组",false,false,ValueKind::Array},
+             {"index","索引",false,false,ValueKind::Number},
+             {"result","元素",false,true,ValueKind::Any}}
+        },
+        {
+            "Array.Contains", "包含", QColor("#2a4a4a"),
+            {{"array","数组",false,false,ValueKind::Array},
+             {"value","值",false,false,ValueKind::Any},
+             {"result","结果",false,true,ValueKind::Bool}}
+        },
+        // ── 数组变量操作节点（exec；varName 由「全局变量」菜单烤入，菜单中隐藏）──
+        {
+            "Array.Add", "添加元素", QColor("#2a4a4a"),
+            {{"exec_in","exec",true,false},{"exec_out","exec",true,true},
+             {"value","值",false,false,ValueKind::Any}}
+        },
+        {
+            "Array.RemoveAt", "按索引移除", QColor("#2a4a4a"),
+            {{"exec_in","exec",true,false},{"exec_out","exec",true,true},
+             {"index","索引",false,false,ValueKind::Number}}
+        },
+        {
+            "Array.RemoveValue", "按值移除", QColor("#2a4a4a"),
+            {{"exec_in","exec",true,false},{"exec_out","exec",true,true},
+             {"value","值",false,false,ValueKind::Any}}
+        },
+        {
+            "Array.SetAt", "设置元素", QColor("#2a4a4a"),
+            {{"exec_in","exec",true,false},{"exec_out","exec",true,true},
+             {"index","索引",false,false,ValueKind::Number},
+             {"value","值",false,false,ValueKind::Any}}
+        },
+        {
+            "Array.Clear", "清空数组", QColor("#2a4a4a"),
+            {{"exec_in","exec",true,false},{"exec_out","exec",true,true}}
         },
     };
     return defs;
@@ -1222,6 +1278,12 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
         if (nm.isEmpty() && node.type != "Macro::local")
             if (const BPMacro* m = findMacro(node.type.mid(7))) nm = m->name;
         displayName = nm.isEmpty() ? "自定义节点" : nm;
+    }
+
+    // 数组变量操作节点：标题追加目标变量名
+    if (node.type.startsWith("Array.")) {
+        const QString vn = node.params.value("varName");
+        if (!vn.isEmpty()) displayName += "：" + vn;
     }
 
     QPointF tl = canvasToScreen({node.x, node.y});
@@ -2464,8 +2526,20 @@ void BlueprintEditor::showContextMenu(const QPoint& pos, const QPoint& globalPos
                 selectSingleNode(node.id);
                 update();
             };
-            gvMenu->addAction("获取 " + vn, [makeGlobalNode]() { makeGlobalNode("Global.Get"); });
-            gvMenu->addAction("设置 " + vn, [makeGlobalNode]() { makeGlobalNode("Global.Set"); });
+            if (gv.type.startsWith("array:")) {
+                auto* arrSub = gvMenu->addMenu(vn + "（数组）");
+                arrSub->addAction("获取 " + vn,   [makeGlobalNode]() { makeGlobalNode("Global.Get"); });
+                arrSub->addAction("设置 " + vn,   [makeGlobalNode]() { makeGlobalNode("Global.Set"); });
+                arrSub->addSeparator();
+                arrSub->addAction("添加元素",     [makeGlobalNode]() { makeGlobalNode("Array.Add"); });
+                arrSub->addAction("按索引移除",   [makeGlobalNode]() { makeGlobalNode("Array.RemoveAt"); });
+                arrSub->addAction("按值移除",     [makeGlobalNode]() { makeGlobalNode("Array.RemoveValue"); });
+                arrSub->addAction("设置元素",     [makeGlobalNode]() { makeGlobalNode("Array.SetAt"); });
+                arrSub->addAction("清空数组",     [makeGlobalNode]() { makeGlobalNode("Array.Clear"); });
+            } else {
+                gvMenu->addAction("获取 " + vn, [makeGlobalNode]() { makeGlobalNode("Global.Get"); });
+                gvMenu->addAction("设置 " + vn, [makeGlobalNode]() { makeGlobalNode("Global.Set"); });
+            }
         }
     }
     // 工程里的自定义节点（宏库资产）
@@ -2494,6 +2568,7 @@ void BlueprintEditor::showContextMenu(const QPoint& pos, const QPoint& globalPos
     auto* actionMenu = menu.addMenu("动作");
     auto* flowMenu   = menu.addMenu("流程控制");
     auto* varMenu    = menu.addMenu("变量");
+    auto* arrayMenu  = menu.addMenu("数组");
     auto* mathMenu   = menu.addMenu("数学");
     auto* logicMenu  = menu.addMenu("逻辑");
     auto* selfMenu   = menu.addMenu("Self");
@@ -2502,6 +2577,7 @@ void BlueprintEditor::showContextMenu(const QPoint& pos, const QPoint& globalPos
     for (const NodeDef& def : nodeDefs()) {
         if (!isSelfNodeVisible(def.typeId)) continue;
         if (isDeprecatedNodeType(def.typeId)) continue;
+        if (isVarBoundArrayOp(def.typeId)) continue;   // varName 由全局变量菜单烤入
         QMenu* target = def.typeId.startsWith("Event.Key.")  ? keyMenu    :
                         def.typeId.startsWith("Event.")      ? eventMenu  :
                         def.typeId.startsWith("Action.")     ? actionMenu :
@@ -2510,7 +2586,8 @@ void BlueprintEditor::showContextMenu(const QPoint& pos, const QPoint& globalPos
                         def.typeId.startsWith("Self.")       ? selfMenu   :
                         def.typeId.startsWith("Math.")       ? mathMenu   :
                         def.typeId.startsWith("Logic.")      ? logicMenu  :
-                        def.typeId.startsWith("Cmp.")        ? logicMenu  : varMenu;
+                        def.typeId.startsWith("Cmp.")        ? logicMenu  :
+                        def.typeId.startsWith("Array.")      ? arrayMenu  : varMenu;
         const QString typeId = def.typeId;
         target->addAction(def.displayName, [this, typeId, canvasPos]() {
             if (!m_doc && !m_bpClass) return;
@@ -2650,6 +2727,7 @@ void BlueprintEditor::showWireDropPopup(QPoint screenPos) {
         // 过滤不适用于当前上下文的 Self 节点
         if (!isSelfNodeVisible(def.typeId)) continue;
         if (isDeprecatedNodeType(def.typeId)) continue;
+        if (isVarBoundArrayOp(def.typeId)) continue;   // varName 由全局变量菜单烤入
 
         QString compatPin;
         for (const PinDef& pd : def.pins) {
@@ -2669,7 +2747,8 @@ void BlueprintEditor::showWireDropPopup(QPoint screenPos) {
                           def.typeId.startsWith("Self.")   ? "Self"    :
                           def.typeId.startsWith("Math.")   ? "数学"    :
                           def.typeId.startsWith("Logic.")  ? "逻辑"    :
-                          def.typeId.startsWith("Cmp.")    ? "逻辑"    : "变量";
+                          def.typeId.startsWith("Cmp.")    ? "逻辑"    :
+                          def.typeId.startsWith("Array.")  ? "数组"    : "变量";
         auto* ci  = getCat(catName);
         auto* ni  = new QTreeWidgetItem(ci, {def.displayName});
         ni->setData(0, Qt::UserRole,     def.typeId);

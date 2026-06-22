@@ -265,6 +265,34 @@ QString BPRuntime::executeNode(const QString& nodeId) {
         return "exec_out";
     }
 
+    // 数组变量操作（exec）：读全局数组 → 改 → 写回
+    if (node->type == "Array.Add"       || node->type == "Array.RemoveAt"
+     || node->type == "Array.RemoveValue" || node->type == "Array.SetAt"
+     || node->type == "Array.Clear") {
+        const QString name = node->params.value("varName");
+        if (m_globalVars && !name.isEmpty()) {
+            BPValue cur = m_globalVars->value(name);
+            QList<BPValue>& arr = cur.arrayRef();
+            if (node->type == "Array.Add") {
+                arr.append(resolveDataPin(nodeId, "value"));
+            } else if (node->type == "Array.Clear") {
+                arr.clear();
+            } else if (node->type == "Array.RemoveAt") {
+                const int i = (int)resolveDataPin(nodeId, "index").toNumber();
+                if (i >= 0 && i < arr.size()) arr.removeAt(i);
+            } else if (node->type == "Array.RemoveValue") {
+                const BPValue v = resolveDataPin(nodeId, "value");
+                for (int i = 0; i < arr.size(); ++i)
+                    if (arr[i].typedEquals(v)) { arr.removeAt(i); break; }
+            } else if (node->type == "Array.SetAt") {
+                const int i = (int)resolveDataPin(nodeId, "index").toNumber();
+                if (i >= 0 && i < arr.size()) arr[i] = resolveDataPin(nodeId, "value");
+            }
+            (*m_globalVars)[name] = cur;
+        }
+        return "exec_out";
+    }
+
     if (node->type == "Action.MoveActor") {
         QString actorId = resolveDataPin(nodeId, "actorId");
         float dx = resolveDataPin(nodeId, "dx").toString().toFloat();
@@ -479,6 +507,23 @@ BPValue BPRuntime::resolveOutputPin(const QString& nodeId, const QString& pinKey
                               || resolveDataPin(nodeId, "b").toBool());
     if (node->type == "Logic.Not" && pinKey == "result")
         return BPValue::fromBool(!resolveDataPin(nodeId, "value").toBool());
+
+    // ── 数组数据节点（纯数据）──────────────────────────────────────────────
+    if (node->type == "Array.Make" && pinKey == "result")
+        return BPValue::fromArray({});
+    if (node->type == "Array.Length" && pinKey == "result")
+        return BPValue::fromNumber(resolveDataPin(nodeId, "array").toArray().size());
+    if (node->type == "Array.Get" && pinKey == "result") {
+        const QList<BPValue> arr = resolveDataPin(nodeId, "array").toArray();
+        const int i = (int)resolveDataPin(nodeId, "index").toNumber();
+        return (i >= 0 && i < arr.size()) ? arr[i] : BPValue();   // 越界→Null
+    }
+    if (node->type == "Array.Contains" && pinKey == "result") {
+        const QList<BPValue> arr = resolveDataPin(nodeId, "array").toArray();
+        const BPValue v = resolveDataPin(nodeId, "value");
+        for (const BPValue& e : arr) if (e.typedEquals(v)) return BPValue::fromBool(true);
+        return BPValue::fromBool(false);
+    }
 
     // 旧「数值比较」(op 输入引脚式)：保留求值以兼容旧蓝图
     if (node->type == "Logic.Compare" && pinKey == "result") {

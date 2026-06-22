@@ -190,6 +190,15 @@ Actor 类型定义在 `src/models/ActorTypeUtils.h`（跨文件共享，避免�
 | Logic.And | 与 |
 | Logic.Or | 或 |
 | Logic.Not | 非 |
+| Array.Make | 创建空数组 |
+| Array.Length | 数组长度 |
+| Array.Get | 获取元素 |
+| Array.Contains | 包含 |
+| Array.Add | 添加元素 |
+| Array.RemoveAt | 按索引移除 |
+| Array.RemoveValue | 按值移除 |
+| Array.SetAt | 设置元素 |
+| Array.Clear | 清空数组 |
 | Global.Get | 获取全局变量 |
 | Global.Set | 设置全局变量 |
 | Macro::* | 自定义节点 |
