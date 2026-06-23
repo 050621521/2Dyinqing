@@ -9,6 +9,10 @@
 #include <QMenu>
 #include <QFont>
 #include <QUuid>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QMimeData>
+#include <QDataStream>
 #include <cmath>
 
 
@@ -16,6 +20,31 @@ Viewport2D::Viewport2D(QWidget* parent) : QWidget(parent) {
     setObjectName("viewport2D");
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
+    setAcceptDrops(true);
+}
+
+// 内容浏览器把 .bp 类拖进视口 → 落点生成实例（虚幻主力摆放方式）
+void Viewport2D::dragEnterEvent(QDragEnterEvent* e) {
+    if (e->mimeData()->hasFormat("application/x-qabstractitemmodeldatalist"))
+        e->acceptProposedAction();
+}
+
+void Viewport2D::dropEvent(QDropEvent* e) {
+    const QByteArray encoded =
+        e->mimeData()->data("application/x-qabstractitemmodeldatalist");
+    QDataStream stream(encoded);
+    while (!stream.atEnd()) {
+        int row, col;
+        QMap<int, QVariant> d;
+        stream >> row >> col >> d;
+        if (d.value(Qt::UserRole).toString() == "bp") {
+            const QString bpPath = d.value(Qt::UserRole + 1).toString();
+            const QPointF worldPos = screenToWorld(e->position().toPoint());
+            emit bpClassDropped(bpPath, worldPos);
+            e->acceptProposedAction();
+            return;
+        }
+    }
 }
 
 // ── 外部接口 ──────────────────────────────────────────────────────────
@@ -24,6 +53,7 @@ void Viewport2D::loadLevel(LevelDocument* doc) {
     m_doc = doc;
     m_selectedId.clear();
     m_pixmapCache.clear();
+    m_animCache.clear();
     update();
 }
 
@@ -298,17 +328,43 @@ void Viewport2D::drawActors(QPainter& p) {
     for (const ActorData& a : sorted) {
         QPointF pos = worldToScreen({a.x, a.y});
 
+        // 解析有效贴图：运行态用动画瞬态帧；编辑态用动画器默认片段首帧；否则用静态精灵图
+        QString pxKey = a.spritePath;
+        QRect   animSrc;            // 非空 = 画精灵表子矩形
+        bool    useAnimFrame = false;
+        if (m_runtimeMode && !a.animSheetPath.isEmpty()) {
+            pxKey = a.animSheetPath;
+            animSrc = a.animSrc;
+            useAnimFrame = true;
+        } else if (!m_runtimeMode && a.components.contains("动画器")
+                   && !a.animAsset.isEmpty() && !a.animDefaultClip.isEmpty()) {
+            if (!m_animCache.contains(a.animAsset)) {
+                AnimationAsset as; as.load(a.animAsset);
+                m_animCache.insert(a.animAsset, as);
+            }
+            const AnimationAsset& as = m_animCache[a.animAsset];
+            if (const AnimClip* clip = as.findClip(a.animDefaultClip)) {
+                if (!as.sheet.isEmpty()) {
+                    pxKey = as.sheet;
+                    animSrc = as.frameRect(*clip, 0);
+                    useAnimFrame = true;
+                }
+            }
+        }
+
         // 预加载贴图；精灵显示尺寸 = 像素尺寸 / m_ppu × zoom × scale
-        if (!a.spritePath.isEmpty() && !m_pixmapCache.contains(a.spritePath))
-            m_pixmapCache[a.spritePath] = QPixmap(a.spritePath);
-        const bool hasPx = !a.spritePath.isEmpty() && !m_pixmapCache[a.spritePath].isNull();
+        if (!pxKey.isEmpty() && !m_pixmapCache.contains(pxKey))
+            m_pixmapCache[pxKey] = QPixmap(pxKey);
+        const bool hasPx = !pxKey.isEmpty() && !m_pixmapCache[pxKey].isNull();
+        const QSize pxDims = !hasPx ? QSize()
+            : (useAnimFrame ? animSrc.size() : m_pixmapCache[pxKey].size());
 
         const float szBase = qMax(24.0f, 40.0f * m_zoom);
         const float szW = hasPx
-            ? m_pixmapCache[a.spritePath].width()  / m_ppu * m_zoom * qMax(0.05f, qAbs(a.scaleX))
+            ? pxDims.width()  / m_ppu * m_zoom * qMax(0.05f, qAbs(a.scaleX))
             : szBase * qMax(0.05f, qAbs(a.scaleX));
         const float szH = hasPx
-            ? m_pixmapCache[a.spritePath].height() / m_ppu * m_zoom * qMax(0.05f, qAbs(a.scaleY))
+            ? pxDims.height() / m_ppu * m_zoom * qMax(0.05f, qAbs(a.scaleY))
             : szBase * qMax(0.05f, qAbs(a.scaleY));
         const float sz  = (szW + szH) * 0.5f;
         QRectF rect(pos.x() - szW / 2, pos.y() - szH / 2, szW, szH);
@@ -330,11 +386,9 @@ void Viewport2D::drawActors(QPainter& p) {
 
         // 优先：有贴图则任何类型都渲染图片
         bool drewPixmap = false;
-        if (!a.spritePath.isEmpty()) {
-            if (!m_pixmapCache.contains(a.spritePath))
-                m_pixmapCache[a.spritePath] = QPixmap(a.spritePath);
-            const QPixmap& px = m_pixmapCache[a.spritePath];
-            if (!px.isNull()) {
+        if (hasPx) {
+            const QPixmap& px = m_pixmapCache[pxKey];
+            {
                 p.save();
                 if (a.flipX || a.flipY) {
                     QTransform t;
@@ -344,7 +398,9 @@ void Viewport2D::drawActors(QPainter& p) {
                     p.setTransform(t, true);
                 }
                 p.setOpacity(a.spriteColor.alphaF());
-                if (a.drawMode == "平铺")
+                if (useAnimFrame)
+                    p.drawPixmap(rect.toRect(), px, animSrc);
+                else if (a.drawMode == "平铺")
                     p.drawTiledPixmap(rect.toRect(), px);
                 else
                     p.drawPixmap(rect.toRect(), px);
@@ -561,15 +617,37 @@ void Viewport2D::drawPrintLog(QPainter& p) {
 
 QRectF Viewport2D::actorScreenRect(const ActorData& a) const {
     QPointF pos = worldToScreen({a.x, a.y});
-    if (!a.spritePath.isEmpty() && !m_pixmapCache.contains(a.spritePath))
-        m_pixmapCache[a.spritePath] = QPixmap(a.spritePath);
-    const bool hasPx = !a.spritePath.isEmpty() && !m_pixmapCache[a.spritePath].isNull();
+
+    // 与 drawActors 一致：动画器默认片段首帧的帧尺寸优先
+    QString pxKey = a.spritePath;
+    QSize   frameDims;
+    bool    useAnimFrame = false;
+    if (a.components.contains("动画器") && !a.animAsset.isEmpty() && !a.animDefaultClip.isEmpty()) {
+        if (!m_animCache.contains(a.animAsset)) {
+            AnimationAsset as; as.load(a.animAsset);
+            m_animCache.insert(a.animAsset, as);
+        }
+        const AnimationAsset& as = m_animCache[a.animAsset];
+        if (const AnimClip* clip = as.findClip(a.animDefaultClip)) {
+            if (!as.sheet.isEmpty()) {
+                pxKey = as.sheet;
+                frameDims = as.frameRect(*clip, 0).size();
+                useAnimFrame = true;
+            }
+        }
+    }
+
+    if (!pxKey.isEmpty() && !m_pixmapCache.contains(pxKey))
+        m_pixmapCache[pxKey] = QPixmap(pxKey);
+    const bool hasPx = !pxKey.isEmpty() && !m_pixmapCache[pxKey].isNull();
+    const QSize pxDims = !hasPx ? QSize()
+        : (useAnimFrame ? frameDims : m_pixmapCache[pxKey].size());
     const float szBase = qMax(24.0f, 40.0f * m_zoom);
     const float szW = hasPx
-        ? m_pixmapCache[a.spritePath].width()  / m_ppu * m_zoom * qMax(0.05f, qAbs(a.scaleX))
+        ? pxDims.width()  / m_ppu * m_zoom * qMax(0.05f, qAbs(a.scaleX))
         : szBase * qMax(0.05f, qAbs(a.scaleX));
     const float szH = hasPx
-        ? m_pixmapCache[a.spritePath].height() / m_ppu * m_zoom * qMax(0.05f, qAbs(a.scaleY))
+        ? pxDims.height() / m_ppu * m_zoom * qMax(0.05f, qAbs(a.scaleY))
         : szBase * qMax(0.05f, qAbs(a.scaleY));
     return QRectF(pos.x() - szW / 2, pos.y() - szH / 2, szW, szH);
 }

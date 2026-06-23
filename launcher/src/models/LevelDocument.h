@@ -4,7 +4,9 @@
 #include <QStringList>
 #include <QJsonObject>
 #include <QColor>
+#include <QRect>
 #include <QMap>
+#include <QSet>
 #include <QUndoStack>
 #include "editor/GlobalVars.h"   // 复用 GlobalVarDef（name+type）作为局部变量声明
 
@@ -22,6 +24,9 @@ struct ActorData {
     QString     layer      = "默认";
     QStringList components;
 
+    // 活继承：已被本实例覆盖的字段（toJson 键名）；未覆盖字段跟随蓝图类默认值
+    QSet<QString> overriddenFields;
+
     // 精灵渲染器属性
     QString spritePath;
     QColor  spriteColor  = QColor(255, 255, 255, 255);
@@ -31,6 +36,19 @@ struct ActorData {
     bool    flipY        = false;
     QString drawMode     = "简单";
     bool    spriteVisible = true;
+
+    // 动画器组件属性（持久化）
+    QString animAsset;            // .anim 路径（绝对路径，约定同 spritePath）
+    QString animDefaultClip;      // 默认播放片段名
+    bool    animAutoPlay = true;  // 开始运行即自动播放默认片段
+
+    // 动画器运行时瞬态（不序列化）
+    QString animCurClip;
+    int     animFrameIndex = 0;
+    double  animTimeAccum  = 0.0;
+    bool    animPlaying    = false;
+    QString animSheetPath;        // 解析出的精灵表路径，空 = 不走动画绘制
+    QRect   animSrc;              // 当前帧源矩形
 
     // 摄像机组件属性
     float   cameraSize         = 540.0f;

@@ -1,5 +1,6 @@
 #pragma once
 #include "models/LevelDocument.h"
+#include "models/AnimationAsset.h"
 #include <QWidget>
 #include <QHash>
 #include <QSet>
@@ -44,6 +45,7 @@ signals:
     void actorDragging(const ActorData& actor);
     void actorCreated(const ActorData& actor);
     void actorRemoved(const QString& id);
+    void bpClassDropped(const QString& bpPath, const QPointF& worldPos);
     void keyPressed(const QString& key);
     void keyReleased(const QString& key);
     void toolModeChanged(ToolMode mode);
@@ -56,6 +58,8 @@ protected:
     void mouseReleaseEvent(QMouseEvent* e) override;
     void keyPressEvent(QKeyEvent* e) override;
     void keyReleaseEvent(QKeyEvent* e) override;
+    void dragEnterEvent(QDragEnterEvent* e) override;
+    void dropEvent(QDropEvent* e) override;
 
 private:
     float   m_ppu    = 100.0f;
@@ -80,6 +84,7 @@ private:
     QString        m_selectedId;    // 主选（Gizmo 绘制目标）
     QSet<QString>  m_selectedIds;   // 完整选区
     mutable QHash<QString, QPixmap> m_pixmapCache;
+    mutable QHash<QString, AnimationAsset> m_animCache;
 
     bool             m_runtimeMode = false;
     QList<ActorData> m_runtimeActors;

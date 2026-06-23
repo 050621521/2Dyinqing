@@ -34,11 +34,14 @@ GameViewport::GameViewport(QWidget* parent) : QWidget(parent) {
 }
 
 void GameViewport::keyPressEvent(QKeyEvent* e) {
+    // 过滤系统按键自动重复：只认真实的物理按下/松开，否则会破坏"持续按住"集合
+    if (e->isAutoRepeat()) return;
     const QString key = gvKeyToId(e->key());
     if (!key.isEmpty()) emit keyPressed(key);
 }
 
 void GameViewport::keyReleaseEvent(QKeyEvent* e) {
+    if (e->isAutoRepeat()) return;
     const QString key = gvKeyToId(e->key());
     if (!key.isEmpty()) emit keyReleased(key);
 }
@@ -46,6 +49,7 @@ void GameViewport::keyReleaseEvent(QKeyEvent* e) {
 void GameViewport::loadLevel(LevelDocument* doc) {
     m_doc = doc;
     m_pixmapCache.clear();
+    m_animCache.clear();
     update();
 }
 
@@ -203,14 +207,39 @@ void GameViewport::drawScene(QPainter& p, const QList<ActorData>& actors,
             p.translate(-pos.x(), -pos.y());
         }
 
+        // 解析有效贴图：运行态用动画瞬态帧；非运行态用动画器默认片段首帧；否则静态精灵图
+        QString pxKey = a.spritePath;
+        QRect   animSrc;
+        bool    useAnimFrame = false;
+        if (!a.animSheetPath.isEmpty()) {
+            pxKey = a.animSheetPath;
+            animSrc = a.animSrc;
+            useAnimFrame = true;
+        } else if (a.components.contains("动画器") && !a.animAsset.isEmpty()
+                   && !a.animDefaultClip.isEmpty()) {
+            if (!m_animCache.contains(a.animAsset)) {
+                AnimationAsset as; as.load(a.animAsset);
+                m_animCache.insert(a.animAsset, as);
+            }
+            const AnimationAsset& as = m_animCache[a.animAsset];
+            if (const AnimClip* clip = as.findClip(a.animDefaultClip)) {
+                if (!as.sheet.isEmpty()) {
+                    pxKey = as.sheet;
+                    animSrc = as.frameRect(*clip, 0);
+                    useAnimFrame = true;
+                }
+            }
+        }
+
         bool drewPixmap = false;
-        if (!a.spritePath.isEmpty()) {
-            if (!m_pixmapCache.contains(a.spritePath))
-                m_pixmapCache[a.spritePath] = QPixmap(a.spritePath);
-            const QPixmap& px = m_pixmapCache[a.spritePath];
+        if (!pxKey.isEmpty()) {
+            if (!m_pixmapCache.contains(pxKey))
+                m_pixmapCache[pxKey] = QPixmap(pxKey);
+            const QPixmap& px = m_pixmapCache[pxKey];
             if (!px.isNull()) {
-                const float szW = px.width()  / m_ppu * scale * qMax(0.05f, qAbs(a.scaleX));
-                const float szH = px.height() / m_ppu * scale * qMax(0.05f, qAbs(a.scaleY));
+                const QSize pxDims = useAnimFrame ? animSrc.size() : px.size();
+                const float szW = pxDims.width()  / m_ppu * scale * qMax(0.05f, qAbs(a.scaleX));
+                const float szH = pxDims.height() / m_ppu * scale * qMax(0.05f, qAbs(a.scaleY));
                 QRectF aRect(pos.x() - szW / 2.0f, pos.y() - szH / 2.0f, szW, szH);
                 p.save();
                 if (a.flipX || a.flipY) {
@@ -221,7 +250,9 @@ void GameViewport::drawScene(QPainter& p, const QList<ActorData>& actors,
                     p.setTransform(t, true);
                 }
                 p.setOpacity(a.spriteColor.alphaF());
-                if (a.drawMode == "平铺")
+                if (useAnimFrame)
+                    p.drawPixmap(aRect.toRect(), px, animSrc);
+                else if (a.drawMode == "平铺")
                     p.drawTiledPixmap(aRect.toRect(), px);
                 else
                     p.drawPixmap(aRect.toRect(), px);

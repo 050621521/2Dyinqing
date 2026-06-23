@@ -1,6 +1,7 @@
 #pragma once
 #include "models/LevelDocument.h"
 #include "models/UIDocument.h"
+#include "models/AnimationAsset.h"
 #include "UIRuntime.h"
 #include <QWidget>
 #include <QHash>
@@ -55,4 +56,5 @@ private:
     bool             m_runtimeMode = false;
     QStringList      m_printLog;
     mutable QHash<QString, QPixmap> m_pixmapCache;
+    mutable QHash<QString, AnimationAsset> m_animCache;
 };

@@ -1,5 +1,6 @@
 #include "DetailsPanel.h"
 #include "models/ActorTypeUtils.h"
+#include "models/AnimationAsset.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
@@ -61,6 +62,7 @@ DetailsPanel::DetailsPanel(QWidget* parent) : QWidget(parent) {
     buildComponents(root);
     buildTransform(root);
     buildSpriteRenderer(root);
+    buildAnimator(root);
     buildCameraComponent(root);
     buildFollowControl(root);
     buildConfiner(root);
@@ -112,8 +114,8 @@ void DetailsPanel::buildHeader(QVBoxLayout* root) {
     connect(m_addComponentBtn, &QPushButton::clicked, this, [this]() {
         if (m_currentActor.id.isEmpty()) return;
         QMenu menu(this);
-        const QStringList all = {"变换", "精灵渲染器", "摄像机组件", "跟随控制组件",
-                                  "边界限制组件", "点光源", "碰撞盒", "刚体", "音频源", "动画控制器"};
+        const QStringList all = {"变换", "精灵渲染器", "动画器", "摄像机组件", "跟随控制组件",
+                                  "边界限制组件", "点光源", "碰撞盒", "刚体", "音频源"};
         for (const QString& comp : all) {
             if (!m_currentActor.components.contains(comp))
                 menu.addAction(comp, [this, comp]() { onAddComponent(comp); });
@@ -247,6 +249,7 @@ void DetailsPanel::refreshComponentList() {
     m_componentTree->setFixedHeight(rows * 22 + 6);
 
     refreshSpriteSection();
+    refreshAnimSection();
     refreshCameraSections();
 }
 
@@ -344,6 +347,7 @@ void DetailsPanel::showActor(const ActorData& actor) {
                    b9(m_scaleX), b10(m_scaleY),
                    b11(*m_flipXCheck), b12(*m_flipYCheck),
                    b13(*m_sortLayerCombo), b14(*m_orderSpin), b15(*m_drawModeCombo),
+                   ba1(*m_animClipCombo), ba2(*m_animAutoPlayChk),
                    b16(m_cameraOrthoCheck), b17(m_cameraSizeSpin),
                    b18(*m_cameraIsMainCheck), b18b(*m_cameraResWSpin), b18c(*m_cameraResHSpin),
                    b19(m_followTargetEdit), b20(m_followLerpSpin),
@@ -395,6 +399,12 @@ void DetailsPanel::showActor(const ActorData& actor) {
         int di = m_drawModeCombo->findText(actor.drawMode);
         m_drawModeCombo->setCurrentIndex(di >= 0 ? di : 0);
     }
+
+    // 动画器字段
+    m_animAssetLabel->setText(actor.animAsset.isEmpty() ? "(无动画资源)"
+                              : QFileInfo(actor.animAsset).fileName());
+    m_animAutoPlayChk->setChecked(actor.animAutoPlay);
+    reloadAnimClips(actor.animDefaultClip);
 
     // 摄像机组件字段
     m_cameraIsMainCheck->setChecked(actor.cameraIsMain);
@@ -476,6 +486,29 @@ void DetailsPanel::assignSpritePath(const QString& path) {
 void DetailsPanel::refreshSpriteSection() {
     if (m_spriteBox)
         m_spriteBox->setVisible(m_currentActor.components.contains("精灵渲染器"));
+}
+
+void DetailsPanel::refreshAnimSection() {
+    if (m_animBox)
+        m_animBox->setVisible(m_currentActor.components.contains("动画器"));
+}
+
+void DetailsPanel::reloadAnimClips(const QString& selectedClip) {
+    if (!m_animClipCombo) return;
+    QSignalBlocker b(m_animClipCombo);
+    m_animClipCombo->clear();
+    if (!m_currentActor.animAsset.isEmpty()) {
+        AnimationAsset asset;
+        if (asset.load(m_currentActor.animAsset)) {
+            for (const AnimClip& c : asset.clips) {
+                const QString label = c.label.isEmpty() ? c.name
+                                      : QString("%1（%2）").arg(c.name, c.label);
+                m_animClipCombo->addItem(label, c.name);
+            }
+        }
+    }
+    int idx = m_animClipCombo->findData(selectedClip);
+    if (idx >= 0) m_animClipCombo->setCurrentIndex(idx);
 }
 
 void DetailsPanel::refreshCameraSections() {
@@ -898,6 +931,87 @@ void DetailsPanel::buildSpriteRenderer(QVBoxLayout* root) {
     box->hide();
 }
 
+// ── 动画器 ─────────────────────────────────────────────────────────────
+
+void DetailsPanel::buildAnimator(QVBoxLayout* root) {
+    QVBoxLayout* bl = nullptr;
+    auto [box_sb, content_sb] = makeSectionBox(this, &bl, "动画器");
+    QWidget* box = box_sb; QWidget* content = content_sb;
+
+    auto* grid = new QGridLayout(content);
+    grid->setSpacing(4);
+    grid->setContentsMargins(8, 4, 8, 10);
+    grid->setColumnMinimumWidth(0, 60);
+
+    // 行0：动画资源
+    grid->addWidget(new QLabel("动画资源", content), 0, 0);
+    auto* assetRow = new QHBoxLayout;
+    m_animAssetLabel = new QLabel("(无动画资源)", content);
+    m_animAssetLabel->setObjectName("detailSmallLabel");
+    auto* browseBtn = new QPushButton("选择...", content);
+    browseBtn->setObjectName("addComponentBtn");
+    browseBtn->setFixedHeight(22);
+    assetRow->addWidget(m_animAssetLabel, 1);
+    assetRow->addWidget(browseBtn);
+    grid->addLayout(assetRow, 0, 1, 1, 2);
+
+    connect(browseBtn, &QPushButton::clicked, this, [this]() {
+        if (m_currentActor.id.isEmpty()) return;
+        QDialog dlg(this);
+        dlg.setWindowTitle("选择动画资源");
+        dlg.resize(360, 400);
+        auto* vl   = new QVBoxLayout(&dlg);
+        auto* list = new QListWidget(&dlg);
+        if (!m_projectRoot.isEmpty()) {
+            QDirIterator it(m_projectRoot, {"*.anim"}, QDir::Files,
+                            QDirIterator::Subdirectories);
+            while (it.hasNext()) {
+                const QString path = it.next();
+                auto* item = new QListWidgetItem(QFileInfo(path).baseName(), list);
+                item->setData(Qt::UserRole, path);
+            }
+        }
+        auto* hl        = new QHBoxLayout;
+        auto* okBtn     = new QPushButton("确定", &dlg);
+        auto* cancelBtn = new QPushButton("取消", &dlg);
+        hl->addStretch(); hl->addWidget(okBtn); hl->addWidget(cancelBtn);
+        vl->addWidget(list); vl->addLayout(hl);
+        connect(list, &QListWidget::itemDoubleClicked, &dlg, &QDialog::accept);
+        connect(okBtn,     &QPushButton::clicked, &dlg, &QDialog::accept);
+        connect(cancelBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
+        if (dlg.exec() != QDialog::Accepted) return;
+        auto* sel = list->currentItem();
+        if (!sel) return;
+        m_currentActor.animAsset = sel->data(Qt::UserRole).toString();
+        m_animAssetLabel->setText(QFileInfo(m_currentActor.animAsset).fileName());
+        reloadAnimClips(QString());
+        // 默认选中第一个片段
+        m_currentActor.animDefaultClip =
+            m_animClipCombo->count() > 0 ? m_animClipCombo->currentData().toString() : QString();
+        emit actorModified(m_currentActor);
+    });
+
+    // 行1：默认动画
+    grid->addWidget(new QLabel("默认动画", content), 1, 0);
+    m_animClipCombo = new QComboBox(content);
+    m_animClipCombo->setObjectName("detailCombo");
+    grid->addWidget(m_animClipCombo, 1, 1, 1, 2);
+    connect(m_animClipCombo, &QComboBox::currentTextChanged,
+            this, &DetailsPanel::onAnyFieldChanged);
+
+    // 行2：自动播放
+    grid->addWidget(new QLabel("自动播放", content), 2, 0);
+    m_animAutoPlayChk = new QCheckBox(content);
+    m_animAutoPlayChk->setObjectName("detailCheck");
+    m_animAutoPlayChk->setChecked(true);
+    connect(m_animAutoPlayChk, &QCheckBox::toggled, this, &DetailsPanel::onAnyFieldChanged);
+    grid->addWidget(m_animAutoPlayChk, 2, 1, 1, 2);
+
+    m_animBox = box;
+    root->addWidget(box);
+    box->hide();
+}
+
 void DetailsPanel::onAnyFieldChanged() {
     if (m_currentActor.id.isEmpty()) return;
     ActorData a  = m_currentActor;
@@ -925,6 +1039,11 @@ void DetailsPanel::onAnyFieldChanged() {
         a.sortingLayer = m_sortLayerCombo->currentText();
         a.orderInLayer = m_orderSpin->value();
         a.drawMode     = m_drawModeCombo->currentText();
+    }
+    if (m_animBox && m_animBox->isVisible()) {
+        a.animAsset       = m_currentActor.animAsset;
+        a.animDefaultClip = m_animClipCombo->currentData().toString();
+        a.animAutoPlay    = m_animAutoPlayChk->isChecked();
     }
     if (m_cameraBox && m_cameraBox->isVisible()) {
         a.cameraIsMain       = m_cameraIsMainCheck->isChecked();

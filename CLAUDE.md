@@ -55,11 +55,17 @@ main.cpp
 | 类 | 职责 | 持久化位置 |
 |---|---|---|
 | `ProjectManager`（单例） | 最近项目列表、模板分类 | `~/.config/2DYinqing/projects.json` |
-| `LevelDocument` | Actor 列表、蓝图数据（BPNode/BPConnection）、脏标记 | `{project}/Levels/*.level`（JSON） |
+| `LevelDocument` | Actor 列表、**关卡蓝图**数据（BPNode/BPConnection）、脏标记 | `{project}/Levels/*.level`（JSON） |
+| `BPClass` | **Actor 级蓝图（类）**：组件列表 + 默认值 + 节点图 | `{project}/Blueprints/*.bp`（JSON）；内置类无文件 |
+| `BPMacro` | 宏（自定义节点）：可复用子图 + 对外引脚 | `{project}/Blueprints/Macros/*.bpmacro` |
+| `UIDocument` | UI 控件树（UIWidget 层级、布局、类型专属属性） | `{project}/UI/*.ui`（JSON） |
+| `GlobalVars` / `EnumDef` | 全局变量声明 / 枚举资产 | 全局变量存 `project.json`；枚举存 `*.enum` |
 | `LayoutManager` | 命名停靠布局的保存/恢复 | `{project}/layouts.json` |
 | `ProjectSettingsDialog` | 默认启动关卡、PPU 设置 | `{project}/project.json` |
 
-`LevelDocument` 不自动保存，`EditorWindow` 在 Tab 关闭/窗口关闭时检查 `isDirty()` 并提示。`LevelDocument::sortedActors()` 按 `(sortingLayer 优先级, orderInLayer)` 维护渲染顺序，用于视口绘制。
+`LevelDocument` / `UIDocument` 不自动保存，`EditorWindow` 在 Tab 关闭/窗口关闭时检查 `isDirty()` 并提示。`LevelDocument::sortedActors()` 按 `(sortingLayer 优先级, orderInLayer)` 维护渲染顺序，用于视口绘制。
+
+`ActorData.type` 现为 **bpClass 路径**：内置类如 `"builtin/Sprite"`，自定义类如 `"Blueprints/Player.bp"`（相对项目根）；旧 level 文件自动兼容迁移。
 
 ### EditorWindow 架构
 
@@ -88,13 +94,14 @@ main.cpp
 
 #### DocTabBar（多关卡 Tab）
 
-`DocTabBar` 继承自 `QTabBar`，管理多关卡 + 两个特殊 tab：
+`DocTabBar` 继承自 `QTabBar`，管理多关卡 tab、文件资产 tab 与两个特殊 tab。`tabData()` 取值：
 
-- 关卡 tab：`tabData()` 为关卡文件绝对路径
-- 蓝图 tab：`tabData() == DocTabBar::kBlueprintTabData`（`"::blueprint::"`）
-- 游戏视图 tab：`tabData() == DocTabBar::kGameViewTabData`（`"::game::"`）
+- 关卡 tab：关卡文件绝对路径
+- 关卡蓝图 tab：以 `DocTabBar::kBlueprintTabData`（`"::blueprint::"`）为**前缀**
+- 游戏视图 tab：`DocTabBar::kGameViewTabData`（`"::gameview::"`）
+- 文件资产 tab：`.bp`（Actor 蓝图）/ `.ui`（UI 文档）/ `.enum`（枚举编辑器）文件路径，按后缀判别
 
-蓝图 tab 可以被拖拽出 tab bar，触发 `blueprintDraggedOut(globalPos)` 信号，使蓝图编辑器浮动为独立 CDockWidget。`EditorWindow::floatBlueprint()` / `embedBlueprint()` 处理嵌入/浮动切换。
+蓝图 tab（关卡蓝图 **或** `.bp` Actor 蓝图，判定 `data.startsWith(kBlueprintTabData) || data.endsWith(".bp")`）可被拖出 tab bar，触发 `blueprintDraggedOut` 信号，使蓝图编辑器浮动为独立 CDockWidget。`EditorWindow::floatBlueprint()` / `embedBlueprint()` 处理嵌入/浮动切换。
 
 每次切换关卡 tab 时，**断开全部旧连接**（`m_tabConnections`），再重新建立当前 tab 的信号槽：
 - `SceneOutliner::actorSelected` → `DetailsPanel::showActor` + `Viewport2D::setSelectedId`
@@ -121,18 +128,40 @@ Gizmo 命中检测在 `mousePressEvent` 中按优先级顺序：
 
 ### 蓝图系统
 
-**数据模型**（存储于 `LevelDocument`）：
+**核心心智模型**（与虚幻引擎一致，沟通时务必区分）：
+
+| 概念 | 定位 | 载体 | 作用域 |
+|---|---|---|---|
+| **关卡蓝图** | 当前关卡的「导演脚本」，不绑定单个对象 | 存于 `LevelDocument`，`BPRuntime` 执行 | 全局：开始运行、按键、跳转关卡、调度场上对象 |
+| **Actor 蓝图（类）** | 某个对象自己的行为脚本 | `BPClass`（`.bp`），`ActorBPRuntime` 执行（每实例一份） | 仅自身：`Self.*` 操作自身组件/位置/精灵 |
+| **组件** | 装在对象（类）身上的功能模块 | `BPClass.components` | 当前仅**精灵渲染器**有真实行为，其余占位 |
+| **蓝图节点** | 逻辑里的一条语句/函数调用 | `BPNode` | — |
+
+**数据模型**：
 - `BPNode`：节点 id、类型（typeId）、画布坐标、引脚参数值（`QMap<QString, QString> params`）
 - `BPConnection`：连线 id、fromNode/fromPin → toNode/toPin
 
-**BlueprintEditor**：可视化编辑画布，支持节点拖拽、引脚连线、内联参数编辑（`QLineEdit` 原地编辑）。节点类型定义在 `nodeDefs()` 静态列表中，包含 `NodeDef`（typeId、显示名、header 颜色、引脚列表）。
+**BPValue**（`src/models/BPValue.h`）：运行时「类型化值」，数据引脚与变量统一用它承载真实类型（`Null/Number/Bool/String/Array`）。刻意保留与 `QString` 的隐式互转以压缩历史求值调用点的迁移面。`=`/`≠`/「包含」用 `typedEquals`（类型不同即不等，`3 ≠ "3"`）。
 
-**BPRuntime**：解释执行蓝图，通过 `QTimer` 驱动 `tick()`，维护独立的 actor 快照（`m_actors`，不影响 doc）。执行从 `triggerBeginPlay()` 触发「开始运行」执行链，键盘事件通过 `triggerKeyDown(key)` 触发。
+**BlueprintEditor**（双模式）：
+- **level 模式**：编辑关卡蓝图（原有）
+- **bpClass 模式**：编辑某个 `.bp` 类；右键菜单的 `Self.*` 分类按该类的组件过滤
+- 节点类型定义在 `nodeDefs()` 静态列表（`NodeDef`：typeId、显示名、header 颜色、引脚列表）。支持节点拖拽、引脚连线、内联参数编辑。
 
-运行生命周期（由 `EditorWindow` 管理）：
-1. `startRuntime()` → 创建 `BPRuntime`，切换到 game view tab，`triggerBeginPlay()`
-2. 每帧 `stateChanged` 信号 → `GameViewport::setRuntimeActors()` 刷新显示
-3. `stopRuntime()` → 销毁 `BPRuntime`，恢复静态 actor 显示
+**宏 / 自定义节点**（`BPMacro`）：可复用子图 + 对外输入/输出引脚，存为 `.bpmacro`。运行时**内联展开**（`BPRuntime::flattenMacros()`），支持嵌套。调用节点 typeId 形如 `Macro::<id>`。
+
+**全局变量与枚举**（`GlobalVars.h`）：全局变量声明存 `project.json`，运行期变量表由 `EditorWindow` 持有（`m_globalVars`），**跨关卡保留**、整局重置。枚举为 `.enum` 资产（键值 `values` 用于逻辑比较，`displays` 用于 UI 显示）。
+
+**两套运行时**：
+- `BPRuntime`（关卡）：`QTimer` 驱动 `tick()`，维护独立 actor 快照 `m_actors`（不改 doc）；持有本关变量表 `m_varStore`、`m_loopState`（ForEach 迭代）、`m_heldKeys`（按住键每帧驱动）。
+- `ActorBPRuntime`（每个有节点的 Actor 一个实例）：共享 `BPRuntime::mutableActors()` 指针（运行期不增删 Actor，列表不重分配），各自跑 `Self.*` 逻辑。
+
+运行生命周期（由 `EditorWindow::startRuntime()` 编排）：
+1. 创建 `BPRuntime`，注入全局变量表与 `UIRuntime`；为每个有节点的 Actor 创建 `ActorBPRuntime`
+2. 切到 game view tab，触发各运行时的 `triggerBeginPlay()`
+3. 每帧 `stateChanged` → `GameViewport` 刷新；按键/UI 事件分发给关卡运行时**与**所有 `ActorBPRuntime`
+4. `loadLevelRequested` / `backLevelRequested` 信号驱动换关（关卡历史栈）
+5. `stopRuntime()` → `qDeleteAll(m_actorRuntimes)` + 销毁 `BPRuntime`/`UIRuntime`，恢复静态显示
 
 ### DetailsPanel
 
@@ -152,6 +181,18 @@ Actor 类型定义在 `src/models/ActorTypeUtils.h`（跨文件共享，避免�
 | Trigger | 变换、碰撞盒 |
 | Empty | 变换 |
 
+### UI 系统
+
+**UIEditor**（中央区 index 3）：控件树 + 画布 + 属性面板三栏，编辑 `UIDocument`（`.ui` 文件）。`UIWidget` 为层级结构（`parentId` 空=根），屏幕空间布局以 `anchor`（左上/居中/…九宫格）为基准做相对偏移；类型专属字段（文本、进度值、网格列数、下拉选中项等）集中在同一结构体内按 `type` 取用。`UIDocument` 自带 `QUndoStack`。
+
+**UIRuntime**：运行时按蓝图的 `UI.*` 节点创建/操作控件实例。`UI.Create` 节点 id → 实例 id 的映射（`m_uiRefs`）由各运行时各自持有。按钮点击 / 下拉改变通过 `UIRuntime` 信号回流到 `BPRuntime` 与所有 `ActorBPRuntime`，触发 `UI.OnButtonClick` / `UI.OnDropdownChanged` 事件链。
+
+### 复现录制（修 bug 工作流）
+
+`Recorder`（单例，`src/editor/Recorder.cpp`）：手动开始/停止，期间接管 `qDebug` 并收集语义化操作时间线 + 状态快照 + 控制台日志，停止时写出一份 **AI 可直接读取的 Markdown**（`{project}/.recordings/`，`latest.md` 为最新）。连续相同条目自动合并为「×N」防帧级刷屏。
+
+> **修 bug 前**：先让用户用引擎内「复现录制」录一遍复现路径，再读 `.recordings/latest.md` 定位问题，而不是凭空猜测。
+
 ### 样式系统
 
 单一 QSS 文件：`resources/styles/launcher.qss`。所有样式选择器基于 `setObjectName()`，不使用类选择器，便于精确控制。修改 QSS 后需重新编译（通过 `.qrc` 打包）。
@@ -168,6 +209,7 @@ Actor 类型定义在 `src/models/ActorTypeUtils.h`（跨文件共享，避免�
 |---|---|
 | Event.BeginPlay | 开始运行 |
 | Event.KeyDown | 按键按下 |
+| Event.Tick | 每帧 |
 | Action.Print | 打印字符串 |
 | Action.MoveActor | 移动对象 |
 | Action.SetActive | 设置激活 |
@@ -175,6 +217,7 @@ Actor 类型定义在 `src/models/ActorTypeUtils.h`（跨文件共享，避免�
 | Action.BackLevel | 返回上一关 |
 | Flow.Branch | 条件分支 |
 | Flow.Switch | 分支控制 |
+| Flow.ForEach | 遍历数组 |
 | Math.Add | 加法（+） |
 | Math.Sub | 减法（-） |
 | Math.Mul | 乘法（×） |
@@ -190,6 +233,7 @@ Actor 类型定义在 `src/models/ActorTypeUtils.h`（跨文件共享，避免�
 | Logic.And | 与 |
 | Logic.Or | 或 |
 | Logic.Not | 非 |
+| Logic.Compare | 数值比较 |
 | Array.Make | 创建空数组 |
 | Array.Length | 数组长度 |
 | Array.Get | 获取元素 |
@@ -201,7 +245,16 @@ Actor 类型定义在 `src/models/ActorTypeUtils.h`（跨文件共享，避免�
 | Array.Clear | 清空数组 |
 | Global.Get | 获取全局变量 |
 | Global.Set | 设置全局变量 |
+| Local.Get | 获取 <局部变量>（动态名） |
+| Local.Set | 设置 <局部变量>（动态名） |
 | Macro::* | 自定义节点 |
+| Var.GetNumber | 获取数值变量 |
+| Var.SetNumber | 设置数值变量 |
+| Var.GetBool | 获取布尔变量 |
+| Var.SetBool | 设置布尔变量 |
+| Var.GetString | 获取字符串变量 |
+| Var.SetString | 设置字符串变量 |
+| Var.NumberToString | 数值转字符串 |
 | Var.GetActorPos | 获取位置 |
 | Var.ActorRef | Actor引用 |
 | Self.GetPosition | 获取自身位置 |
@@ -216,6 +269,8 @@ Actor 类型定义在 `src/models/ActorTypeUtils.h`（跨文件共享，避免�
 | Self.Sprite.SetFlipX | 水平翻转 |
 | Self.Sprite.SetFlipY | 垂直翻转 |
 | Self.Sprite.SetVisible | 设置精灵可见 |
+| Self.Anim.Play | 播放动画 |
+| Self.Anim.Stop | 停止动画 |
 | Self.Camera.SetSize | 设置摄像机尺寸 |
 | Self.Camera.SetBackground | 设置背景色 |
 | UI.Create | 创建UI |

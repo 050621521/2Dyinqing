@@ -1,6 +1,7 @@
 #pragma once
 #include "models/LevelDocument.h"
 #include "models/BPValue.h"
+#include "models/AnimationAsset.h"
 #include <QObject>
 #include <QSet>
 #include <QTimer>
@@ -46,6 +47,9 @@ private:
     void    flattenMacros(const QString& projectRoot);
     void    tickComponents(float dt);
     void    triggerTick(float dt);
+    void    advanceAnimations(float dt);     // 每帧推进动画器当前片段
+    void    initAnimations();                // BeginPlay：按自动播放设置初始帧
+    const AnimationAsset& animAssetFor(const QString& path);  // 缓存加载 .anim
     void    executeChain(const QString& fromNodeId, const QString& fromPin,
                          QSet<QString>* visited = nullptr);
     QString executeNode(const QString& nodeId);
@@ -68,6 +72,8 @@ private:
     UIRuntime*             m_uiRuntime = nullptr;
     QMap<QString, QString> m_uiRefs;      // nodeId(UI.Create) → instanceId
     QMap<QString, int>     m_dropdownIndex; // UI.OnDropdownChanged nodeId → 最新索引
+    QSet<QString>          m_heldKeys;     // 当前被按住的按键集合，每帧驱动按键节点的 held 链
+    QHash<QString, AnimationAsset> m_animCache;  // .anim 路径 → 已加载资源
 
     QTimer*       m_tickTimer  = nullptr;
     QElapsedTimer m_elapsedTimer;

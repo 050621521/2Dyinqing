@@ -1,5 +1,6 @@
 #include "ContentBrowser.h"
 #include "models/BPClass.h"
+#include "models/AnimationAsset.h"
 #include "GlobalVars.h"
 #include <QHBoxLayout>
 #include <QVBoxLayout>
@@ -24,6 +25,7 @@
 #include <QMenu>
 #include <QPainter>
 #include <QPixmap>
+#include <QPolygon>
 #include <QIcon>
 #include <QFileDialog>
 #include <QUuid>
@@ -95,6 +97,7 @@ ContentBrowser::ContentBrowser(const QString& projectRoot, QWidget* parent)
     cbSep();
     auto* saveAllBtn = cbBtn("全部保存");
     auto* importBtn = cbBtn("导入图片");
+    auto* importAnimBtn = cbBtn("导入动画");
     auto* newLevelBtn = cbBtn("+ 新建关卡");
     newLevelBtn->setObjectName("cbNewLevelBtn");
     tl->addStretch();
@@ -195,6 +198,7 @@ ContentBrowser::ContentBrowser(const QString& projectRoot, QWidget* parent)
         }
         populateFolder(m_currentPath);
     });
+    connect(importAnimBtn, &QPushButton::clicked, this, &ContentBrowser::importAnimation);
 
     // F2 内联重命名
     m_assetGrid->setEditTriggers(QAbstractItemView::EditKeyPressed);
@@ -215,6 +219,7 @@ ContentBrowser::ContentBrowser(const QString& projectRoot, QWidget* parent)
         if      (type == "level") newFileName += ".level";
         else if (type == "bp")    newFileName += ".bp";
         else if (type == "ui")    newFileName += ".ui";
+        else if (type == "anim")  newFileName += ".anim";
         else if (type == "image") newFileName += "." + QFileInfo(oldPath).suffix();
 
         const QString newPath = QFileInfo(oldPath).dir().filePath(newFileName);
@@ -347,6 +352,112 @@ QIcon ContentBrowser::makeUIDocIcon() {
     return icon;
 }
 
+QIcon ContentBrowser::makeAnimIcon() {
+    static QIcon icon;
+    if (!icon.isNull()) return icon;
+    QPixmap px(64, 64);
+    px.fill(Qt::transparent);
+    QPainter p(&px);
+    p.setRenderHint(QPainter::Antialiasing);
+    // 胶片底
+    p.setBrush(QColor(40, 130, 110));
+    p.setPen(Qt::NoPen);
+    p.drawRoundedRect(8, 12, 48, 40, 6, 6);
+    // 胶片齿孔
+    p.setBrush(QColor(20, 60, 50));
+    for (int x = 14; x < 52; x += 10) {
+        p.drawRect(x, 15, 5, 4);
+        p.drawRect(x, 45, 5, 4);
+    }
+    // 播放三角
+    p.setBrush(Qt::white);
+    QPolygon tri;
+    tri << QPoint(28, 24) << QPoint(28, 40) << QPoint(42, 32);
+    p.drawPolygon(tri);
+    icon = QIcon(px);
+    return icon;
+}
+
+// ── 导入动画 ──────────────────────────────────────────────────────────
+
+void ContentBrowser::importAnimation() {
+    const QString sheetSrc = QFileDialog::getOpenFileName(
+        this, "导入动画（选精灵表）", QString(),
+        "精灵表图片 (*.png *.jpg *.jpeg *.bmp *.webp)");
+    if (sheetSrc.isEmpty()) return;
+
+    const QFileInfo sheetInfo(sheetSrc);
+    const QString sheetName = sheetInfo.fileName();
+
+    // 1) 把精灵表复制进当前目录（已存在则复用）
+    const QString sheetDst = m_currentPath + "/" + sheetName;
+    if (!QFile::exists(sheetDst) && !QFile::copy(sheetSrc, sheetDst)) {
+        QMessageBox::warning(this, "导入动画", "精灵表复制失败。");
+        return;
+    }
+
+    // 2) 在源目录找匹配的元数据 JSON（sprite_sheet 字段 == 选中文件名）
+    QJsonObject meta;
+    QString animBase;
+    const QStringList jsons = sheetInfo.dir().entryList({"*.json"}, QDir::Files);
+    for (const QString& jn : jsons) {
+        QFile jf(sheetInfo.dir().filePath(jn));
+        if (!jf.open(QIODevice::ReadOnly)) continue;
+        const QJsonObject obj = QJsonDocument::fromJson(jf.readAll()).object();
+        if (obj["sprite_sheet"].toString() == sheetName) {
+            meta = obj;
+            animBase = obj["character"].toString();
+            if (animBase.isEmpty()) animBase = obj["name"].toString();
+            break;
+        }
+    }
+
+    AnimationAsset asset;
+    if (!meta.isEmpty()) {
+        asset = AnimationAsset::fromMetadataJson(meta, sheetDst);
+    } else {
+        // 3) 无元数据：手填网格，每行生成一个片段
+        bool ok = false;
+        const int cols = QInputDialog::getInt(this, "导入动画", "列数（每行帧数）：", 6, 1, 256, 1, &ok);
+        if (!ok) return;
+        const int rows = QInputDialog::getInt(this, "导入动画", "行数：", 1, 1, 256, 1, &ok);
+        if (!ok) return;
+        const QPixmap probe(sheetDst);
+        const int fw = probe.isNull() ? 64 : probe.width()  / qMax(1, cols);
+        const int fh = probe.isNull() ? 64 : probe.height() / qMax(1, rows);
+        asset.sheet  = sheetDst;
+        asset.cols   = cols;
+        asset.rows   = rows;
+        asset.frameW = fw;
+        asset.frameH = fh;
+        for (int r = 0; r < rows; ++r) {
+            AnimClip c;
+            c.name       = QString("clip_%1").arg(r);
+            c.label      = QString("片段%1").arg(r);
+            c.row        = r;
+            c.frameCount = cols;
+            asset.clips << c;
+        }
+    }
+
+    if (animBase.isEmpty()) animBase = sheetInfo.baseName();
+
+    // 4) 写出 .anim（重名则加序号）
+    QString animPath = m_currentPath + "/" + animBase + ".anim";
+    int n = 1;
+    while (QFile::exists(animPath))
+        animPath = m_currentPath + "/" + animBase + QString("_%1").arg(n++) + ".anim";
+
+    if (!asset.save(animPath)) {
+        QMessageBox::warning(this, "导入动画", "动画资源写入失败。");
+        return;
+    }
+
+    populateFolder(m_currentPath);
+    QMessageBox::information(this, "导入动画",
+        QString("已生成「%1」，含 %2 个动画片段。").arg(QFileInfo(animPath).fileName()).arg(asset.clips.size()));
+}
+
 // ── 目录树 ────────────────────────────────────────────────────────────
 
 void ContentBrowser::buildFolderTree() {
@@ -421,6 +532,13 @@ void ContentBrowser::populateFolder(const QString& absPath) {
         m_currentTypes   << "enum";
     }
 
+    // .anim 动画资源
+    const QStringList animFiles = dir.entryList({"*.anim"}, QDir::Files, QDir::Name);
+    for (const QString& an : animFiles) {
+        m_currentEntries << an;
+        m_currentTypes   << "anim";
+    }
+
     // 图片文件
     const QStringList imgExts = {"*.png", "*.jpg", "*.jpeg", "*.bmp", "*.svg", "*.webp"};
     const QStringList images = dir.entryList(imgExts, QDir::Files, QDir::Name);
@@ -445,7 +563,7 @@ void ContentBrowser::onSearchChanged(const QString& text) {
             continue;
 
         const QString absPath = m_currentPath + "/" + name;
-        const QString label   = (type == "level" || type == "bp" || type == "ui")
+        const QString label   = (type == "level" || type == "bp" || type == "ui" || type == "anim")
             ? QFileInfo(name).baseName()
             : name;
 
@@ -455,6 +573,7 @@ void ContentBrowser::onSearchChanged(const QString& text) {
         else if (type == "level") item->setIcon(makeLevelIcon());
         else if (type == "bp")    item->setIcon(makeBpClassIcon());
         else if (type == "ui")    item->setIcon(makeUIDocIcon());
+        else if (type == "anim")  item->setIcon(makeAnimIcon());
         else if (type == "image") item->setIcon(makeImageIcon(absPath));
         item->setData(Qt::UserRole,     type);
         item->setData(Qt::UserRole + 1, absPath);
@@ -679,6 +798,17 @@ void ContentBrowser::showGridContextMenu(const QPoint& pos) {
                 populateFolder(m_currentPath);
                 emit enumFileDeleted();
             });
+        } else if (type == "anim") {
+            menu.addAction("重命名", [this, item]() {
+                m_assetGrid->editItem(item);
+            });
+            menu.addAction("删除", [this, path]() {
+                if (QMessageBox::question(this, "删除动画",
+                        QString("确定删除「%1」？").arg(QFileInfo(path).fileName()),
+                        QMessageBox::Yes | QMessageBox::Cancel) != QMessageBox::Yes) return;
+                QFile::remove(path);
+                populateFolder(m_currentPath);
+            });
         } else if (type == "image") {
             menu.addAction("指定给当前精灵", [this, path]() {
                 emit imageAssignRequested(path);
@@ -708,6 +838,7 @@ void ContentBrowser::showGridContextMenu(const QPoint& pos) {
             }
             populateFolder(m_currentPath);
         });
+        menu.addAction("导入动画", this, &ContentBrowser::importAnimation);
         menu.addSeparator();
         menu.addAction("新建关卡", this, &ContentBrowser::onNewLevel);
         menu.addAction("新建蓝图类", this, [this]() {

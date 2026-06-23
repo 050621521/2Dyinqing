@@ -41,11 +41,14 @@ private:
     void buildComponents(QVBoxLayout* root);
     void buildTransform(QVBoxLayout* root);
     void buildSpriteRenderer(QVBoxLayout* root);
+    void buildAnimator(QVBoxLayout* root);
     void buildCameraComponent(QVBoxLayout* root);
     void buildFollowControl(QVBoxLayout* root);
     void buildConfiner(QVBoxLayout* root);
     void refreshComponentList();
     void refreshSpriteSection();
+    void refreshAnimSection();
+    void reloadAnimClips(const QString& selectedClip);
     void refreshCameraSections();
     void onAddComponent(const QString& compName);
 
@@ -77,6 +80,12 @@ private:
     QComboBox*   m_sortLayerCombo  = nullptr;
     QSpinBox*    m_orderSpin       = nullptr;
     QComboBox*   m_drawModeCombo   = nullptr;
+
+    // 动画器区块
+    QWidget*     m_animBox          = nullptr;
+    QLabel*      m_animAssetLabel   = nullptr;
+    QComboBox*   m_animClipCombo    = nullptr;
+    QCheckBox*   m_animAutoPlayChk  = nullptr;
 
     // 摄像机组件区块
     QWidget*        m_cameraBox          = nullptr;

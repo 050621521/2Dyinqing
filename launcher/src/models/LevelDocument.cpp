@@ -24,6 +24,11 @@ QJsonObject ActorData::toJson() const {
     QJsonArray compArr;
     for (const QString& c : components) compArr.append(c);
     obj["components"]  = compArr;
+    if (!overriddenFields.isEmpty()) {
+        QJsonArray ovArr;
+        for (const QString& f : overriddenFields) ovArr.append(f);
+        obj["overriddenFields"] = ovArr;
+    }
     obj["spritePath"]  = spritePath;
     obj["spriteColor"] = spriteColor.name(QColor::HexArgb);
     obj["sortingLayer"]= sortingLayer;
@@ -32,6 +37,9 @@ QJsonObject ActorData::toJson() const {
     obj["flipY"]         = flipY;
     obj["drawMode"]      = drawMode;
     obj["spriteVisible"] = spriteVisible;
+    obj["animAsset"]       = animAsset;
+    obj["animDefaultClip"] = animDefaultClip;
+    obj["animAutoPlay"]    = animAutoPlay;
     obj["cameraSize"]         = cameraSize;
     obj["cameraIsMain"]       = cameraIsMain;
     obj["cameraResW"]         = cameraResW;
@@ -81,6 +89,9 @@ ActorData ActorData::fromJson(const QJsonObject& obj) {
     a.flipY          = obj["flipY"].toBool(false);
     a.drawMode       = obj["drawMode"].toString("简单");
     a.spriteVisible  = obj["spriteVisible"].toBool(true);
+    a.animAsset       = obj["animAsset"].toString();
+    a.animDefaultClip = obj["animDefaultClip"].toString();
+    a.animAutoPlay    = obj["animAutoPlay"].toBool(true);
     a.cameraSize         = (float)obj["cameraSize"].toDouble(5.0);
     a.cameraIsMain = obj["cameraIsMain"].toBool(false);
     a.cameraResW   = obj["cameraResW"].toInt(1920);
@@ -97,6 +108,18 @@ ActorData ActorData::fromJson(const QJsonObject& obj) {
     a.confinerMaxX       = (float)obj["confinerMaxX"].toDouble(500.0);
     a.confinerMinY       = (float)obj["confinerMinY"].toDouble(-500.0);
     a.confinerMaxY       = (float)obj["confinerMaxY"].toDouble(500.0);
+
+    // 活继承覆盖集合
+    if (obj.contains("overriddenFields")) {
+        for (const QJsonValue& v : obj["overriddenFields"].toArray())
+            a.overriddenFields.insert(v.toString());
+    } else if (!a.bpClass.startsWith("builtin/")) {
+        // 旧关卡无此键：视为全部字段已覆盖（保持快照值，不因引入活继承而突变）
+        const QJsonObject all = a.toJson();
+        for (const QString& k : all.keys())
+            if (k != "id" && k != "name" && k != "components" && k != "overriddenFields")
+                a.overriddenFields.insert(k);
+    }
     return a;
 }
 

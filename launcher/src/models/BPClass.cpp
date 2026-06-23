@@ -12,7 +12,7 @@ QJsonObject BPClass::toJson() const {
     obj["components"] = comps;
     QJsonObject defs;
     for (auto it = defaults.constBegin(); it != defaults.constEnd(); ++it)
-        defs[it.key()] = it.value().toString();
+        defs[it.key()] = QJsonValue::fromVariant(it.value());  // 保留 bool/number 类型
     obj["defaults"] = defs;
     QJsonArray nodesArr;
     for (const BPNode& n : nodes) nodesArr.append(n.toJson());

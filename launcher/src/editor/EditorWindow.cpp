@@ -52,6 +52,7 @@
 #include <QTimer>
 #include <QFileInfo>
 #include <QDir>
+#include <QUuid>
 #include <QMessageBox>
 #include <QShortcut>
 #include <QKeySequence>
@@ -976,6 +977,62 @@ void EditorWindow::setupBottomBar() {
 }
 
 // ── Tab 切换 / 关闭 ───────────────────────────────────────────────────
+// ── 方案 A：把蓝图类当作「类默认对象」喂给细节面板编辑 ────────────────
+// 类的 components + defaults(字段名→值) ↔ 一个合成的 ActorData
+static ActorData actorFromBpClass(const BPClass& bc, const QString& classPath) {
+    QJsonObject obj = QJsonObject::fromVariantMap(bc.defaults);
+    QStringList comps = bc.components.isEmpty() ? QStringList{"变换"} : bc.components;
+    QJsonArray compArr;
+    for (const QString& c : comps) compArr.append(c);
+    obj["components"] = compArr;
+    ActorData a = ActorData::fromJson(obj);
+    a.id      = classPath;   // 非空，避免 DetailsPanel 早退
+    a.name    = bc.name;
+    a.bpClass = QString();   // 隐藏"编辑蓝图"按钮（这是类本身）
+    a.components = comps;
+    return a;
+}
+
+static void applyActorToBpClass(const ActorData& a, BPClass& bc) {
+    bc.components = a.components;
+    QJsonObject j = a.toJson();
+    // 仅剔除「实例身份 + 位置」；缩放/旋转/组件字段保留为可继承的类默认值
+    for (const char* k : {"id","name","bpClass","position","overriddenFields"})
+        j.remove(QString::fromUtf8(k));
+    bc.defaults = j.toVariantMap();
+}
+
+// 活继承：把类默认值刷进实例所有「未覆盖」的字段（组件跟随类）
+static bool resolveInstanceFromClass(ActorData& inst, const BPClass& cls) {
+    QJsonObject j = inst.toJson();
+    for (auto it = cls.defaults.constBegin(); it != cls.defaults.constEnd(); ++it)
+        if (!inst.overriddenFields.contains(it.key()))
+            j[it.key()] = QJsonValue::fromVariant(it.value());
+    QJsonArray comps;
+    for (const QString& c : cls.components) comps.append(c);
+    j["components"] = comps;
+    ActorData resolved = ActorData::fromJson(j);
+    resolved.overriddenFields = inst.overriddenFields;  // fromJson 会按"无键=旧"误填，强制保留
+    if (resolved.toJson() == inst.toJson()) return false;  // 无变化不标脏
+    inst = resolved;
+    return true;
+}
+
+// 关卡加载后：把每个类实例对其当前类默认值重新解析（实现活继承）
+static void resolveLevelInstances(LevelDocument* doc, const QString& projectRoot) {
+    if (!doc) return;
+    QHash<QString, BPClass> cache;
+    const QList<ActorData> snap = doc->actors();
+    for (const ActorData& a : snap) {
+        if (a.bpClass.isEmpty() || a.bpClass.startsWith("builtin/")) continue;
+        if (!cache.contains(a.bpClass))
+            cache.insert(a.bpClass, BPClass::load(projectRoot + "/" + a.bpClass));
+        ActorData copy = a;
+        if (resolveInstanceFromClass(copy, cache[a.bpClass]))
+            doc->updateActor(copy);
+    }
+}
+
 void EditorWindow::onTabChanged(int index) {
     const QString path = m_docTabBar->tabData(index).toString();
     if (m_runtime && path != DocTabBar::kGameViewTabData)
@@ -983,12 +1040,13 @@ void EditorWindow::onTabChanged(int index) {
     // 上下文切换：蓝图页显示"我的蓝图"+蓝图"细节"，隐藏视口的大纲/细节；视口页反之
     const bool bpCtx = isAnyBlueprintTab(path);
     const bool levelBpCtx = isLevelBlueprintTab(path);   // 局部变量仅关卡蓝图
+    const bool classBpCtx = path.endsWith(".bp");        // Actor 类：显示组件细节面板
     if (m_gvDock)         m_gvDock->toggleView(bpCtx);
     if (m_varDetailsDock) m_varDetailsDock->toggleView(bpCtx);
     if (m_localVarDock)        m_localVarDock->toggleView(levelBpCtx);
     if (m_localVarDetailsDock) m_localVarDetailsDock->toggleView(levelBpCtx);
     if (m_outlineDockW)   m_outlineDockW->toggleView(!bpCtx);
-    if (m_detailsDockW)   m_detailsDockW->toggleView(!bpCtx);
+    if (m_detailsDockW)   m_detailsDockW->toggleView(!bpCtx || classBpCtx);
     if (!m_sceneOutliner || !m_detailsPanel) return;
 
     for (auto& conn : m_tabConnections) disconnect(conn);
@@ -1005,6 +1063,33 @@ void EditorWindow::onTabChanged(int index) {
                 m_activeLevelPath = levelPath;
                 m_sceneOutliner->loadLevel(m_openLevels.value(levelPath));
                 if (m_localVarPanel) m_localVarPanel->reloadFromSource();  // 局部变量随关卡切换
+            }
+        }
+        // Actor 类：细节面板编辑类的组件 + 默认值（方案 A：复用实例那套 UI）
+        if (classBpCtx) {
+            BPClass* bc = m_openBpClasses.value(path, nullptr);
+            if (bc) {
+                m_detailsPanel->showActor(actorFromBpClass(*bc, path));
+                m_tabConnections << connect(m_detailsPanel, &DetailsPanel::actorModified,
+                    this, [this, path](const ActorData& mod) {
+                        BPClass* c = m_openBpClasses.value(path, nullptr);
+                        if (!c) return;
+                        applyActorToBpClass(mod, *c);
+                        c->save();
+                        // 活继承：改类默认值 → 重刷所有未覆盖该字段的实例
+                        const QString rel = QDir(m_project.path).relativeFilePath(path);
+                        for (LevelDocument* d : m_openLevels.values()) {
+                            if (!d) continue;
+                            const QList<ActorData> snap = d->actors();
+                            for (const ActorData& a : snap) {
+                                if (a.bpClass != rel) continue;
+                                ActorData copy = a;
+                                if (resolveInstanceFromClass(copy, *c))
+                                    d->updateActor(copy);
+                            }
+                        }
+                        updateSaveLabel();
+                    });
             }
         }
         m_activeUndoStack = ed->bpUndoStack();
@@ -1067,6 +1152,7 @@ void EditorWindow::onTabChanged(int index) {
     if (!m_openLevels.contains(path)) {
         auto* doc = new LevelDocument();
         doc->load(path);
+        resolveLevelInstances(doc, m_project.path);   // 活继承：实例跟随类默认值
         m_openLevels[path] = doc;
     }
     LevelDocument* doc = m_openLevels[path];
@@ -1168,14 +1254,45 @@ void EditorWindow::onTabChanged(int index) {
             updateSaveLabel();
             Recorder::instance().log("删除", QString("id=%1").arg(id));
         });
+        // 从内容浏览器拖 .bp 类进视口 → 落点生成实例（继承类的组件+动画器配置）
+        m_tabConnections << connect(m_viewport, &Viewport2D::bpClassDropped, this,
+                                    [this, doc](const QString& bpPath, const QPointF& worldPos) {
+            const QString rel = QDir(m_project.path).relativeFilePath(bpPath);
+            BPClass bc = BPClass::load(bpPath);
+            ActorData a = actorFromBpClass(bc, rel);   // 取类的组件 + 默认字段
+            a.id      = QUuid::createUuid().toString(QUuid::WithoutBraces);
+            a.name    = bc.name.isEmpty() ? QFileInfo(bpPath).baseName() : bc.name;
+            a.bpClass = rel;                            // 实例引用类（相对项目根）
+            a.x = (float)worldPos.x();
+            a.y = (float)worldPos.y();
+            a.overriddenFields = {"position"};          // 仅位置算覆盖，其余跟随类
+            doc->addActor(a);
+            m_sceneOutliner->loadLevel(doc);
+            m_detailsPanel->showActor(a);
+            updateTabTitle(m_docTabBar->currentIndex());
+            updateSaveLabel();
+            Recorder::instance().log("创建",
+                QString("\"%1\" (%2)").arg(a.name, bpClassLabel(a.bpClass)));
+        });
     }
 
     m_tabConnections << connect(m_detailsPanel, &DetailsPanel::actorModified,
-                                this, [this, doc](const ActorData& after) {
+                                this, [this, doc](const ActorData& afterIn) {
+        ActorData after = afterIn;
         // 找出修改前的状态
         ActorData before;
         for (const ActorData& a : doc->actors())
             if (a.id == after.id) { before = a; break; }
+        // 活继承：实例改了哪些字段就标记为「已覆盖」（仅类实例，builtin 无类可继承）
+        if (!after.bpClass.isEmpty() && !after.bpClass.startsWith("builtin/")) {
+            after.overriddenFields = before.overriddenFields;
+            const QJsonObject bj = before.toJson(), aj = after.toJson();
+            for (const QString& k : aj.keys()) {
+                if (k == "id" || k == "name" || k == "components" || k == "overriddenFields")
+                    continue;
+                if (aj[k] != bj[k]) after.overriddenFields.insert(k);
+            }
+        }
         // 主摄像机互斥（不纳入 undo，属于约束逻辑）
         if (after.components.contains("摄像机组件") && after.cameraIsMain) {
             for (const ActorData& other : doc->actors()) {

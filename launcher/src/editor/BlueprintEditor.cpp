@@ -1,6 +1,7 @@
 #include "BlueprintEditor.h"
 #include "UndoCommands.h"
 #include "models/UIDocument.h"
+#include "models/AnimationAsset.h"
 #include <QPainter>
 #include <QPainterPath>
 #include <QWheelEvent>
@@ -168,19 +169,26 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
                 {"exec_out", "exec", true, true}
             }
         },
-        {"Event.Key.W",       "W 键",    QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true}}},
-        {"Event.Key.A",       "A 键",    QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true}}},
-        {"Event.Key.S",       "S 键",    QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true}}},
-        {"Event.Key.D",       "D 键",    QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true}}},
-        {"Event.Key.Up",      "↑ 键",    QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true}}},
-        {"Event.Key.Down",    "↓ 键",    QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true}}},
-        {"Event.Key.Left",    "← 键",    QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true}}},
-        {"Event.Key.Right",   "→ 键",    QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true}}},
-        {"Event.Key.Space",   "空格键",  QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true}}},
-        {"Event.Key.Return",  "回车键",  QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true}}},
-        {"Event.Key.Escape",  "Esc 键",  QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true}}},
-        {"Event.Key.Shift",   "Shift 键",QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true}}},
-        {"Event.Key.Control", "Ctrl 键", QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true}}},
+        {
+            "Event.Tick", "每帧", QColor("#6a2a8a"),
+            {
+                {"exec_out",   "exec",   true,  true},
+                {"delta_time", "帧间隔", false, true, ValueKind::Number}
+            }
+        },
+        {"Event.Key.W",       "W 键",    QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true},{"held","持续按住",true,true}}},
+        {"Event.Key.A",       "A 键",    QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true},{"held","持续按住",true,true}}},
+        {"Event.Key.S",       "S 键",    QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true},{"held","持续按住",true,true}}},
+        {"Event.Key.D",       "D 键",    QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true},{"held","持续按住",true,true}}},
+        {"Event.Key.Up",      "↑ 键",    QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true},{"held","持续按住",true,true}}},
+        {"Event.Key.Down",    "↓ 键",    QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true},{"held","持续按住",true,true}}},
+        {"Event.Key.Left",    "← 键",    QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true},{"held","持续按住",true,true}}},
+        {"Event.Key.Right",   "→ 键",    QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true},{"held","持续按住",true,true}}},
+        {"Event.Key.Space",   "空格键",  QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true},{"held","持续按住",true,true}}},
+        {"Event.Key.Return",  "回车键",  QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true},{"held","持续按住",true,true}}},
+        {"Event.Key.Escape",  "Esc 键",  QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true},{"held","持续按住",true,true}}},
+        {"Event.Key.Shift",   "Shift 键",QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true},{"held","持续按住",true,true}}},
+        {"Event.Key.Control", "Ctrl 键", QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true},{"held","持续按住",true,true}}},
         {
             "Action.Print", "打印字符串", QColor("#1a4a8a"),
             {
@@ -311,6 +319,16 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
             "Self.Sprite.SetVisible", "设置精灵可见", QColor("#2a4a1a"),
             {{"exec_in","exec",true,false},{"exec_out","exec",true,true},
              {"visible","可见",false,false,ValueKind::Bool}}
+        },
+        // ── Self 动画器 ─────────────────────────────────────────────────
+        {
+            "Self.Anim.Play", "播放动画", QColor("#2a4040"),
+            {{"exec_in","exec",true,false},{"exec_out","exec",true,true},
+             {"clip","片段名",false,false,ValueKind::AnimClipRef}}
+        },
+        {
+            "Self.Anim.Stop", "停止动画", QColor("#2a4040"),
+            {{"exec_in","exec",true,false},{"exec_out","exec",true,true}}
         },
         // ── Self 摄像机 ─────────────────────────────────────────────────
         {
@@ -1508,7 +1526,8 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
                     const bool isDropdown = (pd.kind == ValueKind::LevelRef
                                           || pd.kind == ValueKind::ActorRef
                                           || pd.kind == ValueKind::WidgetRef
-                                          || pd.kind == ValueKind::EnumRef);
+                                          || pd.kind == ValueKind::EnumRef
+                                          || pd.kind == ValueKind::AnimClipRef);
                     float bx0 = (float)(tl.x() + nw * 0.5f);
                     float bx1 = (float)(tl.x() + nw - 6.0f);
                     QRectF boxRc(bx0, rowY + 2, bx1 - bx0, rowH - 4);
@@ -2102,6 +2121,14 @@ void BlueprintEditor::mousePressEvent(QMouseEvent* e) {
         case ValueKind::EnumRef: {
             showListPicker(e->pos(), hit.nodeId, hit.pinName, "选择枚举值",
                            enumValuesForPin(*node, hit.pinName), cur);
+            break;
+        }
+        case ValueKind::AnimClipRef: {
+            const auto items = buildAnimClipItems();
+            if (items.isEmpty())
+                showInlineEdit(hit.nodeId, hit.pinName);   // 无资源时退回打字
+            else
+                showListPicker(e->pos(), hit.nodeId, hit.pinName, "选择动画片段", items, cur);
             break;
         }
         case ValueKind::Bool:
@@ -3141,6 +3168,21 @@ QList<QPair<QString, QString>> BlueprintEditor::buildLevelItems() const {
     return items;
 }
 
+QList<QPair<QString, QString>> BlueprintEditor::buildAnimClipItems() const {
+    QList<QPair<QString, QString>> items;
+    if (!m_bpClass) return items;     // 仅 Actor 类编辑器
+    const QString animAsset = m_bpClass->defaults.value("animAsset").toString();
+    if (animAsset.isEmpty()) return items;
+    AnimationAsset asset;
+    if (!asset.load(animAsset)) return items;
+    for (const AnimClip& c : asset.clips) {
+        const QString disp = c.label.isEmpty() ? c.name
+                             : QString("%1（%2）").arg(c.name, c.label);
+        items.append({disp, c.name});   // (显示名, 写回片段名)
+    }
+    return items;
+}
+
 QList<QPair<QString, QString>> BlueprintEditor::buildWidgetItems() const {
     QList<QPair<QString, QString>> items;
     if (m_projectRoot.isEmpty()) return items;
@@ -3313,6 +3355,8 @@ bool BlueprintEditor::isSelfNodeVisible(const QString& typeId) const {
     if (typeId.startsWith("Self.Sprite.") && !m_bpClass->components.contains("精灵渲染器"))
         return false;
     if (typeId.startsWith("Self.Camera.") && !m_bpClass->components.contains("摄像机组件"))
+        return false;
+    if (typeId.startsWith("Self.Anim.") && !m_bpClass->components.contains("动画器"))
         return false;
     return true;
 }

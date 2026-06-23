@@ -31,6 +31,7 @@ set(SOURCES
     src/models/ProjectManager.cpp
     src/models/LevelDocument.cpp
     src/models/BPValue.cpp
+    src/models/AnimationAsset.cpp
     src/editor/EditorWindow.cpp
     src/editor/Viewport2D.cpp
     src/editor/SceneOutliner.cpp
@@ -67,6 +68,7 @@ set(HEADERS
     src/models/ProjectManager.h
     src/models/ActorTypeUtils.h
     src/models/BPValue.h
+    src/models/AnimationAsset.h
     src/editor/EditorWindow.h
     src/editor/Viewport2D.h
     src/editor/SceneOutliner.h

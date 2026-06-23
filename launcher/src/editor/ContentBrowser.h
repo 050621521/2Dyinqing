@@ -36,6 +36,7 @@ private slots:
     void onNewLevel();
     void onNewFolder();
     void showGridContextMenu(const QPoint& pos);
+    void importAnimation();
 
 private:
     void buildFolderTree();
@@ -47,6 +48,7 @@ private:
     static QIcon makeLevelIcon();
     static QIcon makeBpClassIcon();
     static QIcon makeUIDocIcon();
+    static QIcon makeAnimIcon();
     QIcon makeImageIcon(const QString& path);
 
     QString      m_projectRoot;

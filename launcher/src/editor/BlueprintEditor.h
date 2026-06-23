@@ -60,6 +60,7 @@ private:
         UIRef,      // 下拉：项目 UI 文件（含控件展开，特殊弹窗）
         WidgetRef,  // 下拉：项目所有 UI 的控件（写回 "UI名::控件名"）
         EnumRef,    // 下拉：某枚举的选项（选项按节点实例推导）
+        AnimClipRef,// 下拉：本类动画器引用的 .anim 的片段名
         Number,     // 数值（绿色），原地 QLineEdit
         Array,      // 数组（蓝色），整条线承载列表
         Any         // 通配：接受任意类型（比较等节点用）
@@ -265,6 +266,7 @@ private:
     QList<QPair<QString, QString>> buildActorItems() const;
     QList<QPair<QString, QString>> buildLevelItems() const;
     QList<QPair<QString, QString>> buildWidgetItems() const;
+    QList<QPair<QString, QString>> buildAnimClipItems() const;
     // UI 资产选择器
     void showUIAssetPicker(QPoint screenPos, const QString& nodeId);
     void hideUIAssetPicker();

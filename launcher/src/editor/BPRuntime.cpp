@@ -147,7 +147,65 @@ void BPRuntime::tick() {
     const float dt = m_lastDt;
     tickComponents(dt);
     triggerTick(dt);
+    advanceAnimations(dt);
     emit stateChanged();
+}
+
+const AnimationAsset& BPRuntime::animAssetFor(const QString& path) {
+    auto it = m_animCache.find(path);
+    if (it == m_animCache.end()) {
+        AnimationAsset as;
+        as.load(path);
+        it = m_animCache.insert(path, as);
+    }
+    return it.value();
+}
+
+// 把 Actor 的当前片段 + 帧序号解析为可绘制的精灵表 + 源矩形
+static void applyAnimFrame(ActorData& a, const AnimationAsset& as, const AnimClip* clip) {
+    if (!clip || as.sheet.isEmpty()) { a.animSheetPath.clear(); return; }
+    a.animFrameIndex = qBound(0, a.animFrameIndex, qMax(0, clip->frameCount - 1));
+    a.animSheetPath  = as.sheet;
+    a.animSrc        = as.frameRect(*clip, a.animFrameIndex);
+}
+
+void BPRuntime::initAnimations() {
+    for (ActorData& a : m_actors) {
+        if (!a.components.contains("动画器") || a.animAsset.isEmpty()
+            || a.animDefaultClip.isEmpty()) continue;
+        a.animCurClip    = a.animDefaultClip;
+        a.animFrameIndex = 0;
+        a.animTimeAccum  = 0.0;
+        a.animPlaying    = a.animAutoPlay;
+        const AnimationAsset& as = animAssetFor(a.animAsset);
+        applyAnimFrame(a, as, as.findClip(a.animCurClip));
+    }
+}
+
+void BPRuntime::advanceAnimations(float dt) {
+    for (ActorData& a : m_actors) {
+        if (!a.animPlaying || a.animAsset.isEmpty() || a.animCurClip.isEmpty()) continue;
+        const AnimationAsset& as = animAssetFor(a.animAsset);
+        const AnimClip* clip = as.findClip(a.animCurClip);
+        if (!clip || clip->frameCount <= 0 || as.sheet.isEmpty()) continue;
+
+        const double frameDur = clip->fps > 0.0 ? 1.0 / clip->fps : 0.1;
+        a.animTimeAccum += dt;
+        while (a.animTimeAccum >= frameDur) {
+            a.animTimeAccum -= frameDur;
+            a.animFrameIndex++;
+            if (a.animFrameIndex >= clip->frameCount) {
+                if (clip->loop) {
+                    a.animFrameIndex = 0;
+                } else {
+                    a.animFrameIndex = clip->frameCount - 1;
+                    a.animPlaying = false;
+                    break;
+                }
+            }
+        }
+        applyAnimFrame(a, as, clip);
+    }
 }
 
 void BPRuntime::tickComponents(float dt) {
@@ -197,9 +255,20 @@ void BPRuntime::triggerTick(float dt) {
             executeChain(node.id, "exec_out", &visited);
         }
     }
+    // 持续按住：对每个被按住的键，每帧驱动其按键节点的 held 链
+    for (const QString& key : m_heldKeys) {
+        const QString typeId = "Event.Key." + key;
+        for (const BPNode& node : m_nodes) {
+            if (node.type == typeId) {
+                QSet<QString> visited;
+                executeChain(node.id, "held", &visited);
+            }
+        }
+    }
 }
 
 void BPRuntime::triggerBeginPlay() {
+    initAnimations();
     for (const BPNode& node : m_nodes) {
         if (node.type == "Event.BeginPlay") {
             QSet<QString> visited;
@@ -210,6 +279,7 @@ void BPRuntime::triggerBeginPlay() {
 }
 
 void BPRuntime::triggerKeyDown(const QString& key) {
+    m_heldKeys.insert(key);
     const QString typeId = "Event.Key." + key;
     for (const BPNode& node : m_nodes) {
         if (node.type == typeId) {
@@ -221,6 +291,7 @@ void BPRuntime::triggerKeyDown(const QString& key) {
 }
 
 void BPRuntime::triggerKeyUp(const QString& key) {
+    m_heldKeys.remove(key);
     const QString typeId = "Event.Key." + key;
     for (const BPNode& node : m_nodes) {
         if (node.type == typeId) {

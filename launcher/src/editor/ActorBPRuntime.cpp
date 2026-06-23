@@ -115,6 +115,24 @@ QString ActorBPRuntime::executeNode(const QString& nodeId) {
         self->flipY = (v == "true" || v == "1");
         return "exec_out";
     }
+    // ── Self 动画器节点 ───────────────────────────────────────────────
+    if (node->type == "Self.Anim.Play") {
+        const QString clip = resolveDataPin(nodeId, "clip").toString();
+        if (!clip.isEmpty()) {
+            if (self->animCurClip != clip) {   // 切换片段才帧归零，重复调用不打断
+                self->animCurClip    = clip;
+                self->animFrameIndex = 0;
+                self->animTimeAccum  = 0.0;
+            }
+            self->animPlaying = true;
+        }
+        return "exec_out";
+    }
+    if (node->type == "Self.Anim.Stop") {
+        self->animPlaying = false;     // 停在当前帧
+        return "exec_out";
+    }
+
     if (node->type == "Self.Sprite.SetVisible") {
         const QString v = resolveDataPin(nodeId, "visible").toString().toLower();
         self->spriteVisible = (v == "true" || v == "1");
