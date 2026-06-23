@@ -1,5 +1,6 @@
 # CMake 编译产物
 launcher/build/
+launcher/uitest/build/
 
 # macOS
 .DS_Store

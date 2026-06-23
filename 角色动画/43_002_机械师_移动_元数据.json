@@ -1,0 +1,97 @@
+{
+  "id": "43_002",
+  "name": "机械师_移动动画",
+  "character": "机械师",
+  "style_reference": "俯视角像素动作游戏移动节奏；原创机械师造型，未复制具体商业素材",
+  "sprite_sheet": "43_002_机械师_移动_精灵表.png",
+  "frame_directory": "frames_mechanic",
+  "frame_size": {
+    "width": 64,
+    "height": 64
+  },
+  "sheet_grid": {
+    "columns": 6,
+    "rows": 8
+  },
+  "directions": [
+    {
+      "key": "down",
+      "label": "下",
+      "row": 0,
+      "frames": 6,
+      "fps": 12,
+      "loop": true
+    },
+    {
+      "key": "down_right",
+      "label": "右下",
+      "row": 1,
+      "frames": 6,
+      "fps": 12,
+      "loop": true
+    },
+    {
+      "key": "right",
+      "label": "右",
+      "row": 2,
+      "frames": 6,
+      "fps": 12,
+      "loop": true
+    },
+    {
+      "key": "up_right",
+      "label": "右上",
+      "row": 3,
+      "frames": 6,
+      "fps": 12,
+      "loop": true
+    },
+    {
+      "key": "up",
+      "label": "上",
+      "row": 4,
+      "frames": 6,
+      "fps": 12,
+      "loop": true
+    },
+    {
+      "key": "up_left",
+      "label": "左上",
+      "row": 5,
+      "frames": 6,
+      "fps": 12,
+      "loop": true
+    },
+    {
+      "key": "left",
+      "label": "左",
+      "row": 6,
+      "frames": 6,
+      "fps": 12,
+      "loop": true
+    },
+    {
+      "key": "down_left",
+      "label": "左下",
+      "row": 7,
+      "frames": 6,
+      "fps": 12,
+      "loop": true
+    }
+  ],
+  "godot_import_hint": {
+    "node": "AnimatedSprite2D 或 Sprite2D + AnimationPlayer",
+    "hframes": 6,
+    "vframes": 8,
+    "animation_names": [
+      "walk_down",
+      "walk_down_right",
+      "walk_right",
+      "walk_up_right",
+      "walk_up",
+      "walk_up_left",
+      "walk_left",
+      "walk_down_left"
+    ]
+  }
+}

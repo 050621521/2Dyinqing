@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>43_001 武夫移动动画预览</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: #15191f;
+      color: #f1ead9;
+      font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    main {
+      width: min(880px, 100vw);
+      padding: 32px;
+    }
+    h1 {
+      margin: 0 0 20px;
+      font-size: 22px;
+      letter-spacing: 0;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(136px, 1fr));
+      gap: 18px;
+    }
+    .preview {
+      display: grid;
+      justify-items: center;
+      gap: 10px;
+      padding: 18px 10px;
+      border: 1px solid #33424d;
+      background:
+        linear-gradient(45deg, #202832 25%, transparent 25%),
+        linear-gradient(-45deg, #202832 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #202832 75%),
+        linear-gradient(-45deg, transparent 75%, #202832 75%),
+        #182029;
+      background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+      background-size: 16px 16px;
+      border-radius: 8px;
+    }
+    .sprite {
+      width: 128px;
+      height: 128px;
+      background-image: url("./43_001_武夫_移动_精灵表.png");
+      background-repeat: no-repeat;
+      background-size: 768px 1024px;
+      image-rendering: pixelated;
+      animation: walk 0.5s steps(6) infinite;
+    }
+    .down { background-position-y: 0; }
+    .down_right { background-position-y: -128px; }
+    .right { background-position-y: -256px; }
+    .up_right { background-position-y: -384px; }
+    .up { background-position-y: -512px; }
+    .up_left { background-position-y: -640px; }
+    .left { background-position-y: -768px; }
+    .down_left { background-position-y: -896px; }
+    .label {
+      min-width: 52px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: #273440;
+      color: #f1ead9;
+      text-align: center;
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .meta {
+      margin-top: 18px;
+      color: #aeb8bf;
+      font-size: 13px;
+      line-height: 1.7;
+    }
+    @keyframes walk {
+      from { background-position-x: 0; }
+      to { background-position-x: -768px; }
+    }
+    @media (max-width: 680px) {
+      main { padding: 18px; }
+      .grid { grid-template-columns: repeat(2, minmax(136px, 1fr)); }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>43_001 武夫移动动画</h1>
+    <div class="grid">
+      <div class="preview"><div class="sprite down"></div><div class="label">向下</div></div>
+      <div class="preview"><div class="sprite down_right"></div><div class="label">右下</div></div>
+      <div class="preview"><div class="sprite right"></div><div class="label">向右</div></div>
+      <div class="preview"><div class="sprite up_right"></div><div class="label">右上</div></div>
+      <div class="preview"><div class="sprite up"></div><div class="label">向上</div></div>
+      <div class="preview"><div class="sprite up_left"></div><div class="label">左上</div></div>
+      <div class="preview"><div class="sprite left"></div><div class="label">向左</div></div>
+      <div class="preview"><div class="sprite down_left"></div><div class="label">左下</div></div>
+    </div>
+    <div class="meta">64x64 / 6 帧 / 8 方向 / 建议 12 FPS 循环播放</div>
+  </main>
+</body>
+</html>
