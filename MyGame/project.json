@@ -1,0 +1,31 @@
+{
+    "defaultLevel": "/Users/kwy/Documents/2Dyinqing/MyGame/Levels/登录界面.level",
+    "globalVariables": [
+        {
+            "name": "单人模式",
+            "type": "enum:单人模式"
+        },
+        {
+            "name": "模式",
+            "type": "enum:模式"
+        },
+        {
+            "name": "角色",
+            "type": "enum:角色"
+        },
+        {
+            "name": "wufu_HP",
+            "type": "number"
+        }
+    ],
+    "pixelsPerUnit": 100,
+    "tags": [
+        "未标记",
+        "玩家",
+        "敌人",
+        "地面",
+        "障碍",
+        "拾取物",
+        "墙"
+    ]
+}

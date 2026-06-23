@@ -55,6 +55,9 @@ void ProjectGrid::rebuild() {
         connect(card, &ProjectCard::doubleClicked, this, [this](const ProjectInfo& info) {
             emit projectOpened(info);
         });
+        connect(card, &ProjectCard::moveRequested, this, [this](const ProjectInfo& info) {
+            emit moveRequested(info);
+        });
         connect(card, &ProjectCard::removeRequested, this, [this](const ProjectInfo& info) {
             emit removeRequested(info);
         });

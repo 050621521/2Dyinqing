@@ -176,6 +176,13 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
                 {"delta_time", "帧间隔", false, true, ValueKind::Number}
             }
         },
+        {
+            "Event.OnCollision", "碰撞时", QColor("#6a2a8a"),
+            {   // 实际引脚由 effectivePins 按本类碰撞盒目标标签动态生成
+                {"exec_out", "exec",     true,  true},
+                {"other",    "对方对象", false, true, ValueKind::ActorRef}
+            }
+        },
         {"Event.Key.W",       "W 键",    QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true},{"held","持续按住",true,true}}},
         {"Event.Key.A",       "A 键",    QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true},{"held","持续按住",true,true}}},
         {"Event.Key.S",       "S 键",    QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true},{"held","持续按住",true,true}}},
@@ -522,6 +529,11 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
             {{"value","数值",false,false,ValueKind::Number},{"min","最小",false,false,ValueKind::Number},
              {"max","最大",false,false,ValueKind::Number},{"result","结果",false,true,ValueKind::Number}}
         },
+        {
+            "Math.Random", "随机数", QColor("#1a2a5a"),
+            {{"min","最小值",false,false,ValueKind::Number},{"max","最大值",false,false,ValueKind::Number},
+             {"result","结果",false,true,ValueKind::Number}}
+        },
         // ── 比较运算（虚幻式：一符一节点）─────────────────────────────────
         {
             "Cmp.GT", ">", QColor("#3a2a5a"),
@@ -866,6 +878,24 @@ QList<BlueprintEditor::PinDef> BlueprintEditor::effectivePins(const BPNode& node
         return pins;
     }
 
+    // 碰撞时：出口按「本类碰撞盒目标标签」动态生成（一标签一 exec 出口）+ 对方对象数据输出
+    if (node.type == "Event.OnCollision") {
+        QList<PinDef> pins;
+        QString targets;
+        if (m_bpClass) targets = m_bpClass->defaults.value("colliderTargets").toString();
+        const QStringList tags = targets.split(',', Qt::SkipEmptyParts);
+        bool any = false;
+        for (const QString& t : tags) {
+            const QString tag = t.trimmed();
+            if (tag.isEmpty()) continue;
+            pins.append({"case_" + tag, tag, true, true});   // 每个目标标签一条出口
+            any = true;
+        }
+        if (!any) pins.append({"exec_out", "exec", true, true});  // 无目标标签时给个通用出口
+        pins.append({"other", "对方对象", false, true, ValueKind::ActorRef});
+        return pins;
+    }
+
     // 分支控制：exec_in + value（数据输入）；每个分支一行 = 比较值数据输入(caseval) + exec 出口(case)
     if (node.type == "Flow.Switch") {
         QList<PinDef> pins;
@@ -973,6 +1003,9 @@ bool BlueprintEditor::isPinExec(const QString& typeId, const QString& pinKey, bo
     // 分支控制：value 和 caseval_* 是数据输入（可接任意数据源），其余（exec_in / case_* / default）才是 exec
     if (typeId == "Flow.Switch")
         return pinKey != "value" && !pinKey.startsWith("caseval_");
+    // 碰撞时：case_<标签> 与 exec_out 是执行引脚；other 是数据
+    if (typeId == "Event.OnCollision")
+        return pinKey.startsWith("case_") || pinKey == "exec_out";
     if (typeId == "Global.Set" || typeId == "Local.Set") return pinKey == "exec_in" || pinKey == "exec_out";
     if (typeId == "Global.Get" || typeId == "Local.Get") return false;
     const NodeDef* def = findNodeDef(typeId);

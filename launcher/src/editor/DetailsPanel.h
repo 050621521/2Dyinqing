@@ -45,7 +45,12 @@ private:
     void buildCameraComponent(QVBoxLayout* root);
     void buildFollowControl(QVBoxLayout* root);
     void buildConfiner(QVBoxLayout* root);
+    void buildCollider(QVBoxLayout* root);
     void refreshComponentList();
+    void refreshTagCombo();
+    void manageTagsDialog();              // 标签管理（删除）
+    void editColliderTargets();           // 弹多选菜单选目标标签
+    void updateColliderTargetsLabel();
     void refreshSpriteSection();
     void refreshAnimSection();
     void reloadAnimClips(const QString& selectedClip);
@@ -111,6 +116,17 @@ private:
     QDoubleSpinBox* m_confinerMaxXSpin   = nullptr;
     QDoubleSpinBox* m_confinerMinYSpin   = nullptr;
     QDoubleSpinBox* m_confinerMaxYSpin   = nullptr;
+
+    // 碰撞盒组件
+    QWidget*        m_colliderBox        = nullptr;
+    QCheckBox*      m_colliderEnabledChk = nullptr;
+    QDoubleSpinBox* m_colliderWSpin      = nullptr;
+    QDoubleSpinBox* m_colliderHSpin      = nullptr;
+    QDoubleSpinBox* m_colliderOffXSpin   = nullptr;
+    QDoubleSpinBox* m_colliderOffYSpin   = nullptr;
+    QComboBox*      m_colliderRespCombo  = nullptr;
+    QPushButton*    m_colliderTargetsBtn = nullptr;   // 多选目标标签
+    QString         m_colliderTargetsValue;           // 当前选中标签（逗号分隔）
 
     ActorData       m_currentActor;
     QStackedWidget* m_stack     = nullptr;

@@ -79,6 +79,8 @@ set(HEADERS
     src/editor/UndoCommands.h
     src/editor/BPRuntime.h
     src/editor/ActorBPRuntime.h
+    src/editor/BPEval.h
+    src/editor/ProjectTags.h
     src/editor/LayoutManager.h
     src/editor/Recorder.h
     src/editor/DocTabBar.h

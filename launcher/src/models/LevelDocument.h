@@ -72,6 +72,18 @@ struct ActorData {
     float   confinerMinY       = -500.0f;
     float   confinerMaxY       =  500.0f;
 
+    // 碰撞盒组件属性（AABB；过滤用 Actor 级 tag）
+    bool    colliderEnabled    = false;
+    float   colliderW          = 100.0f;
+    float   colliderH          = 100.0f;
+    float   colliderOffsetX    = 0.0f;
+    float   colliderOffsetY    = 0.0f;
+    QString colliderResponse   = "阻挡";   // "阻挡" | "重叠"
+    QString colliderTargets;               // 逗号分隔的目标标签；空 = 除自身标签外所有
+
+    // 碰撞运行时瞬态（不序列化）：上一帧位置，用于分轴阻挡回退
+    float   prevX = 0.0f, prevY = 0.0f;
+
     QJsonObject toJson() const;
     static ActorData fromJson(const QJsonObject& obj);
 };

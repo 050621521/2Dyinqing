@@ -9,6 +9,8 @@
 #include <QUuid>
 #include <QDir>
 #include <QFileInfo>
+#include <QRandomGenerator>
+#include "BPEval.h"
 #include "models/BPMacro.h"
 #include <algorithm>
 #include <cmath>
@@ -145,10 +147,82 @@ void BPRuntime::flattenMacros(const QString& projectRoot) {
 void BPRuntime::tick() {
     m_lastDt = m_elapsedTimer.restart() / 1000.0f;
     const float dt = m_lastDt;
+    // 捕获本帧移动前的位置，供碰撞 pass 分轴回退（移动发生在 triggerTick 与各 Actor 蓝图 tick）
+    for (ActorData& a : m_actors) { a.prevX = a.x; a.prevY = a.y; }
     tickComponents(dt);
     triggerTick(dt);
     advanceAnimations(dt);
     emit stateChanged();
+    // 注：runCollisionPass() 由 EditorWindow 在各 Actor 蓝图 tick 之后调用
+}
+
+// AABB 相交（中心 + 半宽半高）
+static inline bool aabbHit(float ax, float ay, float ahw, float ahh,
+                           float bx, float by, float bhw, float bhh) {
+    return std::abs(ax - bx) < (ahw + bhw) && std::abs(ay - by) < (ahh + bhh);
+}
+
+void BPRuntime::runCollisionPass() {
+    auto enabled = [](const ActorData& a) {
+        return a.colliderEnabled && a.components.contains("碰撞盒");
+    };
+    auto targetsMatch = [](const ActorData& A, const ActorData& B) {
+        const QString t = A.colliderTargets.trimmed();
+        if (t.isEmpty()) return B.tag != A.tag;                 // 空 = 除自身标签外所有
+        for (const QString& tag : t.split(',', Qt::SkipEmptyParts))
+            if (tag.trimmed() == B.tag) return true;
+        return false;
+    };
+
+    // —— 分轴阻挡解析：X、Y 各独立回退 ——
+    for (ActorData& A : m_actors) {
+        if (!enabled(A)) continue;
+        const float hw = A.colliderW * 0.5f, hh = A.colliderH * 0.5f;
+        auto hitsBlocker = [&](float testX, float testY) -> bool {
+            const float acx = testX + A.colliderOffsetX, acy = testY + A.colliderOffsetY;
+            for (const ActorData& B : m_actors) {
+                if (&B == &A || !enabled(B) || B.colliderResponse != "阻挡" || !targetsMatch(A, B)) continue;
+                if (aabbHit(acx, acy, hw, hh,
+                            B.x + B.colliderOffsetX, B.y + B.colliderOffsetY,
+                            B.colliderW * 0.5f, B.colliderH * 0.5f))
+                    return true;
+            }
+            return false;
+        };
+        float rx = hitsBlocker(A.x, A.prevY) ? A.prevX : A.x;   // 先解 X（Y 用旧值）
+        float ry = hitsBlocker(rx,  A.y)     ? A.prevY : A.y;   // 再解 Y（X 用新值）
+        A.x = rx; A.y = ry;
+    }
+
+    // —— 接触事件：按目标标签检测（不分响应类型），仅「刚接触」那帧触发一次 ——
+    for (ActorData& A : m_actors) {
+        if (!enabled(A)) continue;
+        const float hw = A.colliderW * 0.5f, hh = A.colliderH * 0.5f;
+        const float acx = A.x + A.colliderOffsetX, acy = A.y + A.colliderOffsetY;
+        QSet<QString> cur;
+        for (const ActorData& B : m_actors) {
+            if (&B == &A || !enabled(B) || !targetsMatch(A, B)) continue;
+            if (aabbHit(acx, acy, hw, hh,
+                        B.x + B.colliderOffsetX, B.y + B.colliderOffsetY,
+                        B.colliderW * 0.5f, B.colliderH * 0.5f)) {
+                cur.insert(B.id);
+                if (!m_overlapState[A.id].contains(B.id)) {  // 新接触 → 触发一次
+                    triggerCollision(A.id, B.id, B.tag);     // 关卡蓝图「碰撞时」
+                    emit overlapDetected(A.id, B.id, B.tag); // 转发给各 Actor 蓝图
+                }
+            }
+        }
+        m_overlapState[A.id] = cur;
+    }
+}
+
+void BPRuntime::triggerCollision(const QString& selfId, const QString& otherId, const QString& otherTag) {
+    m_collSelf = selfId; m_collOther = otherId; m_collTag = otherTag;
+    for (const BPNode& node : m_nodes) {
+        if (node.type != "Event.OnCollision") continue;
+        QSet<QString> v1; executeChain(node.id, "case_" + otherTag, &v1);  // 按对方标签分路
+        QSet<QString> v2; executeChain(node.id, "exec_out",        &v2);  // 无目标标签时的通用出口
+    }
 }
 
 const AnimationAsset& BPRuntime::animAssetFor(const QString& path) {
@@ -554,61 +628,13 @@ BPValue BPRuntime::resolveOutputPin(const QString& nodeId, const QString& pinKey
         return m_varStore.value(name);
     }
 
-    // 数值转字符串（去掉多余的小数零）
-    if (node->type == "Var.NumberToString" && pinKey == "text") {
-        float v = resolveDataPin(nodeId, "number").toString().toFloat();
-        return QString::number(v, 'f', 6).remove(QRegularExpression("0+$")).remove(QRegularExpression("\\.$"));
+    // ── 纯数据节点（数学/比较/逻辑/数组/转换）：共享求值器，两套运行时一致 ──
+    {
+        BPValue out;
+        if (evalPureDataNode(node->type, pinKey,
+                [&](const QString& pk){ return resolveDataPin(nodeId, pk); }, out))
+            return out;
     }
-
-    // ── 数学运算（虚幻式一符一节点，类型化 BPValue 求值）──────────────────
-    if (pinKey == "result"
-        && (node->type == "Math.Add" || node->type == "Math.Sub"
-         || node->type == "Math.Mul" || node->type == "Math.Div" || node->type == "Math.Mod")) {
-        const double a = resolveDataPin(nodeId, "a").toNumber();
-        const double b = resolveDataPin(nodeId, "b").toNumber();
-        double r = 0.0;
-        if      (node->type == "Math.Add") r = a + b;
-        else if (node->type == "Math.Sub") r = a - b;
-        else if (node->type == "Math.Mul") r = a * b;
-        else if (node->type == "Math.Div") r = (b != 0.0) ? a / b : 0.0;          // 除 0 → 0
-        else                               r = (b != 0.0) ? std::fmod(a, b) : 0.0; // 取余 0 → 0
-        return BPValue::fromNumber(r);
-    }
-    if (node->type == "Math.Clamp" && pinKey == "result") {
-        const double v  = resolveDataPin(nodeId, "value").toNumber();
-        const double mn = resolveDataPin(nodeId, "min").toNumber();
-        const double mx = resolveDataPin(nodeId, "max").toNumber();
-        return BPValue::fromNumber(std::clamp(v, mn, mx));
-    }
-
-    // ── 比较运算（虚幻式一符一节点）───────────────────────────────────────
-    if (pinKey == "result"
-        && (node->type == "Cmp.GT" || node->type == "Cmp.GE" || node->type == "Cmp.LT"
-         || node->type == "Cmp.LE" || node->type == "Cmp.EQ" || node->type == "Cmp.NE")) {
-        const BPValue va = resolveDataPin(nodeId, "a");
-        const BPValue vb = resolveDataPin(nodeId, "b");
-        bool res = false;
-        if      (node->type == "Cmp.EQ") res =  va.typedEquals(vb);  // 类型感知相等
-        else if (node->type == "Cmp.NE") res = !va.typedEquals(vb);
-        else {                                                       // 大小比较按数值
-            const double a = va.toNumber(), b = vb.toNumber();
-            if      (node->type == "Cmp.GT") res = (a >  b);
-            else if (node->type == "Cmp.GE") res = (a >= b);
-            else if (node->type == "Cmp.LT") res = (a <  b);
-            else                             res = (a <= b);
-        }
-        return BPValue::fromBool(res);
-    }
-
-    // ── 逻辑运算（虚幻式一符一节点）───────────────────────────────────────
-    if (node->type == "Logic.And" && pinKey == "result")
-        return BPValue::fromBool(resolveDataPin(nodeId, "a").toBool()
-                              && resolveDataPin(nodeId, "b").toBool());
-    if (node->type == "Logic.Or" && pinKey == "result")
-        return BPValue::fromBool(resolveDataPin(nodeId, "a").toBool()
-                              || resolveDataPin(nodeId, "b").toBool());
-    if (node->type == "Logic.Not" && pinKey == "result")
-        return BPValue::fromBool(!resolveDataPin(nodeId, "value").toBool());
 
     // 遍历(ForEach) 的循环体输出：当前元素 / 当前索引（仅迭代期间有效）
     if (node->type == "Flow.ForEach") {
@@ -618,38 +644,6 @@ BPValue BPRuntime::resolveOutputPin(const QString& nodeId, const QString& pinKey
             if (pinKey == "index")   return BPValue::fromNumber(it->index);
         }
         return BPValue();
-    }
-
-    // ── 数组数据节点（纯数据）──────────────────────────────────────────────
-    if (node->type == "Array.Make" && pinKey == "result")
-        return BPValue::fromArray({});
-    if (node->type == "Array.Length" && pinKey == "result")
-        return BPValue::fromNumber(resolveDataPin(nodeId, "array").toArray().size());
-    if (node->type == "Array.Get" && pinKey == "result") {
-        const QList<BPValue> arr = resolveDataPin(nodeId, "array").toArray();
-        const int i = (int)resolveDataPin(nodeId, "index").toNumber();
-        return (i >= 0 && i < arr.size()) ? arr[i] : BPValue();   // 越界→Null
-    }
-    if (node->type == "Array.Contains" && pinKey == "result") {
-        const QList<BPValue> arr = resolveDataPin(nodeId, "array").toArray();
-        const BPValue v = resolveDataPin(nodeId, "value");
-        for (const BPValue& e : arr) if (e.typedEquals(v)) return BPValue::fromBool(true);
-        return BPValue::fromBool(false);
-    }
-
-    // 旧「数值比较」(op 输入引脚式)：保留求值以兼容旧蓝图
-    if (node->type == "Logic.Compare" && pinKey == "result") {
-        const double a = resolveDataPin(nodeId, "a").toNumber();
-        const double b = resolveDataPin(nodeId, "b").toNumber();
-        const QString op = resolveDataPin(nodeId, "op").toString().trimmed();
-        bool res = false;
-        if      (op == "==") res = (a == b);
-        else if (op == "!=") res = (a != b);
-        else if (op == "<")  res = (a <  b);
-        else if (op == "<=") res = (a <= b);
-        else if (op == ">")  res = (a >  b);
-        else if (op == ">=") res = (a >= b);
-        return BPValue::fromBool(res);
     }
 
     if (node->type == "Var.GetActorPos") {
@@ -664,6 +658,12 @@ BPValue BPRuntime::resolveOutputPin(const QString& nodeId, const QString& pinKey
 
     if (node->type == "Event.Tick")
         return (pinKey == "delta_time") ? QString::number(m_deltaTick) : QString();
+
+    if (node->type == "Event.OnCollision") {
+        if (pinKey == "self")  return m_collSelf;
+        if (pinKey == "other") return m_collOther;
+        if (pinKey == "tag")   return m_collTag;
+    }
 
     if (node->type == "UI.OnDropdownChanged" && pinKey == "index")
         return QString::number(m_dropdownIndex.value(nodeId, 0));

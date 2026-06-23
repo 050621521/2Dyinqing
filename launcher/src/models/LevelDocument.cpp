@@ -56,6 +56,13 @@ QJsonObject ActorData::toJson() const {
     obj["confinerMaxX"]       = confinerMaxX;
     obj["confinerMinY"]       = confinerMinY;
     obj["confinerMaxY"]       = confinerMaxY;
+    obj["colliderEnabled"]    = colliderEnabled;
+    obj["colliderW"]          = colliderW;
+    obj["colliderH"]          = colliderH;
+    obj["colliderOffsetX"]    = colliderOffsetX;
+    obj["colliderOffsetY"]    = colliderOffsetY;
+    obj["colliderResponse"]   = colliderResponse;
+    obj["colliderTargets"]    = colliderTargets;
     return obj;
 }
 
@@ -108,6 +115,13 @@ ActorData ActorData::fromJson(const QJsonObject& obj) {
     a.confinerMaxX       = (float)obj["confinerMaxX"].toDouble(500.0);
     a.confinerMinY       = (float)obj["confinerMinY"].toDouble(-500.0);
     a.confinerMaxY       = (float)obj["confinerMaxY"].toDouble(500.0);
+    a.colliderEnabled    = obj["colliderEnabled"].toBool(false);
+    a.colliderW          = (float)obj["colliderW"].toDouble(100.0);
+    a.colliderH          = (float)obj["colliderH"].toDouble(100.0);
+    a.colliderOffsetX    = (float)obj["colliderOffsetX"].toDouble(0.0);
+    a.colliderOffsetY    = (float)obj["colliderOffsetY"].toDouble(0.0);
+    a.colliderResponse   = obj.value("colliderResponse").toString("阻挡");
+    a.colliderTargets    = obj.value("colliderTargets").toString();
 
     // 活继承覆盖集合
     if (obj.contains("overriddenFields")) {

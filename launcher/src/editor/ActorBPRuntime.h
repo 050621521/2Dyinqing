@@ -24,9 +24,13 @@ public:
     void setUIRuntime(UIRuntime* ui) { m_uiRuntime = ui; }
     void triggerButtonClick(const QString& instanceId, const QString& widgetName);
     void triggerDropdownChanged(const QString& instanceId, const QString& widgetName, int index);
+    // 碰撞时：仅当 selfId == 本实例 actorId 才触发本蓝图的「碰撞时」事件
+    void triggerCollision(const QString& selfId, const QString& otherId, const QString& otherTag);
 
 signals:
     void printOutput(const QString& text);
+    void loadLevelRequested(const QString& levelName);   // 跳转关卡（转交 EditorWindow）
+    void backLevelRequested();                           // 返回上一关
 
 private:
     void    triggerEvent(const QString& eventType, const QString& eventParam = {});
@@ -42,6 +46,8 @@ private:
     QString           m_actorId;
     QList<ActorData>* m_actors;
     float             m_deltaTick = 0.0f;
+    QSet<QString>     m_heldKeys;     // 当前按住的键，每帧驱动 held 链（与关卡蓝图对齐）
+    QString           m_collOther, m_collTag;   // 「碰撞时」事件当前上下文（self = m_actorId）
     UIRuntime*             m_uiRuntime    = nullptr;
     QMap<QString, QString> m_uiRefs;        // nodeId(UI.Create) → instanceId
     QMap<QString, int>     m_dropdownIndex; // nodeId → 最新选中索引

@@ -26,6 +26,7 @@ private:
     void onCategorySelected(const QString& id);
     void onSelectionChanged(const ProjectInfo& info);
     void onProjectOpened(const ProjectInfo& info);
+    void onMoveProject(const ProjectInfo& info);
     void onNewProject();
     void onOpenProject();
     void onBrowse();

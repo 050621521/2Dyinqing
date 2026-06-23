@@ -1,0 +1,57 @@
+{
+    "components": [
+    ],
+    "connections": [
+        {
+            "fromNode": "15a9126b-8015-48dd-946f-93604cf84b19",
+            "fromPin": "exec_out",
+            "id": "76155426-16a2-4586-968f-611135a17f13",
+            "toNode": "ac6ff8ed-a2dc-4fe9-a9ed-af6bd84d28a5",
+            "toPin": "exec_in"
+        },
+        {
+            "fromNode": "ac6ff8ed-a2dc-4fe9-a9ed-af6bd84d28a5",
+            "fromPin": "instanceId",
+            "id": "9a8125a0-477b-400a-9d4f-8ed21b1c2072",
+            "toNode": "957fa84b-c6f1-4d4b-bd7c-4b7edd1e719d",
+            "toPin": "instanceId"
+        },
+        {
+            "fromNode": "ac6ff8ed-a2dc-4fe9-a9ed-af6bd84d28a5",
+            "fromPin": "exec_out",
+            "id": "d0013839-477d-416d-b20a-32c9417c9807",
+            "toNode": "957fa84b-c6f1-4d4b-bd7c-4b7edd1e719d",
+            "toPin": "exec_in"
+        }
+    ],
+    "defaults": {
+    },
+    "name": "NewBlueprint",
+    "nodes": [
+        {
+            "id": "15a9126b-8015-48dd-946f-93604cf84b19",
+            "params": {
+            },
+            "type": "Event.BeginPlay",
+            "x": -395.4603271484375,
+            "y": -180.0205841064453
+        },
+        {
+            "id": "ac6ff8ed-a2dc-4fe9-a9ed-af6bd84d28a5",
+            "params": {
+                "uiName": "游戏HUD"
+            },
+            "type": "UI.Create",
+            "x": -167.0712127685547,
+            "y": -201.82264709472656
+        },
+        {
+            "id": "957fa84b-c6f1-4d4b-bd7c-4b7edd1e719d",
+            "params": {
+            },
+            "type": "UI.Show",
+            "x": 68.7595443725586,
+            "y": -157.7028045654297
+        }
+    ]
+}

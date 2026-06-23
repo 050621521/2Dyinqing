@@ -1,6 +1,12 @@
 #include "DetailsPanel.h"
 #include "models/ActorTypeUtils.h"
 #include "models/AnimationAsset.h"
+#include "ProjectTags.h"
+#include <QInputDialog>
+#include <QAction>
+
+static const QString kAddTagItem    = QStringLiteral("＋ 添加标签…");
+static const QString kManageTagItem = QStringLiteral("⚙ 管理标签…");
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
@@ -66,6 +72,7 @@ DetailsPanel::DetailsPanel(QWidget* parent) : QWidget(parent) {
     buildCameraComponent(root);
     buildFollowControl(root);
     buildConfiner(root);
+    buildCollider(root);
     root->addStretch();
 
     scroll->setWidget(content);
@@ -145,8 +152,7 @@ void DetailsPanel::buildHeader(QVBoxLayout* root) {
     auto* tagLbl = new QLabel("标签", headerWrap);
     tagLbl->setObjectName("detailSmallLabel");
     m_tagCombo = new QComboBox(headerWrap);
-    m_tagCombo->setObjectName("detailCombo");
-    m_tagCombo->addItems({"未标记", "玩家", "敌人", "地面", "障碍", "拾取物"});
+    m_tagCombo->setObjectName("detailCombo");   // 选项由 refreshTagCombo() 从项目标签表填充
 
     auto* layerLbl = new QLabel("图层", headerWrap);
     layerLbl->setObjectName("detailSmallLabel");
@@ -182,8 +188,107 @@ void DetailsPanel::buildHeader(QVBoxLayout* root) {
     connect(m_activeCheck, &QCheckBox::toggled,            this, &DetailsPanel::onAnyFieldChanged);
     connect(m_staticCheck, &QCheckBox::toggled,            this, &DetailsPanel::onAnyFieldChanged);
     connect(m_nameEdit,    &QLineEdit::textEdited,          this, &DetailsPanel::onAnyFieldChanged);
-    connect(m_tagCombo,    &QComboBox::currentTextChanged,  this, &DetailsPanel::onAnyFieldChanged);
+    connect(m_tagCombo,    &QComboBox::currentTextChanged,  this, [this](const QString& text){
+        if (text == kAddTagItem) {            // 选中「添加标签…」→ 弹框新建
+            bool ok = false;
+            const QString name = QInputDialog::getText(this, "添加标签", "新标签名：",
+                                                       QLineEdit::Normal, "", &ok).trimmed();
+            if (ok && !name.isEmpty()) {
+                ProjectTags::add(m_projectRoot, name);
+                refreshTagCombo();
+                const int idx = m_tagCombo->findText(name);
+                if (idx >= 0) m_tagCombo->setCurrentIndex(idx);  // 触发写回
+            } else {
+                refreshTagCombo();
+                const int idx = m_tagCombo->findText(m_currentActor.tag);
+                m_tagCombo->setCurrentIndex(idx >= 0 ? idx : 0);
+            }
+            return;
+        }
+        if (text == kManageTagItem) {         // 选中「管理标签…」→ 删除对话框
+            manageTagsDialog();
+            refreshTagCombo();
+            const int idx = m_tagCombo->findText(m_currentActor.tag);
+            m_tagCombo->setCurrentIndex(idx >= 0 ? idx : 0);
+            return;
+        }
+        onAnyFieldChanged();
+    });
     connect(m_layerCombo,  &QComboBox::currentTextChanged,  this, &DetailsPanel::onAnyFieldChanged);
+    refreshTagCombo();
+}
+
+// 标签下拉数据源：项目标签表 + 末尾「添加标签…」
+void DetailsPanel::refreshTagCombo() {
+    const QString cur = m_tagCombo->currentText();
+    QSignalBlocker block(m_tagCombo);
+    m_tagCombo->clear();
+    m_tagCombo->addItems(ProjectTags::read(m_projectRoot));
+    m_tagCombo->insertSeparator(m_tagCombo->count());
+    m_tagCombo->addItem(kAddTagItem);
+    m_tagCombo->addItem(kManageTagItem);
+    const int idx = m_tagCombo->findText(cur);
+    m_tagCombo->setCurrentIndex(idx >= 0 ? idx : 0);
+}
+
+// 标签管理对话框：列出标签，可删除（「未标记」不可删）
+void DetailsPanel::manageTagsDialog() {
+    QDialog dlg(this);
+    dlg.setWindowTitle("管理标签");
+    dlg.setMinimumWidth(260);
+    auto* lay = new QVBoxLayout(&dlg);
+    auto* list = new QListWidget(&dlg);
+    auto reload = [&]{
+        list->clear();
+        for (const QString& t : ProjectTags::read(m_projectRoot)) list->addItem(t);
+    };
+    reload();
+    lay->addWidget(list);
+    auto* row = new QHBoxLayout;
+    auto* delBtn   = new QPushButton("删除选中", &dlg);
+    auto* closeBtn = new QPushButton("关闭", &dlg);
+    row->addWidget(delBtn); row->addStretch(); row->addWidget(closeBtn);
+    lay->addLayout(row);
+    connect(delBtn, &QPushButton::clicked, &dlg, [&]{
+        auto* it = list->currentItem();
+        if (!it) return;
+        if (it->text() == "未标记") return;   // 受保护
+        ProjectTags::remove(m_projectRoot, it->text());
+        reload();
+    });
+    connect(closeBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
+    dlg.exec();
+}
+
+// 目标标签多选：弹勾选菜单（来自项目标签表）
+void DetailsPanel::editColliderTargets() {
+    QMenu menu(this);
+    const QStringList sel = m_colliderTargetsValue.split(',', Qt::SkipEmptyParts);
+    QStringList cur;
+    for (const QString& s : sel) cur << s.trimmed();
+    for (const QString& tag : ProjectTags::read(m_projectRoot)) {
+        if (tag == "未标记") continue;
+        auto* act = menu.addAction(tag);
+        act->setCheckable(true);
+        act->setChecked(cur.contains(tag));
+    }
+    connect(&menu, &QMenu::triggered, this, [this](QAction* a){
+        QStringList cur = m_colliderTargetsValue.split(',', Qt::SkipEmptyParts);
+        for (QString& s : cur) s = s.trimmed();
+        cur.removeAll(QString());
+        if (a->isChecked()) { if (!cur.contains(a->text())) cur << a->text(); }
+        else                cur.removeAll(a->text());
+        m_colliderTargetsValue = cur.join(',');
+        updateColliderTargetsLabel();
+        onAnyFieldChanged();
+    });
+    menu.exec(m_colliderTargetsBtn->mapToGlobal(QPoint(0, m_colliderTargetsBtn->height())));
+}
+
+void DetailsPanel::updateColliderTargetsLabel() {
+    if (!m_colliderTargetsBtn) return;
+    const QString v = m_colliderTargetsValue.trimmed();
+    m_colliderTargetsBtn->setText(v.isEmpty() ? "（全部）" : v);
 }
 
 // ── 组件列表区 ────────────────────────────────────────────────────────
@@ -354,7 +459,10 @@ void DetailsPanel::showActor(const ActorData& actor) {
                    b21(m_followOffsetXSpin), b22(m_followOffsetYSpin),
                    b23(m_confinerEnabledChk), b23b(m_confinerActorEdit),
                    b24(m_confinerMinXSpin), b25(m_confinerMaxXSpin),
-                   b26(m_confinerMinYSpin), b27(m_confinerMaxYSpin);
+                   b26(m_confinerMinYSpin), b27(m_confinerMaxYSpin),
+                   bc1(m_colliderEnabledChk), bc2(m_colliderWSpin), bc3(m_colliderHSpin),
+                   bc4(m_colliderOffXSpin), bc5(m_colliderOffYSpin),
+                   bc6(m_colliderRespCombo);
 
     m_currentActor = actor;
     // 迁移：旧 Actor JSON 中 components 为空时补入默认组件并立即保存
@@ -430,6 +538,16 @@ void DetailsPanel::showActor(const ActorData& actor) {
     m_confinerMinYSpin->setValue(actor.confinerMinY);
     m_confinerMaxYSpin->setValue(actor.confinerMaxY);
 
+    // 碰撞盒组件字段
+    m_colliderEnabledChk->setChecked(actor.colliderEnabled);
+    m_colliderWSpin->setValue(actor.colliderW);
+    m_colliderHSpin->setValue(actor.colliderH);
+    m_colliderOffXSpin->setValue(actor.colliderOffsetX);
+    m_colliderOffYSpin->setValue(actor.colliderOffsetY);
+    m_colliderRespCombo->setCurrentText(actor.colliderResponse);
+    m_colliderTargetsValue = actor.colliderTargets;
+    updateColliderTargetsLabel();
+
     m_editBpBtn->setVisible(!actor.bpClass.isEmpty() && !actor.bpClass.startsWith("builtin/"));
 
     refreshComponentList();
@@ -452,6 +570,7 @@ void DetailsPanel::showMultiSelection(int count) {
 
 void DetailsPanel::setProjectRoot(const QString& root) {
     m_projectRoot = root;
+    refreshTagCombo();   // 切到项目标签表
 }
 
 void DetailsPanel::dragEnterEvent(QDragEnterEvent* e) {
@@ -518,6 +637,8 @@ void DetailsPanel::refreshCameraSections() {
         m_followBox->setVisible(m_currentActor.components.contains("跟随控制组件"));
     if (m_confinerBox)
         m_confinerBox->setVisible(m_currentActor.components.contains("边界限制组件"));
+    if (m_colliderBox)
+        m_colliderBox->setVisible(m_currentActor.components.contains("碰撞盒"));
 }
 
 // ── 辅助宏：构建折叠区块标题行 ────────────────────────────────────────
@@ -755,6 +876,75 @@ void DetailsPanel::buildConfiner(QVBoxLayout* root) {
     grid->addLayout(yRow, 3, 1, 1, 2);
 
     m_confinerBox = box;
+    root->addWidget(box);
+    box->hide();
+}
+
+// ── 碰撞盒组件 ─────────────────────────────────────────────────────────
+void DetailsPanel::buildCollider(QVBoxLayout* root) {
+    QVBoxLayout* bl = nullptr;
+    auto [box_sb, content_sb] = makeSectionBox(this, &bl, "碰撞盒");
+    QWidget* box = box_sb; QWidget* content = content_sb;
+
+    auto* grid = new QGridLayout(content);
+    grid->setSpacing(4);
+    grid->setContentsMargins(8, 4, 8, 10);
+    grid->setColumnMinimumWidth(0, 60);
+
+    auto mkDSpin = [&](double lo, double hi, double val) -> QDoubleSpinBox* {
+        auto* s = new QDoubleSpinBox(content);
+        s->setRange(lo, hi); s->setValue(val); s->setSingleStep(5.0);
+        s->setDecimals(1); s->setObjectName("detailSpin");
+        connect(s, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+                this, &DetailsPanel::onAnyFieldChanged);
+        return s;
+    };
+
+    // 行0：启用
+    grid->addWidget(new QLabel("启用", content), 0, 0);
+    m_colliderEnabledChk = new QCheckBox(content);
+    m_colliderEnabledChk->setObjectName("detailCheck");
+    connect(m_colliderEnabledChk, &QCheckBox::toggled, this, &DetailsPanel::onAnyFieldChanged);
+    grid->addWidget(m_colliderEnabledChk, 0, 1, 1, 2);
+
+    // 行1：尺寸
+    grid->addWidget(new QLabel("尺寸", content), 1, 0);
+    auto* szRow = new QHBoxLayout;
+    auto* lw = new QLabel("宽", content); lw->setObjectName("detailSmallLabel");
+    m_colliderWSpin = mkDSpin(0, 99999, 100.0);
+    auto* lh = new QLabel("高", content); lh->setObjectName("detailSmallLabel");
+    m_colliderHSpin = mkDSpin(0, 99999, 100.0);
+    szRow->addWidget(lw); szRow->addWidget(m_colliderWSpin, 1);
+    szRow->addWidget(lh); szRow->addWidget(m_colliderHSpin, 1);
+    grid->addLayout(szRow, 1, 1, 1, 2);
+
+    // 行2：偏移
+    grid->addWidget(new QLabel("偏移", content), 2, 0);
+    auto* offRow = new QHBoxLayout;
+    auto* lx = new QLabel("X", content); lx->setObjectName("detailSmallLabel");
+    m_colliderOffXSpin = mkDSpin(-99999, 99999, 0.0);
+    auto* ly = new QLabel("Y", content); ly->setObjectName("detailSmallLabel");
+    m_colliderOffYSpin = mkDSpin(-99999, 99999, 0.0);
+    offRow->addWidget(lx); offRow->addWidget(m_colliderOffXSpin, 1);
+    offRow->addWidget(ly); offRow->addWidget(m_colliderOffYSpin, 1);
+    grid->addLayout(offRow, 2, 1, 1, 2);
+
+    // 行3：响应类型
+    grid->addWidget(new QLabel("响应", content), 3, 0);
+    m_colliderRespCombo = new QComboBox(content);
+    m_colliderRespCombo->setObjectName("detailCombo");
+    m_colliderRespCombo->addItems({"阻挡", "重叠"});
+    connect(m_colliderRespCombo, &QComboBox::currentTextChanged, this, &DetailsPanel::onAnyFieldChanged);
+    grid->addWidget(m_colliderRespCombo, 3, 1, 1, 2);
+
+    // 行4：碰撞目标标签（多选勾选，不手打）
+    grid->addWidget(new QLabel("目标标签", content), 4, 0);
+    m_colliderTargetsBtn = new QPushButton("（全部）", content);
+    m_colliderTargetsBtn->setObjectName("detailEdit");
+    connect(m_colliderTargetsBtn, &QPushButton::clicked, this, &DetailsPanel::editColliderTargets);
+    grid->addWidget(m_colliderTargetsBtn, 4, 1, 1, 2);
+
+    m_colliderBox = box;
     root->addWidget(box);
     box->hide();
 }
@@ -1024,7 +1214,8 @@ void DetailsPanel::onAnyFieldChanged() {
         m_componentTree->topLevelItem(0)->setText(0, rootText);
     }
     a.isStatic   = m_staticCheck->isChecked();
-    a.tag        = m_tagCombo->currentText();
+    a.tag        = (m_tagCombo->currentText() == kAddTagItem)   // 别把哨兵项当标签写回
+                   ? m_currentActor.tag : m_tagCombo->currentText();
     a.layer      = m_layerCombo->currentText();
     a.x          = (float)m_posX->value();
     a.y          = (float)m_posY->value();
@@ -1066,6 +1257,15 @@ void DetailsPanel::onAnyFieldChanged() {
         a.confinerMaxX    = (float)m_confinerMaxXSpin->value();
         a.confinerMinY    = (float)m_confinerMinYSpin->value();
         a.confinerMaxY    = (float)m_confinerMaxYSpin->value();
+    }
+    if (m_colliderBox && m_colliderBox->isVisible()) {
+        a.colliderEnabled = m_colliderEnabledChk->isChecked();
+        a.colliderW       = (float)m_colliderWSpin->value();
+        a.colliderH       = (float)m_colliderHSpin->value();
+        a.colliderOffsetX = (float)m_colliderOffXSpin->value();
+        a.colliderOffsetY = (float)m_colliderOffYSpin->value();
+        a.colliderResponse= m_colliderRespCombo->currentText();
+        a.colliderTargets = m_colliderTargetsValue;
     }
     m_currentActor = a;
     emit actorModified(a);

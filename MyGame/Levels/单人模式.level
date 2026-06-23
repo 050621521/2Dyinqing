@@ -1,0 +1,199 @@
+{
+    "blueprint": {
+        "connections": [
+            {
+                "fromNode": "70e3b6a3-d101-4a56-8969-df607b42f46a",
+                "fromPin": "exec_out",
+                "id": "6f2783fc-011e-4853-bfce-cc2de48715dd",
+                "toNode": "07543349-d2cc-4a0d-b2ef-70262fd5fb06",
+                "toPin": "exec_in"
+            },
+            {
+                "fromNode": "55c05353-6692-4003-b4cc-5a88087380fd",
+                "fromPin": "exec_out",
+                "id": "5e856d24-cf87-4218-bef8-a3cc00889cb4",
+                "toNode": "94ab4d9c-d0d2-4bd2-8623-1218427fa745",
+                "toPin": "exec_in"
+            },
+            {
+                "fromNode": "d13ec7e3-38aa-41ae-ada1-da5e44a4ff79",
+                "fromPin": "exec_out",
+                "id": "9b02d13b-428c-47ed-94a8-467f9149a735",
+                "toNode": "7fc3e56a-1839-4d56-bf45-02522753628a",
+                "toPin": "exec_in"
+            },
+            {
+                "fromNode": "67addc23-fb91-4a6a-acc9-c92a1f16a6a1",
+                "fromPin": "exec_out",
+                "id": "7b09886e-dc1f-4316-a8a6-95c4e56b7ae7",
+                "toNode": "7358b98e-4b7b-46b6-b1db-60418a04bcca",
+                "toPin": "exec_in"
+            },
+            {
+                "fromNode": "7fc3e56a-1839-4d56-bf45-02522753628a",
+                "fromPin": "exec_out",
+                "id": "44318c50-fa73-4a0b-80be-69ff4bc2fb4c",
+                "toNode": "c661a89c-9c58-4695-89c8-2751d5fb6d30",
+                "toPin": "exec_in"
+            },
+            {
+                "fromNode": "c661a89c-9c58-4695-89c8-2751d5fb6d30",
+                "fromPin": "exec_out",
+                "id": "f0f7ab39-3942-444d-8552-2e15d57f5d80",
+                "toNode": "adcef36c-d12b-4d7e-87fc-5b86d8acea05",
+                "toPin": "exec_in"
+            },
+            {
+                "fromNode": "7358b98e-4b7b-46b6-b1db-60418a04bcca",
+                "fromPin": "exec_out",
+                "id": "6d6bcf64-1542-487f-9026-59bd3352a207",
+                "toNode": "c661a89c-9c58-4695-89c8-2751d5fb6d30",
+                "toPin": "exec_in"
+            }
+        ],
+        "nodes": [
+            {
+                "id": "70e3b6a3-d101-4a56-8969-df607b42f46a",
+                "params": {
+                },
+                "type": "Event.BeginPlay",
+                "x": -404.20703125,
+                "y": -104.7109375
+            },
+            {
+                "id": "07543349-d2cc-4a0d-b2ef-70262fd5fb06",
+                "params": {
+                    "uiName": "单人界面"
+                },
+                "type": "UI.Show",
+                "x": -93.21484375,
+                "y": -287.73046875
+            },
+            {
+                "id": "94ab4d9c-d0d2-4bd2-8623-1218427fa745",
+                "params": {
+                    "levelName": "登录界面"
+                },
+                "type": "Action.LoadLevel",
+                "x": -102.26953125,
+                "y": 189.85546875
+            },
+            {
+                "id": "d13ec7e3-38aa-41ae-ada1-da5e44a4ff79",
+                "params": {
+                    "widgetRef": "单人界面::标准模式"
+                },
+                "type": "UI.OnButtonClick",
+                "x": -391.2265625,
+                "y": -41.76953125
+            },
+            {
+                "id": "55c05353-6692-4003-b4cc-5a88087380fd",
+                "params": {
+                    "widgetRef": "单人界面::返回"
+                },
+                "type": "UI.OnButtonClick",
+                "x": -373.74609375,
+                "y": 176.140625
+            },
+            {
+                "id": "67addc23-fb91-4a6a-acc9-c92a1f16a6a1",
+                "params": {
+                    "widgetRef": "单人界面::无尽模式"
+                },
+                "type": "UI.OnButtonClick",
+                "x": -395.0703125,
+                "y": 58.5234375
+            },
+            {
+                "id": "7fc3e56a-1839-4d56-bf45-02522753628a",
+                "params": {
+                    "value": "1",
+                    "varName": "单人模式"
+                },
+                "type": "Global.Set",
+                "x": -150.625,
+                "y": -120.93359375
+            },
+            {
+                "id": "7358b98e-4b7b-46b6-b1db-60418a04bcca",
+                "params": {
+                    "value": "0",
+                    "varName": "单人模式"
+                },
+                "type": "Global.Set",
+                "x": -175.83203125,
+                "y": 60.69921875
+            },
+            {
+                "id": "adcef36c-d12b-4d7e-87fc-5b86d8acea05",
+                "params": {
+                    "levelName": "角色选择界面"
+                },
+                "type": "Action.LoadLevel",
+                "x": 317.3566589355469,
+                "y": -6.076905250549316
+            },
+            {
+                "id": "c661a89c-9c58-4695-89c8-2751d5fb6d30",
+                "params": {
+                    "value": "1",
+                    "varName": "模式"
+                },
+                "type": "Global.Set",
+                "x": 92.93707275390625,
+                "y": -31.00364875793457
+            }
+        ]
+    },
+    "name": "NewLevel0",
+    "objects": [
+        {
+            "active": true,
+            "bpClass": "builtin/Camera",
+            "cameraBackground": "#ff1e1e1e",
+            "cameraIsMain": true,
+            "cameraOrthographic": true,
+            "cameraResH": 1080,
+            "cameraResW": 1980,
+            "cameraSize": 540,
+            "components": [
+                "变换",
+                "摄像机组件"
+            ],
+            "confinerActor": "",
+            "confinerEnabled": false,
+            "confinerMaxX": 500,
+            "confinerMaxY": 500,
+            "confinerMinX": -500,
+            "confinerMinY": -500,
+            "drawMode": "简单",
+            "flipX": false,
+            "flipY": false,
+            "followLerpSpeed": 5,
+            "followOffsetX": 0,
+            "followOffsetY": 0,
+            "followTarget": "",
+            "id": "09740254-cecc-4e19-8e43-67c0ba56efd2",
+            "layer": "默认",
+            "name": "摄像机",
+            "orderInLayer": 0,
+            "position": {
+                "x": -1.5,
+                "y": -1.5
+            },
+            "rotation": 0,
+            "scale": {
+                "x": 1,
+                "y": 1
+            },
+            "sortingLayer": "默认",
+            "spriteColor": "#ffffffff",
+            "spritePath": "",
+            "spriteVisible": true,
+            "static": false,
+            "tag": "未标记"
+        }
+    ],
+    "version": "0.1"
+}

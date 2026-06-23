@@ -14,6 +14,7 @@ public:
 signals:
     void clicked(const ProjectInfo& info);
     void doubleClicked(const ProjectInfo& info);
+    void moveRequested(const ProjectInfo& info);
     void removeRequested(const ProjectInfo& info);
     void deleteRequested(const ProjectInfo& info);
 

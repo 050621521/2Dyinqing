@@ -72,6 +72,11 @@ private:
     QString m_dragActorId;
 
     enum class ScaleHandle { None, Center, AxisX, AxisY };
+    // 碰撞盒拖拽手柄：4 角 + 4 边（顺序与 colliderHandleRects 一致）
+    enum class ColliderHandle { None, TL, TR, BL, BR, Top, Bottom, Left, Right };
+
+    ColliderHandle m_colliderHandle = ColliderHandle::None;
+    float m_cbStartL = 0, m_cbStartR = 0, m_cbStartB = 0, m_cbStartT = 0;  // 拖拽起始世界边
 
     ToolMode    m_toolMode        = ToolMode::Select;
     QPointF     m_dragAnchor;
@@ -120,6 +125,8 @@ private:
     void drawSelectionOverlay(QPainter& p);
 
     QRectF  actorScreenRect(const ActorData& a) const;
+    QRectF  colliderScreenRect(const ActorData& a) const;
+    QList<QRectF> colliderHandleRects(const QRectF& cr) const;
     QPointF worldToScreen(QPointF world) const;
     QPointF screenToWorld(QPointF screen) const;
 };

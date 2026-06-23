@@ -75,12 +75,16 @@ void ProjectCard::mouseDoubleClickEvent(QMouseEvent* e) {
 void ProjectCard::contextMenuEvent(QContextMenuEvent* e) {
     QMenu menu(this);
     menu.setObjectName("cardContextMenu");
+    QAction* moveAct = menu.addAction("移动到…");
+    menu.addSeparator();
     QAction* removeAct = menu.addAction("从列表中移除");
     menu.addSeparator();
     QAction* deleteAct = menu.addAction("彻底删除项目文件夹…");
 
     QAction* chosen = menu.exec(e->globalPos());
-    if (chosen == removeAct)
+    if (chosen == moveAct)
+        emit moveRequested(m_info);
+    else if (chosen == removeAct)
         emit removeRequested(m_info);
     else if (chosen == deleteAct)
         emit deleteRequested(m_info);

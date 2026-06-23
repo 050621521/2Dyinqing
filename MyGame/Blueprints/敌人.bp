@@ -1,0 +1,117 @@
+{
+    "components": [
+        "变换",
+        "精灵渲染器",
+        "碰撞盒"
+    ],
+    "connections": [
+        {
+            "fromNode": "3c013084-9f95-4179-8214-e1968ed1369f",
+            "fromPin": "exec_out",
+            "id": "cf54a6f6-e058-425c-9d1d-af5da5289165",
+            "toNode": "e1455ced-f6a3-4a77-9103-c6424167dae7",
+            "toPin": "exec_in"
+        },
+        {
+            "fromNode": "1e5fe285-9e7f-4c4f-8c5a-11c1fa91c16d",
+            "fromPin": "result",
+            "id": "9e736310-7579-4375-b774-7506911bdadd",
+            "toNode": "e1455ced-f6a3-4a77-9103-c6424167dae7",
+            "toPin": "x"
+        },
+        {
+            "fromNode": "3ff60797-145d-475e-9b1a-e147b22548ef",
+            "fromPin": "result",
+            "id": "b2f1a1be-1138-4fca-81ac-0f54b4ae70a3",
+            "toNode": "e1455ced-f6a3-4a77-9103-c6424167dae7",
+            "toPin": "y"
+        }
+    ],
+    "defaults": {
+        "active": true,
+        "animAsset": "",
+        "animAutoPlay": false,
+        "animDefaultClip": "",
+        "cameraBackground": "#ff1e1e1e",
+        "cameraIsMain": false,
+        "cameraOrthographic": true,
+        "cameraResH": 1080,
+        "cameraResW": 1920,
+        "cameraSize": 5,
+        "components": [
+            "变换",
+            "精灵渲染器",
+            "碰撞盒"
+        ],
+        "confinerActor": "",
+        "confinerEnabled": false,
+        "confinerMaxX": 500,
+        "confinerMaxY": 500,
+        "confinerMinX": -500,
+        "confinerMinY": -500,
+        "drawMode": "简单",
+        "flipX": false,
+        "flipY": false,
+        "followLerpSpeed": 5,
+        "followOffsetX": 0,
+        "followOffsetY": 0,
+        "followTarget": "",
+        "layer": "默认",
+        "orderInLayer": 0,
+        "rotation": 0,
+        "scale": {
+            "x": 3,
+            "y": 3
+        },
+        "sortingLayer": "默认",
+        "spriteColor": "#ffd83030",
+        "spritePath": "",
+        "spriteVisible": true,
+        "static": false,
+        "tag": "敌人",
+        "colliderEnabled": true,
+        "colliderW": 70,
+        "colliderH": 70,
+        "colliderOffsetX": 0,
+        "colliderOffsetY": 0,
+        "colliderResponse": "重叠",
+        "colliderTargets": ""
+    },
+    "name": "敌人",
+    "nodes": [
+        {
+            "id": "3c013084-9f95-4179-8214-e1968ed1369f",
+            "params": {},
+            "type": "Event.BeginPlay",
+            "x": -400.0,
+            "y": 0.0
+        },
+        {
+            "id": "1e5fe285-9e7f-4c4f-8c5a-11c1fa91c16d",
+            "params": {
+                "min": "-500",
+                "max": "500"
+            },
+            "type": "Math.Random",
+            "x": -200.0,
+            "y": -120.0
+        },
+        {
+            "id": "3ff60797-145d-475e-9b1a-e147b22548ef",
+            "params": {
+                "min": "80",
+                "max": "440"
+            },
+            "type": "Math.Random",
+            "x": -200.0,
+            "y": 120.0
+        },
+        {
+            "id": "e1455ced-f6a3-4a77-9103-c6424167dae7",
+            "params": {},
+            "type": "Self.SetPosition",
+            "x": 60.0,
+            "y": 0.0
+        }
+    ]
+}

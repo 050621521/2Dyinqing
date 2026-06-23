@@ -651,13 +651,28 @@ void EditorWindow::setupCentralArea() {
                                          m_detailsDockW ? m_detailsDockW->dockAreaWidget() : nullptr);
             healed = true;
         }
+        // 局部变量 / 局部变量细节是更晚加入的面板，旧布局同样不含 → 摆回对应区域
+        if (m_localVarDock && (m_localVarDock->isFloating() || m_localVarDock->isClosed())) {
+            m_dockManager->addDockWidget(ads::CenterDockWidgetArea, m_localVarDock,
+                                         m_gvDock ? m_gvDock->dockAreaWidget() : nullptr);
+            healed = true;
+        }
+        if (m_localVarDetailsDock && (m_localVarDetailsDock->isFloating() || m_localVarDetailsDock->isClosed())) {
+            m_dockManager->addDockWidget(ads::CenterDockWidgetArea, m_localVarDetailsDock,
+                                         m_varDetailsDock ? m_varDetailsDock->dockAreaWidget() : nullptr);
+            healed = true;
+        }
         if (healed) m_layoutManager->saveLayout("默认布局");
         // 初始按当前标签决定显隐
         if (m_docTabBar) {
-            const bool bp = isAnyBlueprintTab(
-                m_docTabBar->tabData(m_docTabBar->currentIndex()).toString());
+            const QString tabData =
+                m_docTabBar->tabData(m_docTabBar->currentIndex()).toString();
+            const bool bp = isAnyBlueprintTab(tabData);
+            const bool levelBp = isLevelBlueprintTab(tabData);
             if (m_gvDock)         m_gvDock->toggleView(bp);
             if (m_varDetailsDock) m_varDetailsDock->toggleView(bp);
+            if (m_localVarDock)        m_localVarDock->toggleView(levelBp);
+            if (m_localVarDetailsDock) m_localVarDetailsDock->toggleView(levelBp);
             if (m_outlineDockW)   m_outlineDockW->toggleView(!bp);
             if (m_detailsDockW)   m_detailsDockW->toggleView(!bp);
         }
@@ -1690,6 +1705,8 @@ void EditorWindow::startRuntime() {
         const float dt = m_runtime->lastDt();
         for (ActorBPRuntime* ar : m_actorRuntimes)
             ar->triggerTick(dt);
+        // 所有移动完成后跑碰撞 pass（分轴阻挡 + 重叠事件）
+        m_runtime->runCollisionPass();
         m_viewport->updateRuntimeActors(m_runtime->actors());
         m_viewport->syncPrintLog(m_runtime->printLog());
         if (m_gameViewport) {
@@ -1697,6 +1714,13 @@ void EditorWindow::startRuntime() {
             m_gameViewport->syncPrintLog(m_runtime->printLog());
         }
     });
+    // 重叠事件 → 分发给「本方」Actor 蓝图的「碰撞时」
+    connect(m_runtime, &BPRuntime::overlapDetected, this,
+            [this](const QString& selfId, const QString& otherId, const QString& otherTag) {
+        for (ActorBPRuntime* ar : m_actorRuntimes)
+            ar->triggerCollision(selfId, otherId, otherTag);
+    });
+
     // 暂停时屏蔽按键事件
     connect(m_viewport, &Viewport2D::keyPressed, this, [this](const QString& key) {
         if (!m_runtime || (m_pauseBtn && m_pauseBtn->isChecked())) return;
@@ -1766,6 +1790,11 @@ void EditorWindow::startRuntime() {
                     this, [this](const QString& text) {
                         m_runtime->appendPrintLog(text);
                     });
+            // Actor 蓝图的换关请求转交关卡运行时（复用同一套换关处理）
+            connect(ar, &ActorBPRuntime::loadLevelRequested,
+                    m_runtime, &BPRuntime::loadLevelRequested);
+            connect(ar, &ActorBPRuntime::backLevelRequested,
+                    m_runtime, &BPRuntime::backLevelRequested);
         }
     }
     // 触发各 Actor 蓝图 BeginPlay

@@ -1,0 +1,81 @@
+{
+    "clips": [
+        {
+            "fps": 12,
+            "frameCount": 6,
+            "label": "下",
+            "loop": true,
+            "name": "walk_down",
+            "row": 0,
+            "startCol": 0
+        },
+        {
+            "fps": 12,
+            "frameCount": 6,
+            "label": "右下",
+            "loop": true,
+            "name": "walk_down_right",
+            "row": 1,
+            "startCol": 0
+        },
+        {
+            "fps": 12,
+            "frameCount": 6,
+            "label": "右",
+            "loop": true,
+            "name": "walk_right",
+            "row": 2,
+            "startCol": 0
+        },
+        {
+            "fps": 12,
+            "frameCount": 6,
+            "label": "右上",
+            "loop": true,
+            "name": "walk_up_right",
+            "row": 3,
+            "startCol": 0
+        },
+        {
+            "fps": 12,
+            "frameCount": 6,
+            "label": "上",
+            "loop": true,
+            "name": "walk_up",
+            "row": 4,
+            "startCol": 0
+        },
+        {
+            "fps": 12,
+            "frameCount": 6,
+            "label": "左上",
+            "loop": true,
+            "name": "walk_up_left",
+            "row": 5,
+            "startCol": 0
+        },
+        {
+            "fps": 12,
+            "frameCount": 6,
+            "label": "左",
+            "loop": true,
+            "name": "walk_left",
+            "row": 6,
+            "startCol": 0
+        },
+        {
+            "fps": 12,
+            "frameCount": 6,
+            "label": "左下",
+            "loop": true,
+            "name": "walk_down_left",
+            "row": 7,
+            "startCol": 0
+        }
+    ],
+    "cols": 6,
+    "frameH": 64,
+    "frameW": 64,
+    "rows": 8,
+    "sheet": "/Users/kwy/Documents/2Dyinqing/MyGame/动画/43_001_武夫_移动_精灵表.png"
+}

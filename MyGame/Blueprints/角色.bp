@@ -1,0 +1,480 @@
+{
+    "components": [
+        "变换",
+        "动画器",
+        "精灵渲染器",
+        "碰撞盒"
+    ],
+    "connections": [
+        {
+            "fromNode": "5a660c9b-1ab2-47ef-849c-86b0e0dd8f8d",
+            "fromPin": "delta_time",
+            "id": "b496de1c-6bd5-410c-98ff-64187a87de71",
+            "toNode": "f1a1ca9c-eaa1-47c0-9d5e-3655bc408bde",
+            "toPin": "b"
+        },
+        {
+            "fromNode": "efc74c9f-469a-4f5d-a41b-04d83fbe2cb6",
+            "fromPin": "y",
+            "id": "68317f80-9d5c-405c-bb61-017d93cd8897",
+            "toNode": "bbb85907-7ef0-4cda-ab1d-2c69eae29557",
+            "toPin": "a"
+        },
+        {
+            "fromNode": "f1a1ca9c-eaa1-47c0-9d5e-3655bc408bde",
+            "fromPin": "result",
+            "id": "5194606e-ad8e-4ae8-8c8d-da34bc94b4eb",
+            "toNode": "bbb85907-7ef0-4cda-ab1d-2c69eae29557",
+            "toPin": "b"
+        },
+        {
+            "fromNode": "bbb85907-7ef0-4cda-ab1d-2c69eae29557",
+            "fromPin": "result",
+            "id": "23aa27da-5062-41e9-b64b-0f68ac2f8c42",
+            "toNode": "54959511-9a9a-4c37-af02-de416e5c3b1b",
+            "toPin": "y"
+        },
+        {
+            "fromNode": "efc74c9f-469a-4f5d-a41b-04d83fbe2cb6",
+            "fromPin": "x",
+            "id": "3786b852-bb6d-4b3f-9cdf-2e8ba8066343",
+            "toNode": "54959511-9a9a-4c37-af02-de416e5c3b1b",
+            "toPin": "x"
+        },
+        {
+            "fromNode": "54959511-9a9a-4c37-af02-de416e5c3b1b",
+            "fromPin": "exec_out",
+            "id": "8c921c64-8205-49d2-b827-0ff79fdb1c1d",
+            "toNode": "607ac62d-a106-41ad-ab88-bea8bb44c7ba",
+            "toPin": "exec_in"
+        },
+        {
+            "fromNode": "ee9154f2-8e80-45e4-be03-7b4ab9f88dec",
+            "fromPin": "held",
+            "id": "00935f56-2331-4c8f-920b-dcc6d306ea9a",
+            "toNode": "54959511-9a9a-4c37-af02-de416e5c3b1b",
+            "toPin": "exec_in"
+        },
+        {
+            "fromNode": "6b308849-0294-4eff-9401-9774183eba79",
+            "fromPin": "held",
+            "id": "ed18c6fc-a525-415d-820e-94f2987b4aa9",
+            "toNode": "54959511-9a9a-4c37-af02-de416e5c3b1b",
+            "toPin": "exec_in"
+        },
+        {
+            "fromNode": "efc74c9f-469a-4f5d-a41b-04d83fbe2cb6",
+            "fromPin": "y",
+            "id": "f2e839cc-b3a4-4e56-8ecc-e74918e5b051",
+            "toNode": "b6db8c1b-b33a-4575-80c0-4c24314c8ca6",
+            "toPin": "a"
+        },
+        {
+            "fromNode": "f1a1ca9c-eaa1-47c0-9d5e-3655bc408bde",
+            "fromPin": "result",
+            "id": "e88edc60-43d4-4481-9cec-0e8710676692",
+            "toNode": "b6db8c1b-b33a-4575-80c0-4c24314c8ca6",
+            "toPin": "b"
+        },
+        {
+            "fromNode": "b6db8c1b-b33a-4575-80c0-4c24314c8ca6",
+            "fromPin": "result",
+            "id": "0800c0d1-e11c-499c-bcbf-630c438f8693",
+            "toNode": "3a1e6247-b429-4d7e-b31e-6ddb7e749cc5",
+            "toPin": "y"
+        },
+        {
+            "fromNode": "efc74c9f-469a-4f5d-a41b-04d83fbe2cb6",
+            "fromPin": "x",
+            "id": "ce43bcf4-0dd7-41e7-a4eb-26fe2820555f",
+            "toNode": "3a1e6247-b429-4d7e-b31e-6ddb7e749cc5",
+            "toPin": "x"
+        },
+        {
+            "fromNode": "3a1e6247-b429-4d7e-b31e-6ddb7e749cc5",
+            "fromPin": "exec_out",
+            "id": "4aa1b5b9-ac4b-4d5d-8e8c-bc8cc4f308f5",
+            "toNode": "eaff7081-38a3-43a1-8c9c-d7f067126f80",
+            "toPin": "exec_in"
+        },
+        {
+            "fromNode": "f9289824-b2f9-41f7-8945-a078a7be02cb",
+            "fromPin": "held",
+            "id": "882a4079-c4e6-4e27-8f3d-ee75e72540d6",
+            "toNode": "3a1e6247-b429-4d7e-b31e-6ddb7e749cc5",
+            "toPin": "exec_in"
+        },
+        {
+            "fromNode": "498f5e25-016a-41cc-aaf7-f029cbe413c1",
+            "fromPin": "held",
+            "id": "c7c49d87-cbc0-4b16-94a5-b1d5b261728d",
+            "toNode": "3a1e6247-b429-4d7e-b31e-6ddb7e749cc5",
+            "toPin": "exec_in"
+        },
+        {
+            "fromNode": "efc74c9f-469a-4f5d-a41b-04d83fbe2cb6",
+            "fromPin": "x",
+            "id": "b16e0703-1b34-4b6f-b0ad-2c8fbc029315",
+            "toNode": "99425ff6-449c-4a34-a058-e26a6f164b0b",
+            "toPin": "a"
+        },
+        {
+            "fromNode": "f1a1ca9c-eaa1-47c0-9d5e-3655bc408bde",
+            "fromPin": "result",
+            "id": "d43c8e3a-1bc1-4601-896f-16ab201cbd66",
+            "toNode": "99425ff6-449c-4a34-a058-e26a6f164b0b",
+            "toPin": "b"
+        },
+        {
+            "fromNode": "99425ff6-449c-4a34-a058-e26a6f164b0b",
+            "fromPin": "result",
+            "id": "261f9384-7127-4925-ae96-45fbbb4a683f",
+            "toNode": "e97cddc3-2fe7-423f-ad05-8b24a3e4117c",
+            "toPin": "x"
+        },
+        {
+            "fromNode": "efc74c9f-469a-4f5d-a41b-04d83fbe2cb6",
+            "fromPin": "y",
+            "id": "d6b7ade5-2369-485f-bd95-9b2ee33a9c12",
+            "toNode": "e97cddc3-2fe7-423f-ad05-8b24a3e4117c",
+            "toPin": "y"
+        },
+        {
+            "fromNode": "e97cddc3-2fe7-423f-ad05-8b24a3e4117c",
+            "fromPin": "exec_out",
+            "id": "551a0d1b-7a91-4118-962b-091b5c5728e8",
+            "toNode": "8c8d9273-deae-416d-8bfa-6b8e0fe663d1",
+            "toPin": "exec_in"
+        },
+        {
+            "fromNode": "539f9368-f462-4c7a-a4bc-94c26a6e8988",
+            "fromPin": "held",
+            "id": "5243db1d-0916-466f-a90b-db87059aa476",
+            "toNode": "e97cddc3-2fe7-423f-ad05-8b24a3e4117c",
+            "toPin": "exec_in"
+        },
+        {
+            "fromNode": "40a0177a-d4f5-474c-948e-eba7dec74a6a",
+            "fromPin": "held",
+            "id": "aab954c5-4764-4ee6-a77c-4c2f78e9ba49",
+            "toNode": "e97cddc3-2fe7-423f-ad05-8b24a3e4117c",
+            "toPin": "exec_in"
+        },
+        {
+            "fromNode": "efc74c9f-469a-4f5d-a41b-04d83fbe2cb6",
+            "fromPin": "x",
+            "id": "f80f1627-1df5-446e-aa96-32b413f7da22",
+            "toNode": "c044e329-2d68-4ddd-b5de-1013136dc814",
+            "toPin": "a"
+        },
+        {
+            "fromNode": "f1a1ca9c-eaa1-47c0-9d5e-3655bc408bde",
+            "fromPin": "result",
+            "id": "e5da7ded-14de-4604-b6fc-b84b3c159d99",
+            "toNode": "c044e329-2d68-4ddd-b5de-1013136dc814",
+            "toPin": "b"
+        },
+        {
+            "fromNode": "c044e329-2d68-4ddd-b5de-1013136dc814",
+            "fromPin": "result",
+            "id": "1ec08e41-bbdb-4995-89e8-fa7ff098f2b9",
+            "toNode": "bb4c5110-04ef-484c-8a3a-ee647eb3f371",
+            "toPin": "x"
+        },
+        {
+            "fromNode": "efc74c9f-469a-4f5d-a41b-04d83fbe2cb6",
+            "fromPin": "y",
+            "id": "b53ffca0-fc87-4337-a81e-cc2e57363f7a",
+            "toNode": "bb4c5110-04ef-484c-8a3a-ee647eb3f371",
+            "toPin": "y"
+        },
+        {
+            "fromNode": "bb4c5110-04ef-484c-8a3a-ee647eb3f371",
+            "fromPin": "exec_out",
+            "id": "7cd5086a-3054-46f0-b978-19305d6313d5",
+            "toNode": "14c7d1cd-50b7-4b71-8075-bc422ba731b3",
+            "toPin": "exec_in"
+        },
+        {
+            "fromNode": "d6115b0f-e5ca-47dd-b961-28b9e7d885b4",
+            "fromPin": "held",
+            "id": "eedf8b14-bbf3-4fe6-8ee2-d5055ca88952",
+            "toNode": "bb4c5110-04ef-484c-8a3a-ee647eb3f371",
+            "toPin": "exec_in"
+        },
+        {
+            "fromNode": "927a1b6c-5513-4325-8d54-516a6f6d41a1",
+            "fromPin": "held",
+            "id": "c6d3b386-1baa-4503-b8a0-aeb47536b4f2",
+            "toNode": "bb4c5110-04ef-484c-8a3a-ee647eb3f371",
+            "toPin": "exec_in"
+        },
+        {
+            "fromNode": "9288defb-51cc-47e0-b758-b5f18b037be3",
+            "fromPin": "case_敌人",
+            "id": "1e1395cc-9fc9-4035-bef1-4ec9ab29ac1f",
+            "toNode": "a28b322c-db0e-42f7-aec1-b061941d3a0c",
+            "toPin": "exec_in"
+        }
+    ],
+    "defaults": {
+        "active": true,
+        "animAsset": "/Users/kwy/Documents/2Dyinqing/MyGame/动画/武夫.anim",
+        "animAutoPlay": true,
+        "animDefaultClip": "walk_down",
+        "cameraBackground": "#ff1e1e1e",
+        "cameraIsMain": false,
+        "cameraOrthographic": true,
+        "cameraResH": 1080,
+        "cameraResW": 1920,
+        "cameraSize": 5,
+        "colliderEnabled": true,
+        "colliderH": 120,
+        "colliderOffsetX": 0,
+        "colliderOffsetY": 0,
+        "colliderResponse": "阻挡",
+        "colliderTargets": "墙,敌人",
+        "colliderW": 90,
+        "components": [
+            "变换",
+            "动画器",
+            "精灵渲染器",
+            "碰撞盒"
+        ],
+        "confinerActor": "",
+        "confinerEnabled": false,
+        "confinerMaxX": 500,
+        "confinerMaxY": 500,
+        "confinerMinX": -500,
+        "confinerMinY": -500,
+        "drawMode": "简单",
+        "flipX": false,
+        "flipY": false,
+        "followLerpSpeed": 5,
+        "followOffsetX": 0,
+        "followOffsetY": 0,
+        "followTarget": "",
+        "layer": "默认",
+        "orderInLayer": 0,
+        "rotation": 0,
+        "scale": {
+            "x": 200,
+            "y": 200
+        },
+        "sortingLayer": "默认",
+        "spriteColor": "#ffffffff",
+        "spritePath": "",
+        "spriteVisible": true,
+        "static": false,
+        "tag": "玩家"
+    },
+    "name": "角色",
+    "nodes": [
+        {
+            "id": "5a660c9b-1ab2-47ef-849c-86b0e0dd8f8d",
+            "params": {
+            },
+            "type": "Event.Tick",
+            "x": -700,
+            "y": -260
+        },
+        {
+            "id": "f1a1ca9c-eaa1-47c0-9d5e-3655bc408bde",
+            "params": {
+                "a": "300"
+            },
+            "type": "Math.Mul",
+            "x": -480,
+            "y": -240
+        },
+        {
+            "id": "efc74c9f-469a-4f5d-a41b-04d83fbe2cb6",
+            "params": {
+            },
+            "type": "Self.GetPosition",
+            "x": -700,
+            "y": 40
+        },
+        {
+            "id": "ee9154f2-8e80-45e4-be03-7b4ab9f88dec",
+            "params": {
+            },
+            "type": "Event.Key.W",
+            "x": -540,
+            "y": -120
+        },
+        {
+            "id": "6b308849-0294-4eff-9401-9774183eba79",
+            "params": {
+            },
+            "type": "Event.Key.Up",
+            "x": -540,
+            "y": -60
+        },
+        {
+            "id": "f9289824-b2f9-41f7-8945-a078a7be02cb",
+            "params": {
+            },
+            "type": "Event.Key.S",
+            "x": -540,
+            "y": 200
+        },
+        {
+            "id": "498f5e25-016a-41cc-aaf7-f029cbe413c1",
+            "params": {
+            },
+            "type": "Event.Key.Down",
+            "x": -540,
+            "y": 260
+        },
+        {
+            "id": "539f9368-f462-4c7a-a4bc-94c26a6e8988",
+            "params": {
+            },
+            "type": "Event.Key.D",
+            "x": -540,
+            "y": 460
+        },
+        {
+            "id": "40a0177a-d4f5-474c-948e-eba7dec74a6a",
+            "params": {
+            },
+            "type": "Event.Key.Right",
+            "x": -540,
+            "y": 520
+        },
+        {
+            "id": "d6115b0f-e5ca-47dd-b961-28b9e7d885b4",
+            "params": {
+            },
+            "type": "Event.Key.A",
+            "x": -540,
+            "y": 720
+        },
+        {
+            "id": "927a1b6c-5513-4325-8d54-516a6f6d41a1",
+            "params": {
+            },
+            "type": "Event.Key.Left",
+            "x": -540,
+            "y": 780
+        },
+        {
+            "id": "bbb85907-7ef0-4cda-ab1d-2c69eae29557",
+            "params": {
+            },
+            "type": "Math.Add",
+            "x": -300,
+            "y": -120
+        },
+        {
+            "id": "54959511-9a9a-4c37-af02-de416e5c3b1b",
+            "params": {
+            },
+            "type": "Self.SetPosition",
+            "x": -80,
+            "y": -120
+        },
+        {
+            "id": "607ac62d-a106-41ad-ab88-bea8bb44c7ba",
+            "params": {
+                "clip": "walk_up"
+            },
+            "type": "Self.Anim.Play",
+            "x": 160,
+            "y": -120
+        },
+        {
+            "id": "b6db8c1b-b33a-4575-80c0-4c24314c8ca6",
+            "params": {
+            },
+            "type": "Math.Sub",
+            "x": -300,
+            "y": 200
+        },
+        {
+            "id": "3a1e6247-b429-4d7e-b31e-6ddb7e749cc5",
+            "params": {
+            },
+            "type": "Self.SetPosition",
+            "x": -80,
+            "y": 200
+        },
+        {
+            "id": "eaff7081-38a3-43a1-8c9c-d7f067126f80",
+            "params": {
+                "clip": "walk_down"
+            },
+            "type": "Self.Anim.Play",
+            "x": 160,
+            "y": 200
+        },
+        {
+            "id": "99425ff6-449c-4a34-a058-e26a6f164b0b",
+            "params": {
+            },
+            "type": "Math.Add",
+            "x": -300,
+            "y": 460
+        },
+        {
+            "id": "e97cddc3-2fe7-423f-ad05-8b24a3e4117c",
+            "params": {
+            },
+            "type": "Self.SetPosition",
+            "x": -80,
+            "y": 460
+        },
+        {
+            "id": "8c8d9273-deae-416d-8bfa-6b8e0fe663d1",
+            "params": {
+                "clip": "walk_right"
+            },
+            "type": "Self.Anim.Play",
+            "x": 160,
+            "y": 460
+        },
+        {
+            "id": "c044e329-2d68-4ddd-b5de-1013136dc814",
+            "params": {
+            },
+            "type": "Math.Sub",
+            "x": -300,
+            "y": 720
+        },
+        {
+            "id": "bb4c5110-04ef-484c-8a3a-ee647eb3f371",
+            "params": {
+            },
+            "type": "Self.SetPosition",
+            "x": -80,
+            "y": 720
+        },
+        {
+            "id": "14c7d1cd-50b7-4b71-8075-bc422ba731b3",
+            "params": {
+                "clip": "walk_left"
+            },
+            "type": "Self.Anim.Play",
+            "x": 160,
+            "y": 720
+        },
+        {
+            "id": "9288defb-51cc-47e0-b758-b5f18b037be3",
+            "params": {
+            },
+            "type": "Event.OnCollision",
+            "x": -700,
+            "y": -460
+        },
+        {
+            "id": "a28b322c-db0e-42f7-aec1-b061941d3a0c",
+            "params": {
+                "levelName": "战斗地图界面"
+            },
+            "type": "Action.LoadLevel",
+            "x": -443.326416015625,
+            "y": -407.9382629394531
+        }
+    ]
+}

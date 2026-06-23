@@ -1,0 +1,137 @@
+{
+    "blueprint": {
+        "connections": [
+            {
+                "fromNode": "be7df16b-6847-4226-81a7-0b1c33b0fa8e",
+                "fromPin": "单人模式",
+                "id": "5e4e8450-a515-44b1-bb84-273f2961d6d8",
+                "toNode": "3c2d02dc-89ff-40fb-a1a2-4a4261b77a3d",
+                "toPin": "widgetRef"
+            },
+            {
+                "fromNode": "8145a4af-00e8-4c2a-88a9-fd5f4ba27fef",
+                "fromPin": "exec_out",
+                "id": "1c3279dc-3ec9-429f-a68f-c72ac0c9b4cd",
+                "toNode": "fea0b104-8cfc-40c4-bb32-6d43066b7027",
+                "toPin": "exec_in"
+            },
+            {
+                "fromNode": "3c2d02dc-89ff-40fb-a1a2-4a4261b77a3d",
+                "fromPin": "exec_out",
+                "id": "e1cbfb17-16ac-4900-985d-668fba6ecafb",
+                "toNode": "eaa6e330-c592-4be0-8f3e-1c2a62cb3192",
+                "toPin": "exec_in"
+            }
+        ],
+        "localVariables": [
+        ],
+        "nodes": [
+            {
+                "id": "8145a4af-00e8-4c2a-88a9-fd5f4ba27fef",
+                "params": {
+                },
+                "type": "Event.BeginPlay",
+                "x": -508.5149230957031,
+                "y": -445.4538879394531
+            },
+            {
+                "id": "92aec159-3b90-433f-a06c-bb7e374a0457",
+                "params": {
+                },
+                "type": "Var.Set",
+                "x": 81.38125610351562,
+                "y": -40.2515754699707
+            },
+            {
+                "id": "fea0b104-8cfc-40c4-bb32-6d43066b7027",
+                "params": {
+                    "uiName": "登录界面"
+                },
+                "type": "UI.Show",
+                "x": -64.734375,
+                "y": -480.90625
+            },
+            {
+                "id": "3c2d02dc-89ff-40fb-a1a2-4a4261b77a3d",
+                "params": {
+                },
+                "type": "UI.OnButtonClick",
+                "x": -275.3020324707031,
+                "y": -192.1959991455078
+            },
+            {
+                "id": "eaa6e330-c592-4be0-8f3e-1c2a62cb3192",
+                "params": {
+                    "levelName": "单人模式"
+                },
+                "type": "Action.LoadLevel",
+                "x": 36.499839782714844,
+                "y": -181.51300048828125
+            },
+            {
+                "id": "be7df16b-6847-4226-81a7-0b1c33b0fa8e",
+                "params": {
+                    "uiName": "登录界面"
+                },
+                "type": "UI.Ref",
+                "x": -538.6824951171875,
+                "y": -213.90066528320312
+            }
+        ]
+    },
+    "name": "NewLevel",
+    "objects": [
+        {
+            "active": true,
+            "animAsset": "",
+            "animAutoPlay": true,
+            "animDefaultClip": "",
+            "bpClass": "builtin/Empty",
+            "cameraBackground": "#ff1e1e1e",
+            "cameraIsMain": true,
+            "cameraOrthographic": true,
+            "cameraResH": 1075,
+            "cameraResW": 1980,
+            "cameraSize": 540,
+            "components": [
+                "变换",
+                "摄像机组件",
+                "跟随控制组件",
+                "边界限制组件"
+            ],
+            "confinerActor": "",
+            "confinerEnabled": false,
+            "confinerMaxX": 500,
+            "confinerMaxY": 500,
+            "confinerMinX": -500,
+            "confinerMinY": -500,
+            "drawMode": "简单",
+            "flipX": false,
+            "flipY": false,
+            "followLerpSpeed": 5,
+            "followOffsetX": 0,
+            "followOffsetY": 0,
+            "followTarget": "",
+            "id": "845f10cb-abe8-4308-92d2-56b4f82aa425",
+            "layer": "默认",
+            "name": "主摄像头",
+            "orderInLayer": 0,
+            "position": {
+                "x": 0,
+                "y": 0
+            },
+            "rotation": 0,
+            "scale": {
+                "x": -1,
+                "y": 1
+            },
+            "sortingLayer": "默认",
+            "spriteColor": "#ffffffff",
+            "spritePath": "",
+            "spriteVisible": true,
+            "static": false,
+            "tag": "未标记"
+        }
+    ],
+    "version": "0.1"
+}

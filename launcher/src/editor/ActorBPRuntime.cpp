@@ -1,5 +1,6 @@
 #include "ActorBPRuntime.h"
 #include "UIRuntime.h"
+#include "BPEval.h"
 #include <utility>
 
 static std::pair<QString,QString> splitWidgetRef(const QString& ref) {
@@ -20,16 +21,32 @@ void ActorBPRuntime::triggerBeginPlay() {
 }
 
 void ActorBPRuntime::triggerKeyDown(const QString& key) {
+    m_heldKeys.insert(key);
     triggerEvent("Event.Key." + key, "pressed");
 }
 
 void ActorBPRuntime::triggerKeyUp(const QString& key) {
+    m_heldKeys.remove(key);
     triggerEvent("Event.Key." + key, "released");
 }
 
 void ActorBPRuntime::triggerTick(float dt) {
     m_deltaTick = dt;
     triggerEvent("Event.Tick");
+    // 持续按住：对每个按住的键，每帧驱动其 held 链（与关卡蓝图对齐）
+    for (const QString& key : m_heldKeys)
+        triggerEvent("Event.Key." + key, "held");
+}
+
+void ActorBPRuntime::triggerCollision(const QString& selfId, const QString& otherId,
+                                      const QString& otherTag) {
+    if (selfId != m_actorId) return;   // 只响应自己的碰撞
+    m_collOther = otherId; m_collTag = otherTag;
+    for (const BPNode& node : m_bpClass->nodes) {
+        if (node.type != "Event.OnCollision") continue;
+        QSet<QString> v1; executeChain(node.id, "case_" + otherTag, &v1);  // 按对方标签分路
+        QSet<QString> v2; executeChain(node.id, "exec_out",        &v2);  // 通用出口
+    }
 }
 
 void ActorBPRuntime::triggerEvent(const QString& eventType, const QString& pinName) {
@@ -47,12 +64,13 @@ void ActorBPRuntime::executeChain(const QString& fromNodeId, const QString& from
     if (visited && visited->contains(key)) return;
     if (visited) visited->insert(key);
 
-    for (const BPConnection& c : m_bpClass->connections) {
+    // exec 输出支持扇出：跟随该出口的所有连线，依次执行（与关卡蓝图对齐）
+    const QList<BPConnection> conns = m_bpClass->connections;   // 拷贝，防执行中修改
+    for (const BPConnection& c : conns) {
         if (c.fromNode == fromNodeId && c.fromPin == fromPin) {
             QString nextPin = executeNode(c.toNode);
             if (!nextPin.isEmpty())
                 executeChain(c.toNode, nextPin, visited);
-            break;
         }
     }
 }
@@ -61,6 +79,17 @@ QString ActorBPRuntime::executeNode(const QString& nodeId) {
     const BPNode* node = findNode(nodeId);
     if (!node) return {};
     ActorData* self = findSelf();
+
+    // 跳转关卡 / 返回上一关：转交 EditorWindow（与关卡蓝图同一套换关处理）
+    if (node->type == "Action.LoadLevel") {
+        const QString levelName = resolveDataPin(nodeId, "levelName");
+        if (!levelName.isEmpty()) emit loadLevelRequested(levelName);
+        return {};
+    }
+    if (node->type == "Action.BackLevel") {
+        emit backLevelRequested();
+        return {};
+    }
 
     // ── 通用节点类型（复用关卡蓝图逻辑）─────────────────────────────────
     if (node->type == "Action.Print") {
@@ -278,6 +307,11 @@ BPValue ActorBPRuntime::resolveOutputPin(const QString& nodeId, const QString& p
     if (node->type == "Event.Tick") {
         if (pinKey == "delta_time") return QString::number(m_deltaTick);
     }
+    if (node->type == "Event.OnCollision") {
+        if (pinKey == "self")  return m_actorId;
+        if (pinKey == "other") return m_collOther;
+        if (pinKey == "tag")   return m_collTag;
+    }
 
     // UI 输出引脚
     if (node->type == "UI.Create" && pinKey == "uiRef")
@@ -288,6 +322,12 @@ BPValue ActorBPRuntime::resolveOutputPin(const QString& nodeId, const QString& p
     }
     if (node->type == "UI.OnDropdownChanged" && pinKey == "index")
         return QString::number(m_dropdownIndex.value(nodeId, 0));
+
+    // ── 纯数据节点（数学/比较/逻辑/数组/转换）：共享求值器，两套运行时一致 ──
+    BPValue out;
+    if (evalPureDataNode(node->type, pinKey,
+            [&](const QString& pk){ return resolveDataPin(nodeId, pk); }, out))
+        return out;
 
     return {};
 }

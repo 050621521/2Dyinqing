@@ -1,0 +1,256 @@
+{
+    "blueprint": {
+        "connections": [
+            {
+                "fromNode": "3db679ed-9877-49fb-b4d5-09ed6a4b8e48",
+                "fromPin": "exec_out",
+                "id": "9f65b9ec-2990-45e0-8955-6ea8af9f0699",
+                "toNode": "213dfeba-32a9-4e69-abdd-3641c9f017e7",
+                "toPin": "exec_in"
+            },
+            {
+                "fromNode": "4a4c18da-d231-4aeb-b795-c86bd9176cfe",
+                "fromPin": "value",
+                "id": "521d9f39-6905-4618-be1f-b56764f9a192",
+                "toNode": "19b0d7c2-7734-4d23-b406-a105298952bb",
+                "toPin": "value"
+            },
+            {
+                "fromNode": "3854405f-7ec6-4239-bbd2-ea3a0710aaac",
+                "fromPin": "exec_out",
+                "id": "2a7a7a1d-a2a1-4bc7-a03a-1b0ebbae2529",
+                "toNode": "19b0d7c2-7734-4d23-b406-a105298952bb",
+                "toPin": "exec_in"
+            },
+            {
+                "fromNode": "19b0d7c2-7734-4d23-b406-a105298952bb",
+                "fromPin": "case_2cefa516-b543-4649-a9b1-70f46accb217",
+                "id": "a82b6daf-cf6e-40af-8f77-29e9bfdf58f6",
+                "toNode": "8e5696d9-ca0e-47cf-adf9-96f1c5469a60",
+                "toPin": "exec_in"
+            },
+            {
+                "fromNode": "b4c6a99f-b57a-4ef3-96f6-c579f21806d6",
+                "fromPin": "exec_out",
+                "id": "9fcca013-b67b-4000-b10e-3b7ee7739fda",
+                "toNode": "489a80be-3016-4970-885c-478b975d02a9",
+                "toPin": "exec_in"
+            },
+            {
+                "fromNode": "b90f1f57-bc5c-4bde-9be1-456a09f8d9b0",
+                "fromPin": "exec_out",
+                "id": "d4533ed0-f491-4e33-af54-2a96ab0ebc98",
+                "toNode": "799e1b52-b097-4241-b926-fc567d49c6f2",
+                "toPin": "exec_in"
+            },
+            {
+                "fromNode": "5f1b3653-b717-4757-b606-20335ed3e470",
+                "fromPin": "value",
+                "id": "ae16f6d8-9bd5-4593-bc1e-8a2624a747a7",
+                "toNode": "72f6b725-4f5d-4efb-a5fa-7e2b811014ff",
+                "toPin": "value"
+            },
+            {
+                "fromNode": "489a80be-3016-4970-885c-478b975d02a9",
+                "fromPin": "exec_out",
+                "id": "6c4d1b70-4556-4fac-8f8c-acbc0b4e09a9",
+                "toNode": "72f6b725-4f5d-4efb-a5fa-7e2b811014ff",
+                "toPin": "exec_in"
+            },
+            {
+                "fromNode": "799e1b52-b097-4241-b926-fc567d49c6f2",
+                "fromPin": "exec_out",
+                "id": "a108b70e-0dd3-4ccc-b95e-5705d244ca6b",
+                "toNode": "72f6b725-4f5d-4efb-a5fa-7e2b811014ff",
+                "toPin": "exec_in"
+            },
+            {
+                "fromNode": "72f6b725-4f5d-4efb-a5fa-7e2b811014ff",
+                "fromPin": "case_b6d983fb-1a0c-4a8f-b588-d13db0dbb2dc",
+                "id": "1c38b0ba-27b6-41b2-847a-d3c3446c04c6",
+                "toNode": "2094a165-e677-4a14-8d3d-104ca9379a43",
+                "toPin": "exec_in"
+            }
+        ],
+        "localVariables": [
+        ],
+        "nodes": [
+            {
+                "id": "b4c6a99f-b57a-4ef3-96f6-c579f21806d6",
+                "params": {
+                    "widgetRef": "角色选择界面::机械师"
+                },
+                "type": "UI.OnButtonClick",
+                "x": -381.98828125,
+                "y": -116.046875
+            },
+            {
+                "id": "3db679ed-9877-49fb-b4d5-09ed6a4b8e48",
+                "params": {
+                },
+                "type": "Event.BeginPlay",
+                "x": -361.18359375,
+                "y": -209.75
+            },
+            {
+                "id": "213dfeba-32a9-4e69-abdd-3641c9f017e7",
+                "params": {
+                    "uiName": "角色选择界面"
+                },
+                "type": "UI.Show",
+                "x": -93.42242431640625,
+                "y": -263.62176513671875
+            },
+            {
+                "id": "b90f1f57-bc5c-4bde-9be1-456a09f8d9b0",
+                "params": {
+                    "widgetRef": "角色选择界面::武夫"
+                },
+                "type": "UI.OnButtonClick",
+                "x": -378.0703125,
+                "y": -31.9921875
+            },
+            {
+                "id": "3854405f-7ec6-4239-bbd2-ea3a0710aaac",
+                "params": {
+                    "widgetRef": "角色选择界面::返回"
+                },
+                "type": "UI.OnButtonClick",
+                "x": -378.890625,
+                "y": 64.23828125
+            },
+            {
+                "id": "19b0d7c2-7734-4d23-b406-a105298952bb",
+                "params": {
+                    "branches": "[{\"id\":\"1d4cb295-c16a-4453-a166-276d56881857\",\"value\":\"\"},{\"id\":\"2cefa516-b543-4649-a9b1-70f46accb217\",\"value\":\"\"}]",
+                    "caseval_1d4cb295-c16a-4453-a166-276d56881857": "0",
+                    "caseval_2cefa516-b543-4649-a9b1-70f46accb217": "1",
+                    "hasDefault": "false"
+                },
+                "type": "Flow.Switch",
+                "x": -114.10863494873047,
+                "y": 160.89859008789062
+            },
+            {
+                "id": "4a4c18da-d231-4aeb-b795-c86bd9176cfe",
+                "params": {
+                    "varName": "模式"
+                },
+                "type": "Global.Get",
+                "x": -374.66607666015625,
+                "y": 201.94825744628906
+            },
+            {
+                "id": "8e5696d9-ca0e-47cf-adf9-96f1c5469a60",
+                "params": {
+                    "levelName": "单人模式"
+                },
+                "type": "Action.LoadLevel",
+                "x": 188.6280059814453,
+                "y": 186.64303588867188
+            },
+            {
+                "id": "489a80be-3016-4970-885c-478b975d02a9",
+                "params": {
+                    "value": "1",
+                    "varName": "角色"
+                },
+                "type": "Global.Set",
+                "x": -104.06803131103516,
+                "y": -119.7016372680664
+            },
+            {
+                "id": "799e1b52-b097-4241-b926-fc567d49c6f2",
+                "params": {
+                    "value": "0",
+                    "varName": "角色"
+                },
+                "type": "Global.Set",
+                "x": -108.17263793945312,
+                "y": -8.831432342529297
+            },
+            {
+                "id": "72f6b725-4f5d-4efb-a5fa-7e2b811014ff",
+                "params": {
+                    "branches": "[{\"id\":\"34701d3c-f564-4802-87a6-3deec579a92f\",\"value\":\"\"},{\"id\":\"b6d983fb-1a0c-4a8f-b588-d13db0dbb2dc\",\"value\":\"\"}]",
+                    "caseval_34701d3c-f564-4802-87a6-3deec579a92f": "0",
+                    "caseval_b6d983fb-1a0c-4a8f-b588-d13db0dbb2dc": "1",
+                    "hasDefault": "false"
+                },
+                "type": "Flow.Switch",
+                "x": 240.90806579589844,
+                "y": -112.78948974609375
+            },
+            {
+                "id": "5f1b3653-b717-4757-b606-20335ed3e470",
+                "params": {
+                    "varName": "单人模式"
+                },
+                "type": "Global.Get",
+                "x": 17.61225700378418,
+                "y": 107.78899383544922
+            },
+            {
+                "id": "2094a165-e677-4a14-8d3d-104ca9379a43",
+                "params": {
+                    "levelName": "标准地图界面"
+                },
+                "type": "Action.LoadLevel",
+                "x": 450.9893493652344,
+                "y": 39.897220611572266
+            }
+        ]
+    },
+    "name": "角色选择界面",
+    "objects": [
+        {
+            "active": true,
+            "animAsset": "",
+            "animAutoPlay": true,
+            "animDefaultClip": "",
+            "bpClass": "builtin/Camera",
+            "cameraBackground": "#ff1e1e1e",
+            "cameraIsMain": true,
+            "cameraOrthographic": true,
+            "cameraResH": 1080,
+            "cameraResW": 1920,
+            "cameraSize": 540,
+            "components": [
+                "摄像机组件"
+            ],
+            "confinerActor": "",
+            "confinerEnabled": false,
+            "confinerMaxX": 500,
+            "confinerMaxY": 500,
+            "confinerMinX": -500,
+            "confinerMinY": -500,
+            "drawMode": "简单",
+            "flipX": false,
+            "flipY": false,
+            "followLerpSpeed": 5,
+            "followOffsetX": 0,
+            "followOffsetY": 0,
+            "followTarget": "",
+            "id": "78edce12-1786-40d0-b337-f3dae3e63398",
+            "layer": "默认",
+            "name": "主摄像机",
+            "orderInLayer": 0,
+            "position": {
+                "x": 0,
+                "y": 0
+            },
+            "rotation": 0,
+            "scale": {
+                "x": 1,
+                "y": 1
+            },
+            "sortingLayer": "默认",
+            "spriteColor": "#ffffffff",
+            "spritePath": "",
+            "spriteVisible": true,
+            "static": false,
+            "tag": "未标记"
+        }
+    ],
+    "version": "0.1"
+}

@@ -504,9 +504,43 @@ void Viewport2D::drawActors(QPainter& p) {
             p.drawRect(QRectF(tl.x(), tl.y(), bW, bH));
         }
 
+        // 碰撞盒绿框（AABB，屏幕空间，不随旋转）；重叠=青、阻挡=绿
+        if (!m_runtimeMode && a.components.contains("碰撞盒") && a.colliderEnabled) {
+            const QRectF cr = colliderScreenRect(a);
+            const QColor cc = (a.colliderResponse == "重叠")
+                              ? QColor(70, 200, 255) : QColor(60, 220, 90);
+            p.setPen(QPen(cc, isSelected ? 2.0f : 1.3f, Qt::SolidLine));
+            p.setBrush(Qt::NoBrush);
+            p.drawRect(cr);
+            if (isPrimary) {           // 选中主对象：画 8 个拖拽手柄
+                p.setBrush(cc); p.setPen(Qt::NoPen);
+                for (const QRectF& h : colliderHandleRects(cr))
+                    p.drawRect(h);
+            }
+        }
+
         // Gizmo 在屏幕坐标绘制（不受旋转影响）
         if (isPrimary) drawGizmo(p, a, rect, pos);
     }
+}
+
+// 碰撞盒在屏幕上的矩形（中心 = 对象位置 + 偏移，尺寸 = 世界宽高 × zoom）
+QRectF Viewport2D::colliderScreenRect(const ActorData& a) const {
+    const QPointF c = worldToScreen({a.x + a.colliderOffsetX, a.y + a.colliderOffsetY});
+    const float w = a.colliderW * m_zoom, h = a.colliderH * m_zoom;
+    return QRectF(c.x() - w / 2.0f, c.y() - h / 2.0f, w, h);
+}
+
+// 8 个手柄矩形：4 角 + 4 边中点（顺序见 ColliderHandle 枚举）
+QList<QRectF> Viewport2D::colliderHandleRects(const QRectF& cr) const {
+    const float s = 4.0f;
+    auto hr = [&](float cx, float cy){ return QRectF(cx - s, cy - s, s * 2, s * 2); };
+    return {
+        hr(cr.left(),    cr.top()),      hr(cr.right(),   cr.top()),
+        hr(cr.left(),    cr.bottom()),   hr(cr.right(),   cr.bottom()),
+        hr(cr.center().x(), cr.top()),   hr(cr.center().x(), cr.bottom()),
+        hr(cr.left(), cr.center().y()),  hr(cr.right(), cr.center().y()),
+    };
 }
 
 void Viewport2D::drawGizmo(QPainter& p, const ActorData&, const QRectF& rect, const QPointF& pos) {
@@ -740,6 +774,35 @@ void Viewport2D::mousePressEvent(QMouseEvent* e) {
 
     if (e->button() == Qt::LeftButton) {
         if (m_doc) {
+            // 碰撞盒手柄拖拽（最高优先）：主选对象启用了碰撞盒时
+            if (!m_selectedId.isEmpty() && !ctrl) {
+                for (const ActorData& a : m_doc->actors()) {
+                    if (a.id != m_selectedId) continue;
+                    if (a.colliderEnabled && a.components.contains("碰撞盒")) {
+                        const QList<QRectF> hr = colliderHandleRects(colliderScreenRect(a));
+                        static const ColliderHandle order[8] = {
+                            ColliderHandle::TL, ColliderHandle::TR, ColliderHandle::BL, ColliderHandle::BR,
+                            ColliderHandle::Top, ColliderHandle::Bottom, ColliderHandle::Left, ColliderHandle::Right };
+                        ColliderHandle hit = ColliderHandle::None;
+                        for (int i = 0; i < 8; ++i)
+                            if (hr[i].adjusted(-3, -3, 3, 3).contains(e->pos())) { hit = order[i]; break; }
+                        if (hit != ColliderHandle::None) {
+                            m_colliderHandle = hit;
+                            const float cx = a.x + a.colliderOffsetX, cy = a.y + a.colliderOffsetY;
+                            m_cbStartL = cx - a.colliderW / 2; m_cbStartR = cx + a.colliderW / 2;
+                            m_cbStartB = cy - a.colliderH / 2; m_cbStartT = cy + a.colliderH / 2;
+                            m_dragBeforeActors.clear();
+                            m_dragBeforeActors << a;
+                            m_dragging    = true;
+                            m_dragActorId = a.id;
+                            update();
+                            return;
+                        }
+                    }
+                    break;
+                }
+            }
+
             // Move 模式：先检测主选 Actor 的箭头端点（Gizmo 轴拖拽）
             if (m_toolMode == ToolMode::Move && !m_selectedId.isEmpty() && !ctrl) {
                 for (const ActorData& a : m_doc->actors()) {
@@ -939,6 +1002,34 @@ void Viewport2D::mouseMoveEvent(QMouseEvent* e) {
         return;
     }
 
+    // 碰撞盒手柄拖拽：按手柄改动对应世界边，反算 宽/高/偏移
+    if (m_colliderHandle != ColliderHandle::None && m_doc) {
+        const QPointF mw = screenToWorld(e->pos());
+        float L = m_cbStartL, R = m_cbStartR, B = m_cbStartB, T = m_cbStartT;
+        const ColliderHandle h = m_colliderHandle;
+        const bool left   = (h == ColliderHandle::TL || h == ColliderHandle::BL || h == ColliderHandle::Left);
+        const bool right  = (h == ColliderHandle::TR || h == ColliderHandle::BR || h == ColliderHandle::Right);
+        const bool top    = (h == ColliderHandle::TL || h == ColliderHandle::TR || h == ColliderHandle::Top);
+        const bool bottom = (h == ColliderHandle::BL || h == ColliderHandle::BR || h == ColliderHandle::Bottom);
+        if (left)   L = (float)mw.x();
+        if (right)  R = (float)mw.x();
+        if (top)    T = (float)mw.y();
+        if (bottom) B = (float)mw.y();
+        for (ActorData a : m_doc->actors()) {
+            if (a.id != m_dragActorId) continue;
+            const float cx = (L + R) / 2.0f, cy = (B + T) / 2.0f;
+            a.colliderW = qMax(1.0f, std::abs(R - L));
+            a.colliderH = qMax(1.0f, std::abs(T - B));
+            a.colliderOffsetX = cx - a.x;
+            a.colliderOffsetY = cy - a.y;
+            m_doc->updateActor(a);
+            emit actorDragging(a);
+            break;
+        }
+        update();
+        return;
+    }
+
     if (m_dragging && m_doc) {
         if (m_toolMode == ToolMode::Rotate) {
             float newRot = m_dragRotStart + (e->pos().x() - m_dragAnchor.x()) * 0.4f;
@@ -1028,6 +1119,18 @@ void Viewport2D::mouseReleaseEvent(QMouseEvent* e) {
         m_selectedId = m_selectedIds.isEmpty() ? QString() : *m_selectedIds.begin();
         m_rubberRect = QRect();
         emit selectionChanged(m_selectedIds.values());
+        update();
+        return;
+    }
+
+    // 碰撞盒手柄拖拽结束
+    if (e->button() == Qt::LeftButton && m_colliderHandle != ColliderHandle::None) {
+        m_colliderHandle = ColliderHandle::None;
+        m_dragging = false;
+        if (m_doc)
+            for (const ActorData& a : m_doc->actors())
+                if (a.id == m_dragActorId) { emit actorTransformed(a); break; }
+        if (m_onRefresh) m_onRefresh();
         update();
         return;
     }

@@ -1,0 +1,108 @@
+{
+    "blueprint": {
+        "connections": [],
+        "localVariables": [],
+        "nodes": []
+    },
+    "name": "战斗地图界面",
+    "objects": [
+        {
+            "active": true,
+            "animAsset": "",
+            "animAutoPlay": true,
+            "animDefaultClip": "",
+            "bpClass": "builtin/Camera",
+            "cameraBackground": "#ff3a1414",
+            "cameraIsMain": true,
+            "cameraOrthographic": true,
+            "cameraResH": 1080,
+            "cameraResW": 1920,
+            "cameraSize": 535,
+            "components": [
+                "摄像机组件"
+            ],
+            "confinerActor": "",
+            "confinerEnabled": false,
+            "confinerMaxX": 500,
+            "confinerMaxY": 500,
+            "confinerMinX": -500,
+            "confinerMinY": -500,
+            "drawMode": "简单",
+            "flipX": false,
+            "flipY": false,
+            "followLerpSpeed": 5,
+            "followOffsetX": 0,
+            "followOffsetY": 0,
+            "followTarget": "",
+            "id": "d80ca62a-5b2f-4f84-93c5-cd281542a52e",
+            "layer": "默认",
+            "name": "主摄像机",
+            "orderInLayer": 0,
+            "position": {
+                "x": 0,
+                "y": 0
+            },
+            "rotation": 0,
+            "scale": {
+                "x": 1,
+                "y": 1
+            },
+            "sortingLayer": "默认",
+            "spriteColor": "#ffffffff",
+            "spritePath": "",
+            "spriteVisible": true,
+            "static": false,
+            "tag": "未标记"
+        },
+        {
+            "active": true,
+            "animAsset": "",
+            "animAutoPlay": true,
+            "animDefaultClip": "",
+            "bpClass": "builtin/Sprite",
+            "cameraBackground": "#ff1e1e1e",
+            "cameraIsMain": false,
+            "cameraOrthographic": true,
+            "cameraResH": 1080,
+            "cameraResW": 1920,
+            "cameraSize": 535,
+            "components": [
+                "变换",
+                "精灵渲染器"
+            ],
+            "confinerActor": "",
+            "confinerEnabled": false,
+            "confinerMaxX": 500,
+            "confinerMaxY": 500,
+            "confinerMinX": -500,
+            "confinerMinY": -500,
+            "drawMode": "简单",
+            "flipX": false,
+            "flipY": false,
+            "followLerpSpeed": 5,
+            "followOffsetX": 0,
+            "followOffsetY": 0,
+            "followTarget": "",
+            "id": "248805c2-b986-4527-a1d0-4844de2e4505",
+            "layer": "默认",
+            "name": "战斗占位",
+            "orderInLayer": 0,
+            "position": {
+                "x": 0,
+                "y": 0
+            },
+            "rotation": 0,
+            "scale": {
+                "x": 200,
+                "y": 200
+            },
+            "sortingLayer": "默认",
+            "spriteColor": "#ffe8c020",
+            "spritePath": "",
+            "spriteVisible": true,
+            "static": false,
+            "tag": "未标记"
+        }
+    ],
+    "version": "0.1"
+}

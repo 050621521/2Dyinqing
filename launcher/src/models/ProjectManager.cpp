@@ -81,6 +81,13 @@ void ProjectManager::removeProject(const QString& path) {
     save();
 }
 
+void ProjectManager::updateProjectPath(const QString& oldPath, const QString& newPath) {
+    for (auto& p : m_recent) {
+        if (p.path == oldPath) { p.path = newPath; break; }
+    }
+    save();
+}
+
 QList<TemplateCategory> ProjectManager::templateCategories() const {
     return m_categories;
 }

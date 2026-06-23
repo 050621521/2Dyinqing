@@ -33,11 +33,18 @@ public:
     // 全局变量表（由 EditorWindow 持有，跨关卡保留）
     void setGlobalVars(QMap<QString, BPValue>* g) { m_globalVars = g; }
 
+    // 碰撞 pass：每帧所有移动完成后调用（分轴阻挡解析 + 重叠事件）
+    void runCollisionPass();
+    // 触发关卡蓝图的「碰撞时」事件（self 撞到 other）
+    void triggerCollision(const QString& selfId, const QString& otherId, const QString& otherTag);
+
 signals:
     void stateChanged();
     void printAppended(const QString& text);  // 运行时打印 → 复现录制时序记录
     void loadLevelRequested(const QString& levelName);
     void backLevelRequested();   // 返回上一关：由 EditorWindow 弹关卡历史栈处理
+    // 重叠事件：self 的碰撞盒重叠到 other（响应=重叠）；EditorWindow 分发给各运行时
+    void overlapDetected(const QString& selfId, const QString& otherId, const QString& otherTag);
 
 private slots:
     void tick();
@@ -73,6 +80,10 @@ private:
     QMap<QString, QString> m_uiRefs;      // nodeId(UI.Create) → instanceId
     QMap<QString, int>     m_dropdownIndex; // UI.OnDropdownChanged nodeId → 最新索引
     QSet<QString>          m_heldKeys;     // 当前被按住的按键集合，每帧驱动按键节点的 held 链
+    // 「碰撞时」事件当前上下文（执行链读取输出引脚时用）
+    QString m_collSelf, m_collOther, m_collTag;
+    // 接触状态：actorId → 当前正接触的对方 id 集合（用于「刚接触触发一次」）
+    QHash<QString, QSet<QString>> m_overlapState;
     QHash<QString, AnimationAsset> m_animCache;  // .anim 路径 → 已加载资源
 
     QTimer*       m_tickTimer  = nullptr;

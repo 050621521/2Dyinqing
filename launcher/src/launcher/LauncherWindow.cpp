@@ -13,6 +13,7 @@
 #include <QPushButton>
 #include <QFileDialog>
 #include <QDir>
+#include <QFileInfo>
 #include <QMessageBox>
 #include <QApplication>
 #include <QFile>
@@ -20,6 +21,32 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QJsonDocument>
+
+namespace {
+// 递归复制目录（用于跨磁盘卷移动时的回退方案）
+bool copyRecursively(const QString& src, const QString& dst) {
+    QDir srcDir(src);
+    if (!srcDir.exists()) return false;
+    if (!QDir().mkpath(dst)) return false;
+
+    for (const QFileInfo& fi : srcDir.entryInfoList(QDir::Files | QDir::Hidden | QDir::System)) {
+        if (!QFile::copy(fi.absoluteFilePath(), dst + "/" + fi.fileName()))
+            return false;
+    }
+    for (const QFileInfo& fi : srcDir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System)) {
+        if (!copyRecursively(fi.absoluteFilePath(), dst + "/" + fi.fileName()))
+            return false;
+    }
+    return true;
+}
+
+// 移动目录：同卷用 rename 瞬间完成；跨卷回退到复制 + 删除原文件夹
+bool moveDir(const QString& src, const QString& dst) {
+    if (QDir().rename(src, dst)) return true;
+    if (!copyRecursively(src, dst)) return false;
+    return QDir(src).removeRecursively();
+}
+} // namespace
 
 LauncherWindow::LauncherWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle("2D引擎 — 项目浏览器");
@@ -119,6 +146,7 @@ void LauncherWindow::setupUi() {
     connect(m_categoryList, &CategoryList::categorySelected, this, &LauncherWindow::onCategorySelected);
     connect(m_grid, &ProjectGrid::selectionChanged, this, &LauncherWindow::onSelectionChanged);
     connect(m_grid, &ProjectGrid::projectOpened, this, &LauncherWindow::onProjectOpened);
+    connect(m_grid, &ProjectGrid::moveRequested, this, &LauncherWindow::onMoveProject);
     connect(m_grid, &ProjectGrid::removeRequested, this, [this](const ProjectInfo& info) {
         ProjectManager::instance().removeProject(info.path);
         m_openBtn->setEnabled(false);
@@ -192,6 +220,33 @@ void LauncherWindow::onBrowse() {
     info.path       = path;
     info.lastOpened = QDateTime::currentDateTime();
     ProjectManager::instance().addRecentProject(info);
+    loadData();
+}
+
+void LauncherWindow::onMoveProject(const ProjectInfo& info) {
+    const QString folderName = QDir(info.path).dirName();
+    const QString parentDir  = QFileInfo(info.path).absolutePath();
+
+    const QString chosenDir = QFileDialog::getExistingDirectory(this, "选择移动到的目标位置", parentDir);
+    if (chosenDir.isEmpty()) return;
+
+    const QString newPath = QDir(chosenDir).filePath(folderName);
+
+    // 目标父目录与原父目录相同：路径没有变化
+    if (QFileInfo(newPath).absoluteFilePath() == QFileInfo(info.path).absoluteFilePath())
+        return;
+
+    if (QFileInfo::exists(newPath)) {
+        QMessageBox::warning(this, "移动失败", "目标位置已存在同名文件夹。");
+        return;
+    }
+
+    if (!moveDir(info.path, newPath)) {
+        QMessageBox::warning(this, "移动失败", "无法移动项目文件夹，原文件保持不变。");
+        return;
+    }
+
+    ProjectManager::instance().updateProjectPath(info.path, newPath);
     loadData();
 }
 

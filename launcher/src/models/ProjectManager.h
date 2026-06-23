@@ -13,6 +13,7 @@ public:
     QList<ProjectInfo> recentProjects() const;
     void addRecentProject(const ProjectInfo& info);
     void removeProject(const QString& path);
+    void updateProjectPath(const QString& oldPath, const QString& newPath);
 
     QList<TemplateCategory> templateCategories() const;
 
