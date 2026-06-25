@@ -25,6 +25,7 @@ add_executable(render_progress_test
     render_progress_test.cpp
     ${SRC_ROOT}/models/LevelDocument.cpp
     ${SRC_ROOT}/models/UIDocument.cpp
+    ${SRC_ROOT}/models/AnimationAsset.cpp
     ${SRC_ROOT}/editor/UIRuntime.cpp
     ${SRC_ROOT}/editor/GameViewport.cpp
 )

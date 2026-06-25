@@ -92,6 +92,20 @@ int main(int argc, char** argv) {
     chk("按 W 键 → GameViewport 发出 keyPressed(\"W\") 信号", gotKey == "W");
     printf("    [debug] 收到的按键 = '%s'\n", gotKey.toUtf8().constData());
 
+    {
+        printf("[worldToScreen 投影]\n");
+        ActorData cam2; cam2.x = 0; cam2.y = 0; cam2.cameraSize = 540;
+        cam2.cameraResW = 1920; cam2.cameraResH = 1080;
+        QRectF camRect(0, 0, 1920, 1080);
+        QPointF c = GameViewport::worldToScreen({0, 0}, camRect, cam2);
+        bool centerOk = qAbs(c.x() - 960) < 0.5 && qAbs(c.y() - 540) < 0.5;
+        printf(centerOk ? "  OK  原点投影到画面中心\n" : "  XX  原点投影到画面中心\n");
+        QPointF up = GameViewport::worldToScreen({0, 540}, camRect, cam2);
+        bool upOk = up.y() < c.y();
+        printf(upOk ? "  OK  世界+Y在屏幕上方\n" : "  XX  世界+Y在屏幕上方\n");
+        if (!centerOk || !upOk) return 1;
+    }
+
     printf("\n========== 渲染测试：通过 %d / 失败 %d ==========\n", pass, fail);
     QDir(proj).removeRecursively();
     return fail == 0 ? 0 : 1;

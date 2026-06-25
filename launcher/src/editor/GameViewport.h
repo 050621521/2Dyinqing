@@ -12,6 +12,9 @@ class GameViewport : public QWidget {
 public:
     explicit GameViewport(QWidget* parent = nullptr);
 
+    // 世界坐标 → 屏幕坐标（与内部相机投影一致，供跟随与测试复用）
+    static QPointF worldToScreen(QPointF world, const QRectF& camRect, const ActorData& cam);
+
     void loadLevel(LevelDocument* doc);
     void setRuntimeActors(const QList<ActorData>& actors);
     void setRuntimeMode(bool on);

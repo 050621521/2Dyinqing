@@ -166,8 +166,8 @@ QRectF GameViewport::computeCameraRect(float aspect) const {
     return QRectF((w - camW) / 2.0f, (h - camH) / 2.0f, camW, camH);
 }
 
-QPointF GameViewport::cameraWorldToScreen(QPointF world, const QRectF& camRect,
-                                           const ActorData& cam) const {
+QPointF GameViewport::worldToScreen(QPointF world, const QRectF& camRect,
+                                     const ActorData& cam) {
     const float halfH  = cam.cameraSize;
     const float aspect = cam.cameraResH > 0
                          ? (float)cam.cameraResW / cam.cameraResH
@@ -179,6 +179,11 @@ QPointF GameViewport::cameraWorldToScreen(QPointF world, const QRectF& camRect,
         camRect.center().x() + (world.x() - cam.x) * scaleX,
         camRect.center().y() - (world.y() - cam.y) * scaleY
     );
+}
+
+QPointF GameViewport::cameraWorldToScreen(QPointF world, const QRectF& camRect,
+                                           const ActorData& cam) const {
+    return worldToScreen(world, camRect, cam);
 }
 
 void GameViewport::drawScene(QPainter& p, const QList<ActorData>& actors,
@@ -414,8 +419,20 @@ void GameViewport::renderUI(QPainter& p, const QRectF& camRect, const ActorData*
     p.setClipRect(camRect);
     for (const UIInstance* inst : m_uiRuntime->shownInstances()) {
         p.save();
-        p.translate(camRect.left() + inst->screenX, camRect.top() + inst->screenY);
-        p.scale(sx, sy);
+        if (!inst->followActorId.isEmpty() && cam) {
+            const ActorData* tgt = nullptr;
+            for (const ActorData& a : m_runtimeActors)
+                if (a.id == inst->followActorId) { tgt = &a; break; }
+            if (!tgt) { p.restore(); continue; }
+            const QPointF sp = worldToScreen({tgt->x, tgt->y}, camRect, *cam);
+            p.translate(sp.x(), sp.y());
+            p.scale(sx, sy);
+            p.translate(-canonicalW / 2.0f + inst->followOffsetX,
+                        -canonicalH / 2.0f + inst->followOffsetY);
+        } else {
+            p.translate(camRect.left() + inst->screenX, camRect.top() + inst->screenY);
+            p.scale(sx, sy);
+        }
         const UIDocument& doc = inst->docCopy;
         for (const UIWidget& root : doc.rootWidgets())
             renderWidget(p, root, canonicalRect, doc);
