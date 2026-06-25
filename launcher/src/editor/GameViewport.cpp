@@ -269,16 +269,7 @@ void GameViewport::drawScene(QPainter& p, const QList<ActorData>& actors,
             }
         }
 
-        if (!drewPixmap) {
-            const float szBase = qMax(24.0f, 40.0f * scale);
-            const float szW = szBase * qMax(0.05f, qAbs(a.scaleX));
-            const float szH = szBase * qMax(0.05f, qAbs(a.scaleY));
-            QRectF aRect(pos.x() - szW / 2.0f, pos.y() - szH / 2.0f, szW, szH);
-            const QColor fill = bpClassColor(a.bpClass);
-            p.setPen(QPen(fill.darker(160), 1.0));
-            p.setBrush(fill);
-            p.drawRect(aRect);
-        }
+        // 游戏视图是最终画面：没精灵图片就什么都不画（不再画占位方块）
 
         p.restore();
     }

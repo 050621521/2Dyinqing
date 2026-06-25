@@ -497,6 +497,8 @@ void DetailsPanel::showActor(const ActorData& actor) {
     m_spriteColorBtn->setStyleSheet(
         QString("background:%1; border:1px solid #555;")
         .arg(actor.spriteColor.name(QColor::HexArgb)));
+    if (m_spriteColorResetBtn)
+        m_spriteColorResetBtn->setVisible(spriteColorIsOverridden());
     m_flipXCheck->setChecked(actor.flipX);
     m_flipYCheck->setChecked(actor.flipY);
     {
@@ -723,6 +725,20 @@ void DetailsPanel::assignSpritePath(const QString& path) {
 void DetailsPanel::refreshSpriteSection() {
     if (m_spriteBox)
         m_spriteBox->setVisible(m_currentActor.components.contains("精灵渲染器"));
+}
+
+QStringList DetailsPanel::spriteRendererFields() {
+    return {"spritePath", "spriteColor", "sortingLayer", "orderInLayer",
+            "flipX", "flipY", "drawMode", "spriteVisible"};
+}
+
+bool DetailsPanel::spriteColorIsOverridden() const {
+    // 自定义类实例：看该字段是否「已覆盖」类默认值
+    if (!m_currentActor.bpClass.isEmpty()
+            && !m_currentActor.bpClass.startsWith("builtin/"))
+        return m_currentActor.overriddenFields.contains("spriteColor");
+    // 内置精灵 / 编辑类本身：默认即纯白，颜色非白才算改过
+    return m_currentActor.spriteColor != QColor(255, 255, 255, 255);
 }
 
 void DetailsPanel::refreshAnimSection() {
@@ -1089,6 +1105,17 @@ void DetailsPanel::buildSpriteRenderer(QVBoxLayout* root) {
     titleRow->addStretch();
     boxLayout->addWidget(titleBar);
 
+    // 标题右键菜单：重置整个精灵渲染器（Unity 风格）
+    titleBar->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(titleBar, &QWidget::customContextMenuRequested, this,
+            [this, titleBar](const QPoint& pos) {
+        if (m_currentActor.id.isEmpty()) return;
+        QMenu menu(this);
+        QAction* act = menu.addAction("重置精灵渲染器");
+        if (menu.exec(titleBar->mapToGlobal(pos)) == act)
+            emit actorFieldsReset(m_currentActor.id, spriteRendererFields());
+    });
+
     // 内容区域
     auto* content = new QWidget(box);
     auto* grid = new QGridLayout(content);
@@ -1168,12 +1195,21 @@ void DetailsPanel::buildSpriteRenderer(QVBoxLayout* root) {
 
     // 行2：颜色
     grid->addWidget(new QLabel("颜色", content), 1, 0);
+    auto* colorRow = new QHBoxLayout;
     m_spriteColorBtn = new QPushButton(content);
     m_spriteColorBtn->setObjectName("spriteColorBtn");
     m_spriteColorBtn->setFixedWidth(70);
     m_spriteColorBtn->setFixedHeight(22);
     m_spriteColorBtn->setStyleSheet("background:#ffffffff; border:1px solid #555;");
-    grid->addWidget(m_spriteColorBtn, 1, 1, 1, 2);
+    colorRow->addWidget(m_spriteColorBtn);
+    // 「↩」重置箭头：颜色相对默认被改过时才亮，点一下还原成默认色
+    m_spriteColorResetBtn = new QPushButton("↩", content);
+    m_spriteColorResetBtn->setObjectName("fieldResetBtn");
+    m_spriteColorResetBtn->setFixedSize(22, 22);
+    m_spriteColorResetBtn->setToolTip("重置颜色为默认");
+    colorRow->addWidget(m_spriteColorResetBtn);
+    colorRow->addStretch();
+    grid->addLayout(colorRow, 1, 1, 1, 2);
 
     connect(m_spriteColorBtn, &QPushButton::clicked, this, [this]() {
         QColor c = QColorDialog::getColor(m_currentActor.spriteColor, this,
@@ -1183,6 +1219,11 @@ void DetailsPanel::buildSpriteRenderer(QVBoxLayout* root) {
         m_spriteColorBtn->setStyleSheet(
             QString("background:%1; border:1px solid #555;").arg(c.name(QColor::HexArgb)));
         emit actorModified(m_currentActor);
+    });
+
+    connect(m_spriteColorResetBtn, &QPushButton::clicked, this, [this]() {
+        if (m_currentActor.id.isEmpty()) return;
+        emit actorFieldsReset(m_currentActor.id, {"spriteColor"});
     });
 
     // 行3：翻转

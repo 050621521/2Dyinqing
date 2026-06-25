@@ -1037,6 +1037,25 @@ static bool resolveInstanceFromClass(ActorData& inst, const BPClass& cls) {
     return true;
 }
 
+// 把实例的指定字段重置为默认：自定义类实例→取消覆盖回类默认值；内置精灵→引擎硬默认
+static ActorData resetActorFields(const ActorData& before, const QStringList& fields,
+                                  const QString& projectRoot) {
+    ActorData after = before;
+    if (!before.bpClass.isEmpty() && !before.bpClass.startsWith("builtin/")) {
+        for (const QString& f : fields) after.overriddenFields.remove(f);
+        BPClass cls = BPClass::load(projectRoot + "/" + before.bpClass);
+        resolveInstanceFromClass(after, cls);
+    } else {
+        const ActorData def;               // 默认构造 = 引擎硬默认
+        QJsonObject ja = after.toJson(), jd = def.toJson();
+        for (const QString& f : fields) ja[f] = jd[f];
+        const QSet<QString> keepOv = after.overriddenFields;
+        after = ActorData::fromJson(ja);
+        after.overriddenFields = keepOv;   // 内置精灵覆盖集恒空，保持原样
+    }
+    return after;
+}
+
 // 关卡加载后：把每个类实例对其当前类默认值重新解析（实现活继承）
 static void resolveLevelInstances(LevelDocument* doc, const QString& projectRoot) {
     if (!doc) return;
@@ -1108,6 +1127,33 @@ void EditorWindow::onTabChanged(int index) {
                             }
                         }
                         updateSaveLabel();
+                    });
+                // 重置：类本身 → 把字段恢复成引擎硬默认，再刷未覆盖的实例
+                m_tabConnections << connect(m_detailsPanel, &DetailsPanel::actorFieldsReset,
+                    this, [this, path](const QString&, const QStringList& fields) {
+                        BPClass* c = m_openBpClasses.value(path, nullptr);
+                        if (!c) return;
+                        ActorData cur = actorFromBpClass(*c, path);
+                        const ActorData def;
+                        QJsonObject ja = cur.toJson(), jd = def.toJson();
+                        for (const QString& f : fields) ja[f] = jd[f];
+                        ActorData reset = ActorData::fromJson(ja);
+                        reset.components = cur.components;
+                        applyActorToBpClass(reset, *c);
+                        c->save();
+                        const QString rel = QDir(m_project.path).relativeFilePath(path);
+                        for (LevelDocument* d : m_openLevels.values()) {
+                            if (!d) continue;
+                            const QList<ActorData> snap = d->actors();
+                            for (const ActorData& a : snap) {
+                                if (a.bpClass != rel) continue;
+                                ActorData copy = a;
+                                if (resolveInstanceFromClass(copy, *c))
+                                    d->updateActor(copy);
+                            }
+                        }
+                        updateSaveLabel();
+                        m_detailsPanel->showActor(actorFromBpClass(*c, path));
                     });
             }
         }
@@ -1357,6 +1403,29 @@ void EditorWindow::onTabChanged(int index) {
         Recorder::instance().log("修改属性", changes.isEmpty()
             ? QString("\"%1\"").arg(after.name)
             : QString("\"%1\" %2").arg(after.name, changes.join(", ")));
+    });
+
+    // 重置字段：实例 → 取消覆盖回类默认（内置精灵回引擎硬默认），纳入撤销
+    m_tabConnections << connect(m_detailsPanel, &DetailsPanel::actorFieldsReset,
+                                this, [this, doc](const QString& actorId,
+                                                  const QStringList& fields) {
+        ActorData before; bool found = false;
+        for (const ActorData& a : doc->actors())
+            if (a.id == actorId) { before = a; found = true; break; }
+        if (!found) return;
+        ActorData after = resetActorFields(before, fields, m_project.path);
+        if (after.toJson() == before.toJson()) return;   // 无变化不入栈
+        auto doRefresh = [this, doc]() {
+            updateTabTitle(m_docTabBar->currentIndex());
+            updateSaveLabel();
+            if (m_viewport) m_viewport->update();
+            if (m_gameViewport) { m_gameViewport->update(); updateGameViewToolbar(doc); }
+            m_sceneOutliner->loadLevel(doc);
+        };
+        doc->undoStack()->push(new ActorModifyCmd(doc, before, after, doRefresh));
+        m_detailsPanel->showActor(after);
+        Recorder::instance().log("重置属性",
+            QString("\"%1\" %2").arg(after.name, fields.join(", ")));
     });
 
     // 多选批量编辑：一次 macro 包裹所有改动 → 单步撤销，刷新一次

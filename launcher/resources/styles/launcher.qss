@@ -543,6 +543,17 @@ QDockWidget#bottomStatusDock > QWidget { background: #1a1a1a; }
 #addComponentBtn:hover  { background: #353535; color: #c8e8ff; border-color: #558bc8; }
 #addComponentBtn:pressed { background: #1e1e1e; }
 
+/* 字段重置「↩」箭头 */
+#fieldResetBtn {
+    background: transparent;
+    border: none;
+    color: #d8b24a;
+    font-size: 14px;
+    padding: 0;
+}
+#fieldResetBtn:hover  { color: #ffd866; }
+#fieldResetBtn:pressed { color: #b8902a; }
+
 /* Bottom status bar */
 #bottomStatusDock { background: #1a1a1a; }
 #editorStatusBar  {

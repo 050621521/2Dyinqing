@@ -328,6 +328,26 @@ QPointF Viewport2D::screenToWorld(QPointF screen) const {
 
 // ── 绘制 ──────────────────────────────────────────────────────────────
 
+// 精灵类无图片时的「无图」占位小图标（图片字形：边框+太阳+山），
+// 固定屏幕尺寸、画在对象中心，方便开发时定位。
+static void drawNoSpriteIcon(QPainter& p, const QPointF& c, float maxSize,
+                             const QColor& col) {
+    const float s = qMin(18.0f, maxSize * 0.6f);
+    if (s < 5.0f) return;   // 太小就不画图标，只留细框
+    const QRectF fr(c.x() - s / 2, c.y() - s / 2, s, s);
+    p.setBrush(Qt::NoBrush);
+    p.setPen(QPen(col, 1.3f));
+    p.drawRoundedRect(fr, s * 0.14, s * 0.14);
+    p.setPen(Qt::NoPen);
+    p.setBrush(col);
+    p.drawEllipse(QPointF(fr.left() + s * 0.32, fr.top() + s * 0.32), s * 0.1, s * 0.1);
+    QPolygonF mt;
+    mt << QPointF(fr.left() + s * 0.18, fr.bottom() - s * 0.18)
+       << QPointF(fr.left() + s * 0.46, fr.top()    + s * 0.52)
+       << QPointF(fr.right() - s * 0.14, fr.bottom() - s * 0.18);
+    p.drawPolygon(mt);
+}
+
 void Viewport2D::paintEvent(QPaintEvent*) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
@@ -526,23 +546,32 @@ void Viewport2D::drawActors(QPainter& p) {
                     p.drawLine(QPointF(pos.x() + dx * sz * 0.5f, pos.y() + dy * sz * 0.5f),
                                QPointF(pos.x() + dx * r2,         pos.y() + dy * r2));
                 }
-            } else {
+            } else if (a.bpClass == "builtin/Camera") {
                 p.setPen(outline);
                 p.setBrush(fill);
                 p.drawRect(rect);
-                if (a.bpClass == "builtin/Camera") {
-                    p.setBrush(Qt::white); p.setPen(Qt::NoPen);
-                    QPolygonF tri;
-                    tri << QPointF(pos.x() + sz * 0.28f, pos.y())
-                        << QPointF(pos.x() + sz * 0.5f,  pos.y() - sz * 0.18f)
-                        << QPointF(pos.x() + sz * 0.5f,  pos.y() + sz * 0.18f);
-                    p.drawPolygon(tri);
-                }
+                p.setBrush(Qt::white); p.setPen(Qt::NoPen);
+                QPolygonF tri;
+                tri << QPointF(pos.x() + sz * 0.28f, pos.y())
+                    << QPointF(pos.x() + sz * 0.5f,  pos.y() - sz * 0.18f)
+                    << QPointF(pos.x() + sz * 0.5f,  pos.y() + sz * 0.18f);
+                p.drawPolygon(tri);
+            } else {
+                // 精灵类无图片：只画空心细框 + 中心「无图」小图标，便于定位
+                QPen ph(fill.lighter(150), isSelected ? 2.0f : 1.2f);
+                ph.setStyle(isSelected ? Qt::SolidLine : Qt::DashLine);
+                p.setPen(ph);
+                p.setBrush(Qt::NoBrush);
+                p.drawRect(rect);
+                drawNoSpriteIcon(p, pos, sz, fill.lighter(160));
             }
         }
 
-        // 禁用状态蒙版
-        if (!a.active && (drewPixmap || a.bpClass != "builtin/Empty")) {
+        // 禁用状态蒙版（仅遮实心可视：贴图 / 相机 / 光源 / 触发器；空对象与无图精灵的细框占位不遮）
+        const bool hasFilledVisual = drewPixmap
+            || a.bpClass == "builtin/Camera" || a.bpClass == "builtin/Light"
+            || a.bpClass == "builtin/Trigger";
+        if (!a.active && hasFilledVisual) {
             p.setBrush(QColor(0, 0, 0, 130));
             p.setPen(Qt::NoPen);
             p.drawRect(rect);

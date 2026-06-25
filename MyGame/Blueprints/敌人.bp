@@ -64,7 +64,7 @@
             "y": 3
         },
         "sortingLayer": "默认",
-        "spriteColor": "#ffd83030",
+        "spriteColor": "#ffffffff",
         "spritePath": "",
         "spriteVisible": true,
         "static": false,

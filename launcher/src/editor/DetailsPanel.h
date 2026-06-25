@@ -33,6 +33,8 @@ signals:
     void actorModified(const ActorData& actor);
     void actorsModified(const QList<ActorData>& actors);   // 多选批量编辑
     void editBpClassRequested(const QString& bpClass);
+    // 请求把指定字段重置为默认（类实例→类默认值；内置/类本身→引擎硬默认）
+    void actorFieldsReset(const QString& actorId, const QStringList& fields);
 
 private slots:
     void onAnyFieldChanged();
@@ -60,6 +62,10 @@ private:
     void onAddComponent(const QString& compName);
 
     static QColor typeColor(const QString& type);
+    // 精灵渲染器组件涉及的全部字段（用于「重置组件」）
+    static QStringList spriteRendererFields();
+    // 当前对象的精灵颜色是否相对默认被改过（决定「↩」是否亮起）
+    bool spriteColorIsOverridden() const;
 
     QPushButton*    m_editBpBtn   = nullptr;
     QLabel*         m_iconLabel   = nullptr;
@@ -82,6 +88,7 @@ private:
     QWidget*     m_spriteBox       = nullptr;
     QLabel*      m_spritePathLabel = nullptr;
     QPushButton* m_spriteColorBtn  = nullptr;
+    QPushButton* m_spriteColorResetBtn = nullptr;   // 颜色「↩」重置箭头
     QCheckBox*   m_flipXCheck      = nullptr;
     QCheckBox*   m_flipYCheck      = nullptr;
     QComboBox*   m_sortLayerCombo  = nullptr;
