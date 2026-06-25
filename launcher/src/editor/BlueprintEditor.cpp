@@ -457,6 +457,16 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
             }
         },
         {
+            "UI.Follow", "跟随对象", QColor("#1a4a6a"),
+            {
+                {"exec_in",   "exec",     true,  false},
+                {"exec_out",  "exec",     true,  true},
+                {"widgetRef", "控件引用", false, false, ValueKind::WidgetRef},
+                {"actorId",   "对象",     false, false, ValueKind::ActorRef},
+                {"offsetUp",  "上移距离", false, false},
+            }
+        },
+        {
             "UI.OnButtonClick", "按钮点击时", QColor("#6a2a8a"),
             {
                 {"widgetRef", "控件引用", false, false, ValueKind::WidgetRef},

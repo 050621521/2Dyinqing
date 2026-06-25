@@ -594,6 +594,15 @@ QString BPRuntime::executeNode(const QString& nodeId) {
         }
         return "exec_out";
     }
+    if (node->type == "UI.Follow") {
+        if (m_uiRuntime) {
+            const QString ref     = splitWidgetRef(resolveDataPin(nodeId, "widgetRef")).first;
+            const QString actorId = resolveDataPin(nodeId, "actorId");
+            const float   up      = resolveDataPin(nodeId, "offsetUp").toString().toFloat();
+            m_uiRuntime->setFollowActorRef(ref, actorId, 0.0f, -up);
+        }
+        return "exec_out";
+    }
 
     return {};
 }

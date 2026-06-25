@@ -282,6 +282,7 @@ Actor 类型定义在 `src/models/ActorTypeUtils.h`（跨文件共享，避免�
 | UI.SetValue | 设置进度值 |
 | UI.SetPosition | 设置UI位置 |
 | UI.SetVisible | 设置控件可见 |
+| UI.Follow | 跟随对象 |
 | UI.Ref | UI引用变量 |
 | UI.OnButtonClick | 按钮点击时 |
 | UI.OnDropdownChanged | 下拉选项改变时 |
