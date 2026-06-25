@@ -10,6 +10,9 @@ struct UIInstance {
     float       screenX = 0;
     float       screenY = 0;
     bool        shown   = false;
+    QString followActorId;          // 空 = 不跟随
+    float   followOffsetX = 0.0f;   // 画布像素：跟随时相对单位中心的水平偏移
+    float   followOffsetY = 0.0f;   // 画布像素：负值=单位上方
 };
 
 class UIRuntime : public QObject {
@@ -25,6 +28,9 @@ public:
     void    setText        (const QString& instanceId, const QString& widgetName, const QString& text);
     void    setValue       (const QString& instanceId, const QString& widgetName, float value);
     void    setPosition    (const QString& instanceId, float x, float y);
+    void    setFollowActor   (const QString& instanceId, const QString& actorId, float offsetX, float offsetY);
+    void    setFollowActorRef(const QString& ref,        const QString& actorId, float offsetX, float offsetY);
+    void    clearFollow      (const QString& instanceId);
     void    setWidgetVisible(const QString& instanceId, const QString& widgetName, bool visible);
 
     QString showWidgetByName   (const QString& uiName, const QString& widgetName);

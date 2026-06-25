@@ -41,3 +41,16 @@ add_executable(test_real_project
 )
 target_include_directories(test_real_project PRIVATE ${SRC_ROOT})
 target_link_libraries(test_real_project PRIVATE Qt6::Core Qt6::Gui)
+
+add_executable(follow_test
+    follow_test.cpp
+    ${SRC_ROOT}/models/LevelDocument.cpp
+    ${SRC_ROOT}/models/UIDocument.cpp
+    ${SRC_ROOT}/models/BPMacro.cpp
+    ${SRC_ROOT}/models/AnimationAsset.cpp
+    ${SRC_ROOT}/models/BPValue.cpp
+    ${SRC_ROOT}/editor/BPRuntime.cpp
+    ${SRC_ROOT}/editor/UIRuntime.cpp
+)
+target_include_directories(follow_test PRIVATE ${SRC_ROOT})
+target_link_libraries(follow_test PRIVATE Qt6::Core Qt6::Gui)

@@ -169,6 +169,31 @@ void UIRuntime::setPosition(const QString& id, float x, float y) {
     emit uiStateChanged();
 }
 
+void UIRuntime::setFollowActor(const QString& instanceId, const QString& actorId,
+                               float offsetX, float offsetY) {
+    UIInstance* inst = findInstance(instanceId);
+    if (!inst) return;
+    inst->followActorId = actorId;
+    inst->followOffsetX = offsetX;
+    inst->followOffsetY = offsetY;
+    emit uiStateChanged();
+}
+
+void UIRuntime::setFollowActorRef(const QString& ref, const QString& actorId,
+                                  float offsetX, float offsetY) {
+    UIInstance* inst = findInstance(ref);   // 先按实例 id
+    if (!inst) inst = findByName(ref);      // 再按 UI 名
+    if (!inst) return;
+    setFollowActor(inst->instanceId, actorId, offsetX, offsetY);
+}
+
+void UIRuntime::clearFollow(const QString& instanceId) {
+    if (UIInstance* inst = findInstance(instanceId)) {
+        inst->followActorId.clear();
+        emit uiStateChanged();
+    }
+}
+
 void UIRuntime::notifyButtonClicked(const QString& instanceId, const QString& widgetName) {
     emit buttonClicked(instanceId, widgetName);
 }
