@@ -337,6 +337,11 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
             "Self.Anim.Stop", "停止动画", QColor("#2a4040"),
             {{"exec_in","exec",true,false},{"exec_out","exec",true,true}}
         },
+        {
+            "Self.Anim.SetAsset", "设置动画素材", QColor("#2a4040"),
+            {{"exec_in","exec",true,false},{"exec_out","exec",true,true},
+             {"asset","素材",false,false,ValueKind::AnimAssetRef}}
+        },
         // ── Self 摄像机 ─────────────────────────────────────────────────
         {
             "Self.Camera.SetSize", "设置摄像机尺寸", QColor("#1a2a4a"),
@@ -1560,7 +1565,8 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
                                           || pd.kind == ValueKind::ActorRef
                                           || pd.kind == ValueKind::WidgetRef
                                           || pd.kind == ValueKind::EnumRef
-                                          || pd.kind == ValueKind::AnimClipRef);
+                                          || pd.kind == ValueKind::AnimClipRef
+                                          || pd.kind == ValueKind::AnimAssetRef);
                     float bx0 = (float)(tl.x() + nw * 0.5f);
                     float bx1 = (float)(tl.x() + nw - 6.0f);
                     QRectF boxRc(bx0, rowY + 2, bx1 - bx0, rowH - 4);
@@ -1569,6 +1575,9 @@ void BlueprintEditor::drawNode(QPainter& p, const BPNode& node) {
                     p.drawRoundedRect(boxRc, 2.0, 2.0);
                     p.setBrush(Qt::NoBrush);
                     QString display = val.isEmpty() ? (isDropdown ? "选择…" : "···") : val;
+                    if (!val.isEmpty() && pd.kind == ValueKind::AnimAssetRef)
+                        display = QFileInfo(val).fileName();   // 只显示文件名，路径太长
+
                     p.setPen(val.isEmpty() ? QColor(0x55, 0x55, 0x55) : QColor(0x5a, 0x9f, 0xd4));
                     QFont vf; vf.setPointSizeF(qMax(7.0, 8.5 * m_zoom));
                     p.setFont(vf);
@@ -2162,6 +2171,14 @@ void BlueprintEditor::mousePressEvent(QMouseEvent* e) {
                 showInlineEdit(hit.nodeId, hit.pinName);   // 无资源时退回打字
             else
                 showListPicker(e->pos(), hit.nodeId, hit.pinName, "选择动画片段", items, cur);
+            break;
+        }
+        case ValueKind::AnimAssetRef: {
+            const auto items = buildAnimAssetItems();
+            if (items.isEmpty())
+                showInlineEdit(hit.nodeId, hit.pinName);   // 无资源时退回打字
+            else
+                showListPicker(e->pos(), hit.nodeId, hit.pinName, "选择动画素材", items, cur);
             break;
         }
         case ValueKind::Bool:
@@ -3213,6 +3230,15 @@ QList<QPair<QString, QString>> BlueprintEditor::buildAnimClipItems() const {
                              : QString("%1（%2）").arg(c.name, c.label);
         items.append({disp, c.name});   // (显示名, 写回片段名)
     }
+    return items;
+}
+
+QList<QPair<QString, QString>> BlueprintEditor::buildAnimAssetItems() const {
+    QList<QPair<QString, QString>> items;
+    if (m_projectRoot.isEmpty()) return items;
+    QDir animDir(m_projectRoot + "/动画");
+    for (const QString& fn : animDir.entryList({"*.anim"}, QDir::Files, QDir::Name))
+        items.append({QFileInfo(fn).baseName(), animDir.absoluteFilePath(fn)});  // 显示文件名，写回绝对路径
     return items;
 }
 

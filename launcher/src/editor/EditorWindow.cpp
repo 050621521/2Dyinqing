@@ -183,18 +183,22 @@ EditorWindow::EditorWindow(const ProjectInfo& project, QWidget* parent)
 
     // Ctrl+C 复制
     auto* copySc = new QShortcut(QKeySequence::Copy, this);
+    copySc->setContext(Qt::ApplicationShortcut);
     connect(copySc, &QShortcut::activated, this, [this]() {
         if (isTextInputFocused()) return;
         const int idx = m_centralStack->currentIndex();
-        if (idx == 3 && m_uiEditor) m_uiEditor->copySelected();
+        if (idx == 0 && m_viewport) m_viewport->copySelected();
+        else if (idx == 3 && m_uiEditor) m_uiEditor->copySelected();
     });
 
     // Ctrl+V 粘贴
     auto* pasteSc = new QShortcut(QKeySequence::Paste, this);
+    pasteSc->setContext(Qt::ApplicationShortcut);
     connect(pasteSc, &QShortcut::activated, this, [this]() {
         if (isTextInputFocused()) return;
         const int idx = m_centralStack->currentIndex();
-        if (idx == 3 && m_uiEditor) m_uiEditor->paste();
+        if (idx == 0 && m_viewport) m_viewport->pasteFromClipboard();
+        else if (idx == 3 && m_uiEditor) m_uiEditor->paste();
     });
 
     QString defaultLevel = ProjectSettingsDialog::readDefaultLevel(m_project.path);
@@ -1201,17 +1205,20 @@ void EditorWindow::onTabChanged(int index) {
     m_detailsPanel->clearActor();
     for (auto* btn : m_viewportAlignBtns) btn->setEnabled(false);
 
-    m_tabConnections << connect(m_sceneOutliner, &SceneOutliner::actorSelected,
-                                this, [this](const ActorData& a) {
-        m_detailsPanel->showActor(a);
-        if (m_viewport) m_viewport->setSelectedId(a.id);
-        Recorder::instance().log("选中(大纲)", QString("\"%1\"").arg(a.name));
+    // 大纲多选 → 同步到视口选区（视口再统一广播 selectionChanged 驱动细节面板/对齐/回灌高亮）
+    m_tabConnections << connect(m_sceneOutliner, &SceneOutliner::selectionChanged,
+                                this, [this](QStringList ids) {
+        if (m_viewport) m_viewport->setSelectedIds(ids);
+        Recorder::instance().log("选中(大纲)", QString("%1 个").arg(ids.size()));
     });
+    m_tabConnections << connect(m_sceneOutliner, &SceneOutliner::copyRequested,
+                                this, [this]() { if (m_viewport) m_viewport->copySelected(); });
+    m_tabConnections << connect(m_sceneOutliner, &SceneOutliner::pasteRequested,
+                                this, [this]() { if (m_viewport) m_viewport->pasteFromClipboard(); });
 
     if (m_viewport) {
         m_tabConnections << connect(m_viewport, &Viewport2D::actorSelected,
                                     this, [this](const ActorData& a) {
-            m_detailsPanel->showActor(a);
             Recorder::instance().log("选中(视口)", QString("\"%1\"").arg(a.name));
         });
         m_tabConnections << connect(m_viewport, &Viewport2D::selectionChanged,
@@ -1221,8 +1228,21 @@ void EditorWindow::onTabChanged(int index) {
                 btn->setEnabled(n >= 2);
             if (n == 0)
                 m_detailsPanel->clearActor();
-            else if (n > 1)
-                m_detailsPanel->showMultiSelection(n);
+            else if (n == 1) {
+                LevelDocument* doc = m_openLevels.value(m_activeLevelPath, nullptr);
+                if (doc) for (const ActorData& a : doc->actors())
+                    if (a.id == ids.first()) { m_detailsPanel->showActor(a); break; }
+            }
+            else {
+                LevelDocument* doc = m_openLevels.value(m_activeLevelPath, nullptr);
+                QList<ActorData> sel;
+                if (doc) for (const QString& id : ids)
+                    for (const ActorData& a : doc->actors())
+                        if (a.id == id) { sel << a; break; }
+                m_detailsPanel->showMultiSelection(sel);
+            }
+            // 回灌大纲高亮（大纲内部阻塞信号，不会回环）
+            if (m_sceneOutliner) m_sceneOutliner->setSelectedIds(ids);
         });
         m_tabConnections << connect(m_viewport, &Viewport2D::actorsAligned,
                                     this, [this](QList<ActorData> actors) {
@@ -1337,6 +1357,42 @@ void EditorWindow::onTabChanged(int index) {
         Recorder::instance().log("修改属性", changes.isEmpty()
             ? QString("\"%1\"").arg(after.name)
             : QString("\"%1\" %2").arg(after.name, changes.join(", ")));
+    });
+
+    // 多选批量编辑：一次 macro 包裹所有改动 → 单步撤销，刷新一次
+    m_tabConnections << connect(m_detailsPanel, &DetailsPanel::actorsModified,
+                                this, [this, doc](const QList<ActorData>& afterList) {
+        if (afterList.isEmpty()) return;
+        auto doRefresh = [this, doc]() {
+            updateTabTitle(m_docTabBar->currentIndex());
+            updateSaveLabel();
+            if (m_viewport) m_viewport->update();
+            if (m_gameViewport) { m_gameViewport->update(); updateGameViewToolbar(doc); }
+            m_sceneOutliner->loadLevel(doc);
+        };
+        doc->undoStack()->beginMacro("批量修改属性");
+        for (const ActorData& afterIn : afterList) {
+            ActorData after = afterIn, before;
+            for (const ActorData& a : doc->actors())
+                if (a.id == after.id) { before = a; break; }
+            // 活继承：类实例改了哪些字段标记为「已覆盖」
+            if (!after.bpClass.isEmpty() && !after.bpClass.startsWith("builtin/")) {
+                after.overriddenFields = before.overriddenFields;
+                const QJsonObject bj = before.toJson(), aj = after.toJson();
+                for (const QString& k : aj.keys()) {
+                    if (k == "id" || k == "name" || k == "components" || k == "overriddenFields")
+                        continue;
+                    if (aj[k] != bj[k]) after.overriddenFields.insert(k);
+                }
+            }
+            doc->undoStack()->push(new ActorModifyCmd(doc, before, after, doRefresh));
+        }
+        doc->undoStack()->endMacro();
+        // 大纲被 loadLevel 重建后，恢复多选高亮
+        QStringList ids;
+        for (const ActorData& a : afterList) ids << a.id;
+        if (m_sceneOutliner) m_sceneOutliner->setSelectedIds(ids);
+        Recorder::instance().log("批量修改属性", QString("%1 个对象").arg(afterList.size()));
     });
 
     m_tabConnections << connect(m_sceneOutliner, &SceneOutliner::actorRemoved,
@@ -1783,7 +1839,7 @@ void EditorWindow::startRuntime() {
         }
         if (bc && bc->hasNodes()) {
             auto* ar = new ActorBPRuntime(bc, actor.id,
-                                          &m_runtime->mutableActors(), this);
+                                          &m_runtime->mutableActors(), m_runtime, this);
             m_actorRuntimes.append(ar);
             ar->setUIRuntime(m_uiRuntime);
             connect(ar, &ActorBPRuntime::printOutput,

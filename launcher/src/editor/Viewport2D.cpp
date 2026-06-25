@@ -13,6 +13,11 @@
 #include <QDropEvent>
 #include <QMimeData>
 #include <QDataStream>
+#include <QClipboard>
+#include <QApplication>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 #include <cmath>
 
 
@@ -61,6 +66,16 @@ void Viewport2D::setSelectedId(const QString& id) {
     m_selectedId = id;
     m_selectedIds.clear();
     if (!id.isEmpty()) m_selectedIds.insert(id);
+    update();
+}
+
+// 设置完整多选选区（供大纲面板多选同步），并广播 selectionChanged
+void Viewport2D::setSelectedIds(const QStringList& ids) {
+    m_selectedIds.clear();
+    for (const QString& id : ids)
+        if (!id.isEmpty()) m_selectedIds.insert(id);
+    m_selectedId = m_selectedIds.isEmpty() ? QString() : ids.first();
+    emit selectionChanged(m_selectedIds.values());
     update();
 }
 
@@ -175,6 +190,57 @@ void Viewport2D::duplicateSelected() {
     update();
 }
 
+// 复制：把选中的 Actor 序列化写入系统剪贴板，可跨关卡粘贴
+void Viewport2D::copySelected() {
+    if (!m_doc || m_selectedIds.isEmpty()) return;
+    QJsonArray arr;
+    for (const ActorData& a : m_doc->actors()) {
+        if (!m_selectedIds.contains(a.id)) continue;
+        arr.append(a.toJson());
+    }
+    if (arr.isEmpty()) return;
+    QJsonObject root;
+    root["__yinqing_actors__"] = arr;
+    QApplication::clipboard()->setText(
+        QString::fromUtf8(QJsonDocument(root).toJson(QJsonDocument::Compact)));
+}
+
+// 粘贴：从系统剪贴板读取 Actor 并加入当前关卡（生成新 id，整体偏移避免重叠）
+void Viewport2D::pasteFromClipboard() {
+    if (!m_doc || !m_undoStack || !m_onRefresh) return;
+    const QByteArray text = QApplication::clipboard()->text().toUtf8();
+    if (text.isEmpty()) return;
+    QJsonParseError err;
+    const QJsonDocument jdoc = QJsonDocument::fromJson(text, &err);
+    if (err.error != QJsonParseError::NoError || !jdoc.isObject()) return;
+    const QJsonArray arr = jdoc.object().value("__yinqing_actors__").toArray();
+    if (arr.isEmpty()) return;
+
+    QList<ActorData> pasted;
+    for (const QJsonValue& v : arr) {
+        ActorData a = ActorData::fromJson(v.toObject());
+        a.id  = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        a.x  += 50.0f;
+        a.y  += 50.0f;
+        pasted << a;
+    }
+    if (pasted.isEmpty()) return;
+
+    m_undoStack->beginMacro("粘贴 Actor");
+    for (const ActorData& c : pasted)
+        m_undoStack->push(new ActorAddCmd(m_doc, c, m_onRefresh));
+    m_undoStack->endMacro();
+
+    m_selectedIds.clear();
+    for (const ActorData& c : pasted) {
+        m_selectedIds.insert(c.id);
+        emit actorCreated(c);
+    }
+    m_selectedId = pasted.first().id;
+    emit selectionChanged(m_selectedIds.values());
+    update();
+}
+
 void Viewport2D::deleteSelected() {
     if (m_selectedIds.isEmpty() || !m_doc) return;
     if (m_undoStack && m_onRefresh) {
@@ -249,12 +315,15 @@ void Viewport2D::applyToolCursor() {
 
 QPointF Viewport2D::worldToScreen(QPointF world) const {
     QPointF center(width() / 2.0 + m_offset.x(), height() / 2.0 + m_offset.y());
-    return center + world * m_zoom;
+    // Y 取反：世界 Y 向上为正，屏幕 Y 向下为正（与游戏视图、关卡数据一致）
+    return QPointF(center.x() + world.x() * m_zoom,
+                   center.y() - world.y() * m_zoom);
 }
 
 QPointF Viewport2D::screenToWorld(QPointF screen) const {
     QPointF center(width() / 2.0 + m_offset.x(), height() / 2.0 + m_offset.y());
-    return (screen - center) / m_zoom;
+    return QPointF((screen.x() - center.x()) / m_zoom,
+                   (center.y() - screen.y()) / m_zoom);
 }
 
 // ── 绘制 ──────────────────────────────────────────────────────────────

@@ -79,6 +79,7 @@ DetailsPanel::DetailsPanel(QWidget* parent) : QWidget(parent) {
     stack->addWidget(scroll);
 
     m_stack = stack;
+    buildMultiPage();   // 第 2 页：多选批量编辑
 
     auto* outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
@@ -562,10 +563,127 @@ void DetailsPanel::clearActor() {
     m_stack->setCurrentIndex(0);
 }
 
-void DetailsPanel::showMultiSelection(int count) {
+// ── 多选批量编辑页 ────────────────────────────────────────────────────
+
+void DetailsPanel::buildMultiPage() {
+    auto* page = new QWidget(m_stack);
+    page->setObjectName("detailMultiPage");
+    auto* root = new QVBoxLayout(page);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
+
+    auto* head = new QWidget(page);
+    head->setObjectName("detailHeader");
+    auto* hv = new QVBoxLayout(head);
+    hv->setContentsMargins(8, 8, 8, 6);
+    hv->setSpacing(2);
+    m_multiHint = new QLabel(head);
+    m_multiHint->setObjectName("multiSelectHint");
+    auto* tip = new QLabel("只编辑共有的变换属性；留空表示各自保持不变", head);
+    tip->setObjectName("multiSelectTip");
+    tip->setWordWrap(true);
+    hv->addWidget(m_multiHint);
+    hv->addWidget(tip);
+    root->addWidget(head);
+
+    auto* box = new QGroupBox("变换（批量）", page);
+    box->setObjectName("transformGroup");
+    auto* grid = new QGridLayout(box);
+    grid->setContentsMargins(10, 8, 10, 8);
+    grid->setHorizontalSpacing(6);
+    grid->setVerticalSpacing(6);
+
+    auto mkEdit = [&]() -> QLineEdit* {
+        auto* e = new QLineEdit(box);
+        e->setObjectName("detailNumEdit");
+        e->setPlaceholderText("多个值");
+        e->setValidator(new QDoubleValidator(-1e9, 1e9, 3, e));
+        connect(e, &QLineEdit::editingFinished, this, &DetailsPanel::applyMultiEdit);
+        return e;
+    };
+    m_mPosX   = mkEdit();
+    m_mPosY   = mkEdit();
+    m_mRot    = mkEdit();
+    m_mScaleX = mkEdit();
+    m_mScaleY = mkEdit();
+
+    int r = 0;
+    grid->addWidget(new QLabel("位置"), r, 0);
+    grid->addWidget(m_mPosX, r, 1);
+    grid->addWidget(m_mPosY, r, 2);
+    r++;
+    grid->addWidget(new QLabel("旋转"), r, 0);
+    grid->addWidget(m_mRot, r, 1);
+    r++;
+    grid->addWidget(new QLabel("缩放"), r, 0);
+    grid->addWidget(m_mScaleX, r, 1);
+    grid->addWidget(m_mScaleY, r, 2);
+
+    root->addWidget(box);
+    root->addStretch();
+    m_stack->addWidget(page);   // index 2
+}
+
+// 数字 → 文本（去掉多余小数尾零）
+static QString fmtField(float v) {
+    QString s = QString::number(v, 'f', 3);
+    if (s.contains('.')) { while (s.endsWith('0')) s.chop(1); if (s.endsWith('.')) s.chop(1); }
+    return s;
+}
+
+void DetailsPanel::showMultiSelection(const QList<ActorData>& actors) {
     m_currentActor = ActorData{};
-    if (m_emptyHint) m_emptyHint->setText(QString("已选中 %1 个对象").arg(count));
-    m_stack->setCurrentIndex(0);
+    m_multiActors = actors;
+    if (m_multiHint)
+        m_multiHint->setText(QString("已选中 %1 个对象").arg(actors.size()));
+
+    // 共有值相同 → 显示该值；不同 → 留空（占位「多个值」）
+    auto fill = [&](QLineEdit* e, std::function<float(const ActorData&)> get) {
+        QSignalBlocker b(e);
+        if (actors.isEmpty()) { e->clear(); return; }
+        const float v0 = get(actors.first());
+        bool same = true;
+        for (const ActorData& a : actors)
+            if (!qFuzzyCompare(get(a) + 1.0f, v0 + 1.0f)) { same = false; break; }
+        if (same) e->setText(fmtField(v0));
+        else      e->clear();
+    };
+    fill(m_mPosX,   [](const ActorData& a){ return a.x; });
+    fill(m_mPosY,   [](const ActorData& a){ return a.y; });
+    fill(m_mRot,    [](const ActorData& a){ return a.rotation; });
+    fill(m_mScaleX, [](const ActorData& a){ return a.scaleX; });
+    fill(m_mScaleY, [](const ActorData& a){ return a.scaleY; });
+
+    m_stack->setCurrentIndex(2);
+}
+
+void DetailsPanel::applyMultiEdit() {
+    if (m_multiActors.isEmpty()) return;
+    // 非空字段才应用（绝对覆盖到所有选中对象）；空字段保持各自原值
+    const bool hasX  = !m_mPosX->text().trimmed().isEmpty();
+    const bool hasY  = !m_mPosY->text().trimmed().isEmpty();
+    const bool hasR  = !m_mRot->text().trimmed().isEmpty();
+    const bool hasSX = !m_mScaleX->text().trimmed().isEmpty();
+    const bool hasSY = !m_mScaleY->text().trimmed().isEmpty();
+    if (!(hasX || hasY || hasR || hasSX || hasSY)) return;
+
+    const float vx  = m_mPosX->text().toFloat();
+    const float vy  = m_mPosY->text().toFloat();
+    const float vr  = m_mRot->text().toFloat();
+    const float vsx = m_mScaleX->text().toFloat();
+    const float vsy = m_mScaleY->text().toFloat();
+
+    QList<ActorData> out;
+    for (ActorData a : m_multiActors) {
+        if (hasX)  a.x = vx;
+        if (hasY)  a.y = vy;
+        if (hasR)  a.rotation = vr;
+        if (hasSX) a.scaleX = vsx;
+        if (hasSY) a.scaleY = vsy;
+        out << a;
+    }
+    m_multiActors = out;          // 以最新值为基准，便于继续编辑其它字段
+    emit actorsModified(out);
 }
 
 void DetailsPanel::setProjectRoot(const QString& root) {

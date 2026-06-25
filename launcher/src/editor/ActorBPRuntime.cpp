@@ -1,5 +1,6 @@
 #include "ActorBPRuntime.h"
 #include "UIRuntime.h"
+#include "BPRuntime.h"
 #include "BPEval.h"
 #include <utility>
 
@@ -12,8 +13,9 @@ static std::pair<QString,QString> splitWidgetRef(const QString& ref) {
 ActorBPRuntime::ActorBPRuntime(const BPClass* bpClass,
                                 const QString& actorId,
                                 QList<ActorData>* actors,
+                                BPRuntime* rt,
                                 QObject* parent)
-    : QObject(parent), m_bpClass(bpClass), m_actorId(actorId), m_actors(actors)
+    : QObject(parent), m_bpClass(bpClass), m_actorId(actorId), m_actors(actors), m_rt(rt)
 {}
 
 void ActorBPRuntime::triggerBeginPlay() {
@@ -158,7 +160,18 @@ QString ActorBPRuntime::executeNode(const QString& nodeId) {
         return "exec_out";
     }
     if (node->type == "Self.Anim.Stop") {
-        self->animPlaying = false;     // 停在当前帧
+        self->animPlaying    = false;      // 停止播放
+        self->animFrameIndex = 0;          // 回到第一帧（站立姿势）
+        self->animTimeAccum  = 0.0;
+        if (m_rt) m_rt->reapplyAnimFrame(*self);  // 立即刷新可见帧，松开瞬间即站立
+        return "exec_out";
+    }
+    if (node->type == "Self.Anim.SetAsset") {
+        const QString path = resolveDataPin(nodeId, "asset").toString();
+        if (!path.isEmpty() && self->animAsset != path) {
+            self->animAsset = path;                  // 换整套素材（如武夫→机械师）
+            if (m_rt) m_rt->reapplyAnimFrame(*self); // 当前片段/帧无缝接上，立即刷新可见帧
+        }
         return "exec_out";
     }
 
@@ -312,6 +325,10 @@ BPValue ActorBPRuntime::resolveOutputPin(const QString& nodeId, const QString& p
         if (pinKey == "other") return m_collOther;
         if (pinKey == "tag")   return m_collTag;
     }
+
+    // 全局变量读取（与关卡蓝图共用 EditorWindow 持有的同一张全局表）
+    if (node->type == "Global.Get" && m_rt)
+        return m_rt->globalVar(node->params.value("varName"));
 
     // UI 输出引脚
     if (node->type == "UI.Create" && pinKey == "uiRef")

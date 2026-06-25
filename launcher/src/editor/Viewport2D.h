@@ -17,6 +17,7 @@ public:
 
     void loadLevel(LevelDocument* doc);
     void setSelectedId(const QString& id);
+    void setSelectedIds(const QStringList& ids);
     void setToolMode(ToolMode mode);
     void setGridSnap(bool enabled, float size);
     void setRotSnap(bool enabled, float angle);
@@ -28,6 +29,8 @@ public:
     void frameSelected();
     void selectAll();
     void duplicateSelected();
+    void copySelected();
+    void pasteFromClipboard();
     void deleteSelected();
     void clearSelection();
 

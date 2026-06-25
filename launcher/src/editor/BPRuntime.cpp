@@ -256,6 +256,12 @@ void BPRuntime::initAnimations() {
     }
 }
 
+void BPRuntime::reapplyAnimFrame(ActorData& a) {
+    if (a.animAsset.isEmpty() || a.animCurClip.isEmpty()) { a.animSheetPath.clear(); return; }
+    const AnimationAsset& as = animAssetFor(a.animAsset);
+    applyAnimFrame(a, as, as.findClip(a.animCurClip));   // 切素材后立即刷新可见帧（站立不动时也生效）
+}
+
 void BPRuntime::advanceAnimations(float dt) {
     for (ActorData& a : m_actors) {
         if (!a.animPlaying || a.animAsset.isEmpty() || a.animCurClip.isEmpty()) continue;

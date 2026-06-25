@@ -15,14 +15,18 @@ public:
     void loadLevel(LevelDocument* doc);
     void clear();
     void setUndoStack(QUndoStack* stack, std::function<void()> refresh);
+    void setSelectedIds(const QStringList& ids);   // 视口选区同步到大纲高亮（不回环发信号）
 
 signals:
     void actorSelected(const ActorData& actor);
+    void selectionChanged(QStringList ids);        // 大纲多选变化
+    void copyRequested();                          // 右键菜单「复制」
+    void pasteRequested();                         // 右键菜单「粘贴」
     void actorRemoved(const QString& id);
     void levelChanged();
 
 private slots:
-    void onItemClicked(QTreeWidgetItem* item, int col);
+    void onSelectionChanged();
     void showContextMenu(const QPoint& pos);
     void onSearchChanged(const QString& text);
 

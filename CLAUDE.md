@@ -271,6 +271,7 @@ Actor 类型定义在 `src/models/ActorTypeUtils.h`（跨文件共享，避免�
 | Self.Sprite.SetVisible | 设置精灵可见 |
 | Self.Anim.Play | 播放动画 |
 | Self.Anim.Stop | 停止动画 |
+| Self.Anim.SetAsset | 设置动画素材 |
 | Self.Camera.SetSize | 设置摄像机尺寸 |
 | Self.Camera.SetBackground | 设置背景色 |
 | UI.Create | 创建UI |

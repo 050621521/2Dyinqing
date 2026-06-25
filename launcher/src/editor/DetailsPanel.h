@@ -21,7 +21,7 @@ public:
     explicit DetailsPanel(QWidget* parent = nullptr);
     void showActor(const ActorData& actor);
     void clearActor();
-    void showMultiSelection(int count);
+    void showMultiSelection(const QList<ActorData>& actors);
     void assignSpritePath(const QString& path);
     void setProjectRoot(const QString& root);
 
@@ -31,10 +31,12 @@ protected:
 
 signals:
     void actorModified(const ActorData& actor);
+    void actorsModified(const QList<ActorData>& actors);   // 多选批量编辑
     void editBpClassRequested(const QString& bpClass);
 
 private slots:
     void onAnyFieldChanged();
+    void applyMultiEdit();
 
 private:
     void buildHeader(QVBoxLayout* root);
@@ -132,4 +134,14 @@ private:
     QStackedWidget* m_stack     = nullptr;
     QLabel*         m_emptyHint = nullptr;
     QString         m_projectRoot;
+
+    // 多选批量编辑页（stack index 2）：仅编辑共有的变换属性
+    void buildMultiPage();
+    QList<ActorData> m_multiActors;
+    QLabel*    m_multiHint = nullptr;
+    QLineEdit* m_mPosX     = nullptr;
+    QLineEdit* m_mPosY     = nullptr;
+    QLineEdit* m_mRot      = nullptr;
+    QLineEdit* m_mScaleX   = nullptr;
+    QLineEdit* m_mScaleY   = nullptr;
 };

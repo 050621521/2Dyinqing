@@ -32,11 +32,18 @@ public:
     void setUIRuntime(UIRuntime* ui);
     // 全局变量表（由 EditorWindow 持有，跨关卡保留）
     void setGlobalVars(QMap<QString, BPValue>* g) { m_globalVars = g; }
+    // 读取全局变量（供 ActorBPRuntime 的 Global.Get 复用同一张全局表）
+    BPValue globalVar(const QString& name) const {
+        return m_globalVars ? m_globalVars->value(name) : BPValue();
+    }
 
     // 碰撞 pass：每帧所有移动完成后调用（分轴阻挡解析 + 重叠事件）
     void runCollisionPass();
     // 触发关卡蓝图的「碰撞时」事件（self 撞到 other）
     void triggerCollision(const QString& selfId, const QString& otherId, const QString& otherTag);
+
+    // 运行时切换动画素材后，按新素材重算当前片段当前帧（供 ActorBPRuntime 调用）
+    void reapplyAnimFrame(ActorData& a);
 
 signals:
     void stateChanged();

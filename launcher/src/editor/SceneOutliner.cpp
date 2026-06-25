@@ -14,6 +14,9 @@
 #include <QFont>
 #include <QFrame>
 #include <QMap>
+#include <QSet>
+#include <QAbstractItemView>
+#include <QItemSelectionModel>
 
 SceneOutliner::SceneOutliner(QWidget* parent) : QWidget(parent) {
     setObjectName("sceneOutliner");
@@ -49,11 +52,12 @@ SceneOutliner::SceneOutliner(QWidget* parent) : QWidget(parent) {
     m_tree->header()->resizeSection(1, 70);
     m_tree->setIndentation(14);
     m_tree->setRootIsDecorated(true);
+    m_tree->setSelectionMode(QAbstractItemView::ExtendedSelection); // 支持 Ctrl/Shift 多选
     m_tree->setContextMenuPolicy(Qt::CustomContextMenu);
     root->addWidget(m_tree, 1);
 
     connect(m_search, &QLineEdit::textChanged, this, &SceneOutliner::onSearchChanged);
-    connect(m_tree, &QTreeWidget::itemClicked, this, &SceneOutliner::onItemClicked);
+    connect(m_tree, &QTreeWidget::itemSelectionChanged, this, &SceneOutliner::onSelectionChanged);
     connect(m_tree, &QTreeWidget::customContextMenuRequested, this, &SceneOutliner::showContextMenu);
 
     m_tree->setEditTriggers(QAbstractItemView::EditKeyPressed);
@@ -120,16 +124,32 @@ void SceneOutliner::rebuild() {
     }
 }
 
-// ── 点击 Actor ────────────────────────────────────────────────────────
+// ── 选择 Actor（支持多选）────────────────────────────────────────────
 
-void SceneOutliner::onItemClicked(QTreeWidgetItem* item, int) {
-    if (!m_doc || !item) return;
-    const QString id = item->data(0, Qt::UserRole).toString();
-    if (id.isEmpty()) return; // 分组节点
-
-    for (const ActorData& a : m_doc->actors()) {
-        if (a.id == id) { emit actorSelected(a); return; }
+void SceneOutliner::onSelectionChanged() {
+    if (!m_doc) return;
+    QStringList ids;
+    for (QTreeWidgetItem* item : m_tree->selectedItems()) {
+        const QString id = item->data(0, Qt::UserRole).toString();
+        if (!id.isEmpty()) ids << id;
     }
+    emit selectionChanged(ids);
+}
+
+// 视口选区回灌到大纲高亮：阻塞信号避免回环
+void SceneOutliner::setSelectedIds(const QStringList& ids) {
+    if (!m_tree) return;
+    QSignalBlocker blocker(m_tree);
+    const QSet<QString> set(ids.begin(), ids.end());
+    QTreeWidgetItem* firstSel = nullptr;
+    for (int i = 0; i < m_tree->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* item = m_tree->topLevelItem(i);
+        const bool sel = set.contains(item->data(0, Qt::UserRole).toString());
+        item->setSelected(sel);
+        if (sel && !firstSel) firstSel = item;
+    }
+    // 只移动当前项、不改动选区（NoUpdate），便于键盘导航与重命名
+    m_tree->setCurrentItem(firstSel, 0, QItemSelectionModel::NoUpdate);
 }
 
 // ── 搜索 ──────────────────────────────────────────────────────────────
@@ -150,24 +170,44 @@ void SceneOutliner::showContextMenu(const QPoint& pos) {
     QMenu menu(this);
 
     if (isActor) {
+        // 收集要操作的 id：右键项在多选内 → 整批；否则仅该项
+        QStringList targetIds;
+        for (QTreeWidgetItem* it : m_tree->selectedItems()) {
+            const QString sid = it->data(0, Qt::UserRole).toString();
+            if (!sid.isEmpty()) targetIds << sid;
+        }
+        if (!targetIds.contains(id)) targetIds = {id};
+
+        const QString copyLabel = targetIds.size() > 1
+            ? QString("复制 %1 个").arg(targetIds.size()) : QString("复制");
+        menu.addAction(copyLabel, [this]() { emit copyRequested(); });
+        menu.addAction("粘贴", [this]() { emit pasteRequested(); });
+        menu.addSeparator();
         menu.addAction("重命名", [this, item]() {
             m_tree->editItem(item, 0);
         });
-        menu.addAction("删除", [this, id]() {
+        const QString delLabel = targetIds.size() > 1
+            ? QString("删除 %1 个").arg(targetIds.size()) : QString("删除");
+        menu.addAction(delLabel, [this, targetIds]() {
             if (!m_doc) return;
-            ActorData data;
-            for (const ActorData& a : m_doc->actors())
-                if (a.id == id) { data = a; break; }
-            if (m_undoStack && m_onRefresh) {
-                m_undoStack->push(new ActorRemoveCmd(m_doc, data, m_onRefresh));
-            } else {
-                m_doc->removeActor(id);
-                rebuild();
-                emit levelChanged();
+            if (m_undoStack && m_onRefresh) m_undoStack->beginMacro("删除 Actor");
+            for (const QString& tid : targetIds) {
+                ActorData data;
+                for (const ActorData& a : m_doc->actors())
+                    if (a.id == tid) { data = a; break; }
+                if (m_undoStack && m_onRefresh) {
+                    m_undoStack->push(new ActorRemoveCmd(m_doc, data, m_onRefresh));
+                } else {
+                    m_doc->removeActor(tid);
+                }
+                emit actorRemoved(tid);
             }
-            emit actorRemoved(id);
+            if (m_undoStack && m_onRefresh) m_undoStack->endMacro();
+            else { rebuild(); emit levelChanged(); }
         });
     } else {
+        menu.addAction("粘贴", [this]() { emit pasteRequested(); });
+        menu.addSeparator();
         auto* addMenu = menu.addMenu("添加 Actor");
         for (const QString& type : kActorTypes) {
             addMenu->addAction(typeLabel(type), [this, type]() {

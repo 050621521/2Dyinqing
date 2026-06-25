@@ -215,12 +215,47 @@
             "id": "1e1395cc-9fc9-4035-bef1-4ec9ab29ac1f",
             "toNode": "a28b322c-db0e-42f7-aec1-b061941d3a0c",
             "toPin": "exec_in"
+        },
+        {
+            "fromNode": "65f9ad16-728f-4035-941f-8552f8f48257",
+            "fromPin": "exec_out",
+            "id": "c03d7efd-8962-49ee-9fc9-c3fa5a28edd5",
+            "toNode": "efd1d65a-5e52-49a2-b22f-4621f0e3a044",
+            "toPin": "exec_in"
+        },
+        {
+            "fromNode": "8fb3bb83-22b7-45b8-9240-1c6a916bde95",
+            "fromPin": "value",
+            "id": "89d0f32d-5dfa-4347-80bd-709e09ef7796",
+            "toNode": "874cccb4-570d-41f9-b4fa-ba1d38549a5b",
+            "toPin": "a"
+        },
+        {
+            "fromNode": "874cccb4-570d-41f9-b4fa-ba1d38549a5b",
+            "fromPin": "result",
+            "id": "441443cd-3b68-48d6-b72e-a76eacefa379",
+            "toNode": "efd1d65a-5e52-49a2-b22f-4621f0e3a044",
+            "toPin": "condition"
+        },
+        {
+            "fromNode": "efd1d65a-5e52-49a2-b22f-4621f0e3a044",
+            "fromPin": "true",
+            "id": "49d6ea14-16ea-427b-aafd-f84a31bae1e1",
+            "toNode": "950f940d-ca94-44ff-b40d-7e3b9c9bfd05",
+            "toPin": "exec_in"
+        },
+        {
+            "fromNode": "efd1d65a-5e52-49a2-b22f-4621f0e3a044",
+            "fromPin": "false",
+            "id": "0c79f63a-1e12-414e-9e6a-e8b9f7e0483d",
+            "toNode": "936d879e-724f-446b-90d3-0cad2a0d16d8",
+            "toPin": "exec_in"
         }
     ],
     "defaults": {
         "active": true,
         "animAsset": "/Users/kwy/Documents/2Dyinqing/MyGame/动画/武夫.anim",
-        "animAutoPlay": true,
+        "animAutoPlay": false,
         "animDefaultClip": "walk_down",
         "cameraBackground": "#ff1e1e1e",
         "cameraIsMain": false,
@@ -475,6 +510,58 @@
             "type": "Action.LoadLevel",
             "x": -443.326416015625,
             "y": -407.9382629394531
+        },
+        {
+            "id": "65f9ad16-728f-4035-941f-8552f8f48257",
+            "params": {
+            },
+            "type": "Event.BeginPlay",
+            "x": -700,
+            "y": 1080
+        },
+        {
+            "id": "8fb3bb83-22b7-45b8-9240-1c6a916bde95",
+            "params": {
+                "varName": "角色"
+            },
+            "type": "Global.Get",
+            "x": -700,
+            "y": 1260
+        },
+        {
+            "id": "874cccb4-570d-41f9-b4fa-ba1d38549a5b",
+            "params": {
+                "b": "1"
+            },
+            "type": "Cmp.EQ",
+            "x": -460,
+            "y": 1180
+        },
+        {
+            "id": "efd1d65a-5e52-49a2-b22f-4621f0e3a044",
+            "params": {
+            },
+            "type": "Flow.Branch",
+            "x": -300,
+            "y": 1100
+        },
+        {
+            "id": "950f940d-ca94-44ff-b40d-7e3b9c9bfd05",
+            "params": {
+                "asset": "/Users/kwy/Documents/2Dyinqing/MyGame/动画/机械师.anim"
+            },
+            "type": "Self.Anim.SetAsset",
+            "x": -120,
+            "y": 1080
+        },
+        {
+            "id": "936d879e-724f-446b-90d3-0cad2a0d16d8",
+            "params": {
+                "asset": "/Users/kwy/Documents/2Dyinqing/MyGame/动画/武夫.anim"
+            },
+            "type": "Self.Anim.SetAsset",
+            "x": -120,
+            "y": 1240
         }
     ]
 }

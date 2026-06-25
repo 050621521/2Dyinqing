@@ -7,14 +7,16 @@
 #include <QMap>
 
 class UIRuntime;
+class BPRuntime;
 
 class ActorBPRuntime : public QObject {
     Q_OBJECT
 public:
-    // actors: points to BPRuntime::mutableActors(), shared list
+    // actors: points to BPRuntime::mutableActors(), shared list；rt 供切换动画素材后重算帧
     explicit ActorBPRuntime(const BPClass* bpClass,
                              const QString& actorId,
                              QList<ActorData>* actors,
+                             BPRuntime* rt,
                              QObject* parent = nullptr);
 
     void triggerBeginPlay();
@@ -45,6 +47,7 @@ private:
     const BPClass*    m_bpClass;
     QString           m_actorId;
     QList<ActorData>* m_actors;
+    BPRuntime*        m_rt = nullptr;   // 所属关卡运行时（共享动画素材缓存）
     float             m_deltaTick = 0.0f;
     QSet<QString>     m_heldKeys;     // 当前按住的键，每帧驱动 held 链（与关卡蓝图对齐）
     QString           m_collOther, m_collTag;   // 「碰撞时」事件当前上下文（self = m_actorId）
