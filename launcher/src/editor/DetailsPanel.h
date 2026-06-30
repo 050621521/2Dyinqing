@@ -60,6 +60,8 @@ private:
     void reloadAnimClips(const QString& selectedClip);
     void refreshCameraSections();
     void onAddComponent(const QString& compName);
+    // 给所有数值框/下拉框装上滚轮防误触过滤器
+    void installWheelGuards();
 
     static QColor typeColor(const QString& type);
     // 精灵渲染器组件涉及的全部字段（用于「重置组件」）

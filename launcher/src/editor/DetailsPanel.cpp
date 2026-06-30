@@ -31,9 +31,49 @@ static const QString kManageTagItem = QStringLiteral("⚙ 管理标签…");
 #include <QListWidgetItem>
 #include <QDataStream>
 #include <QMimeData>
+#include <QApplication>
+#include <QAbstractSpinBox>
+#include <QWheelEvent>
 
 QColor DetailsPanel::typeColor(const QString& type) {
     return actorTypeColor(type);
+}
+
+// ── 滚轮防误触 ────────────────────────────────────────────────────────
+// 数值框 / 下拉框只有在「被点中（获得焦点）」后才响应鼠标滚轮调整数值；
+// 否则鼠标滚轮直接用来滚动细节面板，避免划过时不小心改了数值。
+namespace {
+class WheelGuard : public QObject {
+public:
+    using QObject::QObject;
+    bool eventFilter(QObject* o, QEvent* e) override {
+        if (e->type() != QEvent::Wheel) return false;
+        auto* w = qobject_cast<QWidget*>(o);
+        if (!w || w->hasFocus()) return false;   // 已聚焦：允许滚轮调整
+        // 未聚焦：不改数值，把滚轮转给可滚动的祖先（细节面板的滚动条）
+        for (QWidget* a = w->parentWidget(); a; a = a->parentWidget()) {
+            if (auto* sa = qobject_cast<QScrollArea*>(a)) {
+                QApplication::sendEvent(sa->viewport(), e);
+                break;
+            }
+        }
+        return true;
+    }
+};
+}  // namespace
+
+void DetailsPanel::installWheelGuards() {
+    static WheelGuard* guard = new WheelGuard(qApp);
+    const auto spins = findChildren<QAbstractSpinBox*>();
+    for (auto* s : spins) {
+        s->setFocusPolicy(Qt::StrongFocus);
+        s->installEventFilter(guard);
+    }
+    const auto combos = findChildren<QComboBox*>();
+    for (auto* c : combos) {
+        c->setFocusPolicy(Qt::StrongFocus);
+        c->installEventFilter(guard);
+    }
 }
 
 // ── 构造 ──────────────────────────────────────────────────────────────
@@ -89,6 +129,8 @@ DetailsPanel::DetailsPanel(QWidget* parent) : QWidget(parent) {
     // 初始显示空状态
     stack->setCurrentIndex(0);
     setAcceptDrops(true);
+
+    installWheelGuards();   // 数值框/下拉框：未聚焦时滚轮只滚面板、不改数值
 }
 
 // ── 顶部身份区 ────────────────────────────────────────────────────────
