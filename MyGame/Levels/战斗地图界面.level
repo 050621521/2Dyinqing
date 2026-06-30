@@ -1,10 +1,138 @@
 {
     "blueprint": {
         "connections": [
+            {
+                "fromNode": "demo_begin",
+                "fromPin": "exec_out",
+                "id": "demo_demo_begin_demo_create0",
+                "toNode": "demo_create0",
+                "toPin": "exec_in"
+            },
+            {
+                "fromNode": "demo_create0",
+                "fromPin": "exec_out",
+                "id": "demo_demo_create0_demo_follow0",
+                "toNode": "demo_follow0",
+                "toPin": "exec_in"
+            },
+            {
+                "fromNode": "demo_create0",
+                "fromPin": "widgetRef",
+                "id": "demo_demo_create0_demo_follow0",
+                "toNode": "demo_follow0",
+                "toPin": "widgetRef"
+            },
+            {
+                "fromNode": "demo_follow0",
+                "fromPin": "exec_out",
+                "id": "demo_demo_follow0_demo_create1",
+                "toNode": "demo_create1",
+                "toPin": "exec_in"
+            },
+            {
+                "fromNode": "demo_create1",
+                "fromPin": "exec_out",
+                "id": "demo_demo_create1_demo_follow1",
+                "toNode": "demo_follow1",
+                "toPin": "exec_in"
+            },
+            {
+                "fromNode": "demo_create1",
+                "fromPin": "widgetRef",
+                "id": "demo_demo_create1_demo_follow1",
+                "toNode": "demo_follow1",
+                "toPin": "widgetRef"
+            },
+            {
+                "fromNode": "demo_follow1",
+                "fromPin": "exec_out",
+                "id": "demo_demo_follow1_demo_create2",
+                "toNode": "demo_create2",
+                "toPin": "exec_in"
+            },
+            {
+                "fromNode": "demo_create2",
+                "fromPin": "exec_out",
+                "id": "demo_demo_create2_demo_follow2",
+                "toNode": "demo_follow2",
+                "toPin": "exec_in"
+            },
+            {
+                "fromNode": "demo_create2",
+                "fromPin": "widgetRef",
+                "id": "demo_demo_create2_demo_follow2",
+                "toNode": "demo_follow2",
+                "toPin": "widgetRef"
+            }
         ],
         "localVariables": [
         ],
         "nodes": [
+            {
+                "id": "demo_begin",
+                "params": {
+                },
+                "type": "Event.BeginPlay",
+                "x": -600,
+                "y": -300
+            },
+            {
+                "id": "demo_create0",
+                "params": {
+                    "widgetRef": "头顶信息"
+                },
+                "type": "UI.Create",
+                "x": -300,
+                "y": -300
+            },
+            {
+                "id": "demo_follow0",
+                "params": {
+                    "actorId": "37308997-579d-48a2-9b79-0dcc95890516",
+                    "offsetUp": "150"
+                },
+                "type": "UI.Follow",
+                "x": 0,
+                "y": -300
+            },
+            {
+                "id": "demo_create1",
+                "params": {
+                    "widgetRef": "头顶信息"
+                },
+                "type": "UI.Create",
+                "x": -300,
+                "y": -120
+            },
+            {
+                "id": "demo_follow1",
+                "params": {
+                    "actorId": "3ab1360e-8c53-49f0-ba71-cfa35441f3f4",
+                    "offsetUp": "150"
+                },
+                "type": "UI.Follow",
+                "x": 0,
+                "y": -120
+            },
+            {
+                "id": "demo_create2",
+                "params": {
+                    "widgetRef": "头顶信息"
+                },
+                "type": "UI.Create",
+                "x": -300,
+                "y": 60
+            },
+            {
+                "id": "demo_follow2",
+                "params": {
+                    "actorId": "1d492370-97d6-41fc-9fbf-1c54d82c37ef",
+                    "offsetUp": "150"
+                },
+                "type": "UI.Follow",
+                "x": 0,
+                "y": 60
+            }
         ]
     },
     "name": "战斗地图界面",
@@ -287,6 +415,230 @@
             "spriteVisible": false,
             "static": false,
             "tag": "墙"
+        },
+        {
+            "active": true,
+            "animAsset": "",
+            "animAutoPlay": true,
+            "animDefaultClip": "",
+            "bpClass": "builtin/Empty",
+            "cameraBackground": "#ff1e1e1e",
+            "cameraIsMain": false,
+            "cameraOrthographic": true,
+            "cameraResH": 1080,
+            "cameraResW": 1920,
+            "cameraSize": 540,
+            "colliderEnabled": false,
+            "colliderH": 100,
+            "colliderOffsetX": 0,
+            "colliderOffsetY": 0,
+            "colliderResponse": "阻挡",
+            "colliderTargets": "",
+            "colliderW": 100,
+            "components": [
+                "变换",
+                "精灵渲染器"
+            ],
+            "confinerActor": "",
+            "confinerEnabled": false,
+            "confinerMaxX": 500,
+            "confinerMaxY": 500,
+            "confinerMinX": -500,
+            "confinerMinY": -500,
+            "drawMode": "简单",
+            "flipX": false,
+            "flipY": false,
+            "followLerpSpeed": 5,
+            "followOffsetX": 0,
+            "followOffsetY": 0,
+            "followTarget": "",
+            "id": "3d5bff15-7883-414e-8b1b-426984d268fe",
+            "layer": "默认",
+            "name": "背景",
+            "orderInLayer": 0,
+            "position": {
+                "x": 0,
+                "y": 0
+            },
+            "rotation": 0,
+            "scale": {
+                "x": 100,
+                "y": 100
+            },
+            "sortingLayer": "背景",
+            "spriteColor": "#ffffffff",
+            "spritePath": "/Users/kwy/Documents/2Dyinqing/MyGame/ziyuan/42_000_登录界面.png",
+            "spriteVisible": true,
+            "static": false,
+            "tag": "未标记"
+        },
+        {
+            "active": true,
+            "animAsset": "",
+            "animAutoPlay": true,
+            "animDefaultClip": "",
+            "bpClass": "builtin/Sprite",
+            "cameraBackground": "#ff1e1e1e",
+            "cameraIsMain": false,
+            "cameraOrthographic": true,
+            "cameraResH": 1080,
+            "cameraResW": 1920,
+            "cameraSize": 540,
+            "colliderEnabled": false,
+            "colliderH": 100,
+            "colliderOffsetX": 0,
+            "colliderOffsetY": 0,
+            "colliderResponse": "阻挡",
+            "colliderTargets": "",
+            "colliderW": 100,
+            "components": [
+                "变换",
+                "精灵渲染器"
+            ],
+            "confinerActor": "",
+            "confinerEnabled": false,
+            "confinerMaxX": 500,
+            "confinerMaxY": 500,
+            "confinerMinX": -500,
+            "confinerMinY": -500,
+            "drawMode": "简单",
+            "flipX": false,
+            "flipY": false,
+            "followLerpSpeed": 5,
+            "followOffsetX": 0,
+            "followOffsetY": 0,
+            "followTarget": "",
+            "id": "37308997-579d-48a2-9b79-0dcc95890516",
+            "layer": "默认",
+            "name": "示例单位_甲",
+            "orderInLayer": 0,
+            "position": {
+                "x": -300,
+                "y": 0
+            },
+            "rotation": 0,
+            "scale": {
+                "x": 100,
+                "y": 100
+            },
+            "sortingLayer": "背景",
+            "spriteColor": "#ffffffff",
+            "spritePath": "/Users/kwy/Documents/2Dyinqing/MyGame/ziyuan/wufu_walk_down_00.png",
+            "spriteVisible": true,
+            "static": false,
+            "tag": "未标记"
+        },
+        {
+            "active": true,
+            "animAsset": "",
+            "animAutoPlay": true,
+            "animDefaultClip": "",
+            "bpClass": "builtin/Sprite",
+            "cameraBackground": "#ff1e1e1e",
+            "cameraIsMain": false,
+            "cameraOrthographic": true,
+            "cameraResH": 1080,
+            "cameraResW": 1920,
+            "cameraSize": 540,
+            "colliderEnabled": false,
+            "colliderH": 100,
+            "colliderOffsetX": 0,
+            "colliderOffsetY": 0,
+            "colliderResponse": "阻挡",
+            "colliderTargets": "",
+            "colliderW": 100,
+            "components": [
+                "变换",
+                "精灵渲染器"
+            ],
+            "confinerActor": "",
+            "confinerEnabled": false,
+            "confinerMaxX": 500,
+            "confinerMaxY": 500,
+            "confinerMinX": -500,
+            "confinerMinY": -500,
+            "drawMode": "简单",
+            "flipX": false,
+            "flipY": false,
+            "followLerpSpeed": 5,
+            "followOffsetX": 0,
+            "followOffsetY": 0,
+            "followTarget": "",
+            "id": "3ab1360e-8c53-49f0-ba71-cfa35441f3f4",
+            "layer": "默认",
+            "name": "示例单位_乙",
+            "orderInLayer": 0,
+            "position": {
+                "x": 0,
+                "y": 80
+            },
+            "rotation": 0,
+            "scale": {
+                "x": 100,
+                "y": 100
+            },
+            "sortingLayer": "背景",
+            "spriteColor": "#ffffffff",
+            "spritePath": "/Users/kwy/Documents/2Dyinqing/MyGame/ziyuan/44_000_疯子_2D模型.png",
+            "spriteVisible": true,
+            "static": false,
+            "tag": "未标记"
+        },
+        {
+            "active": true,
+            "animAsset": "",
+            "animAutoPlay": true,
+            "animDefaultClip": "",
+            "bpClass": "builtin/Sprite",
+            "cameraBackground": "#ff1e1e1e",
+            "cameraIsMain": false,
+            "cameraOrthographic": true,
+            "cameraResH": 1080,
+            "cameraResW": 1920,
+            "cameraSize": 540,
+            "colliderEnabled": false,
+            "colliderH": 100,
+            "colliderOffsetX": 0,
+            "colliderOffsetY": 0,
+            "colliderResponse": "阻挡",
+            "colliderTargets": "",
+            "colliderW": 100,
+            "components": [
+                "变换",
+                "精灵渲染器"
+            ],
+            "confinerActor": "",
+            "confinerEnabled": false,
+            "confinerMaxX": 500,
+            "confinerMaxY": 500,
+            "confinerMinX": -500,
+            "confinerMinY": -500,
+            "drawMode": "简单",
+            "flipX": false,
+            "flipY": false,
+            "followLerpSpeed": 5,
+            "followOffsetX": 0,
+            "followOffsetY": 0,
+            "followTarget": "",
+            "id": "1d492370-97d6-41fc-9fbf-1c54d82c37ef",
+            "layer": "默认",
+            "name": "示例单位_丙",
+            "orderInLayer": 0,
+            "position": {
+                "x": 300,
+                "y": -60
+            },
+            "rotation": 0,
+            "scale": {
+                "x": 100,
+                "y": 100
+            },
+            "sortingLayer": "背景",
+            "spriteColor": "#ffffffff",
+            "spritePath": "/Users/kwy/Documents/2Dyinqing/MyGame/ziyuan/44_001_污染兽_2D模型.png",
+            "spriteVisible": true,
+            "static": false,
+            "tag": "未标记"
         }
     ],
     "version": "0.1"
