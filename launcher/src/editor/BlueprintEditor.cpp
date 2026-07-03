@@ -197,6 +197,61 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
         {"Event.Key.Shift",   "Shift 键",QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true},{"held","持续按住",true,true}}},
         {"Event.Key.Control", "Ctrl 键", QColor("#6a2a8a"), {{"pressed","按下",true,true},{"released","松开",true,true},{"held","持续按住",true,true}}},
         {
+            "Event.MouseDown", "鼠标按下", QColor("#6a2a8a"),
+            {
+                {"exec_out", "exec", true, true},
+                {"screenX",  "屏幕X", false, true, ValueKind::Number},
+                {"screenY",  "屏幕Y", false, true, ValueKind::Number},
+                {"worldX",   "世界X", false, true, ValueKind::Number},
+                {"worldY",   "世界Y", false, true, ValueKind::Number},
+                {"button",   "按钮",  false, true},
+            }
+        },
+        {
+            "Event.MouseUp", "鼠标抬起", QColor("#6a2a8a"),
+            {
+                {"exec_out", "exec", true, true},
+                {"screenX",  "屏幕X", false, true, ValueKind::Number},
+                {"screenY",  "屏幕Y", false, true, ValueKind::Number},
+                {"worldX",   "世界X", false, true, ValueKind::Number},
+                {"worldY",   "世界Y", false, true, ValueKind::Number},
+                {"button",   "按钮",  false, true},
+            }
+        },
+        {
+            "Event.MouseMove", "鼠标移动", QColor("#6a2a8a"),
+            {
+                {"exec_out", "exec", true, true},
+                {"screenX",  "屏幕X", false, true, ValueKind::Number},
+                {"screenY",  "屏幕Y", false, true, ValueKind::Number},
+                {"worldX",   "世界X", false, true, ValueKind::Number},
+                {"worldY",   "世界Y", false, true, ValueKind::Number},
+            }
+        },
+        {
+            "Event.MouseDrag", "鼠标拖拽", QColor("#6a2a8a"),
+            {
+                {"exec_out", "exec", true, true},
+                {"screenX",  "屏幕X", false, true, ValueKind::Number},
+                {"screenY",  "屏幕Y", false, true, ValueKind::Number},
+                {"worldX",   "世界X", false, true, ValueKind::Number},
+                {"worldY",   "世界Y", false, true, ValueKind::Number},
+                {"button",   "按钮",  false, true},
+            }
+        },
+        {
+            "Event.MouseWheel", "鼠标滚轮", QColor("#6a2a8a"),
+            {
+                {"exec_out", "exec", true, true},
+                {"screenX",  "屏幕X", false, true, ValueKind::Number},
+                {"screenY",  "屏幕Y", false, true, ValueKind::Number},
+                {"worldX",   "世界X", false, true, ValueKind::Number},
+                {"worldY",   "世界Y", false, true, ValueKind::Number},
+                {"deltaX",   "滚轮X", false, true, ValueKind::Number},
+                {"deltaY",   "滚轮Y", false, true, ValueKind::Number},
+            }
+        },
+        {
             "Action.Print", "打印字符串", QColor("#1a4a8a"),
             {
                 {"exec_in",  "exec", true,  false},
@@ -234,6 +289,106 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
             "Action.BackLevel", "返回上一关", QColor("#5a3a1a"),
             {
                 {"exec_in", "exec", true, false}
+            }
+        },
+        // ── 卡牌战斗运行时 ─────────────────────────────────────────────
+        {
+            "Event.BattleEnded", "战斗结束时", QColor("#6a2a8a"),
+            {
+                {"exec_out", "exec", true, true},
+                {"result",   "结果", false, true},
+                {"reason",   "原因", false, true},
+            }
+        },
+        {
+            "Battle.Create", "创建战斗", QColor("#5a2a1a"),
+            {
+                {"exec_in",   "exec",     true,  false},
+                {"exec_out",  "exec",     true,  true},
+                {"playerHp",  "玩家生命", false, false, ValueKind::Number},
+                {"enemyHp",   "敌方生命", false, false, ValueKind::Number},
+                {"energy",    "初始能量", false, false, ValueKind::Number},
+                {"maxEnergy", "最大能量", false, false, ValueKind::Number},
+            }
+        },
+        {
+            "Battle.UseCard", "使用卡牌", QColor("#5a2a1a"),
+            {
+                {"exec_in",   "exec",     true,  false},
+                {"exec_out",  "exec",     true,  true},
+                {"cardIndex", "卡牌序号", false, false, ValueKind::Number},
+            }
+        },
+        {
+            "Battle.EndTurn", "结束战斗回合", QColor("#5a2a1a"),
+            {
+                {"exec_in",  "exec", true, false},
+                {"exec_out", "exec", true, true},
+            }
+        },
+        {
+            "Battle.GetUnitStatus", "获取单位状态", QColor("#5a2a1a"),
+            {
+                {"unit",      "单位",     false, false},
+                {"hp",        "生命",     false, true, ValueKind::Number},
+                {"maxHp",     "最大生命", false, true, ValueKind::Number},
+                {"shield",    "护盾",     false, true, ValueKind::Number},
+                {"energy",    "能量",     false, true, ValueKind::Number},
+                {"maxEnergy", "最大能量", false, true, ValueKind::Number},
+                {"alive",     "存活",     false, true, ValueKind::Bool},
+            }
+        },
+        {
+            "Battle.GetHand", "获取手牌", QColor("#5a2a1a"),
+            {
+                {"count", "数量", false, true, ValueKind::Number},
+                {"text",  "文本", false, true},
+            }
+        },
+        {
+            "Battle.GetResult", "获取战斗结果", QColor("#5a2a1a"),
+            {
+                {"ended",   "已结束", false, true, ValueKind::Bool},
+                {"result",  "结果",   false, true},
+                {"reason",  "原因",   false, true},
+                {"message", "消息",   false, true},
+                {"turn",    "回合",   false, true},
+            }
+        },
+        {
+            "Battle.CheckRange", "检查范围", QColor("#5a2a1a"),
+            {
+                {"shape",   "形状", false, false},
+                {"originX", "起点X", false, false, ValueKind::Number},
+                {"originY", "起点Y", false, false, ValueKind::Number},
+                {"targetX", "目标X", false, false, ValueKind::Number},
+                {"targetY", "目标Y", false, false, ValueKind::Number},
+                {"radius",  "半径",  false, false, ValueKind::Number},
+                {"width",   "宽",    false, false, ValueKind::Number},
+                {"height",  "高",    false, false, ValueKind::Number},
+                {"dirX",    "方向X", false, false, ValueKind::Number},
+                {"dirY",    "方向Y", false, false, ValueKind::Number},
+                {"angle",   "角度",  false, false, ValueKind::Number},
+                {"valid",   "合法",  false, true,  ValueKind::Bool},
+            }
+        },
+        {
+            "Battle.CheckTarget", "检查目标", QColor("#5a2a1a"),
+            {
+                {"targetUnit",   "目标单位", false, false},
+                {"requiredTeam", "目标阵营", false, false},
+                {"shape",        "形状",     false, false},
+                {"originX",      "起点X",    false, false, ValueKind::Number},
+                {"originY",      "起点Y",    false, false, ValueKind::Number},
+                {"targetX",      "目标X",    false, false, ValueKind::Number},
+                {"targetY",      "目标Y",    false, false, ValueKind::Number},
+                {"radius",       "半径",     false, false, ValueKind::Number},
+                {"width",        "宽",       false, false, ValueKind::Number},
+                {"height",       "高",       false, false, ValueKind::Number},
+                {"dirX",         "方向X",    false, false, ValueKind::Number},
+                {"dirY",         "方向Y",    false, false, ValueKind::Number},
+                {"angle",        "角度",     false, false, ValueKind::Number},
+                {"legal",        "合法",     false, true,  ValueKind::Bool},
             }
         },
         {
@@ -457,6 +612,57 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
             }
         },
         {
+            "UI.SetScroll", "设置滚动位置", QColor("#1a4a6a"),
+            {
+                {"exec_in",   "exec",     true,  false},
+                {"exec_out",  "exec",     true,  true},
+                {"widgetRef", "控件引用", false, false, ValueKind::WidgetRef},
+                {"x",         "横向",     false, false, ValueKind::Number},
+                {"y",         "纵向",     false, false, ValueKind::Number},
+            }
+        },
+        {
+            "UI.ScrollTo", "滚动到位置", QColor("#1a4a6a"),
+            {
+                {"exec_in",   "exec",     true,  false},
+                {"exec_out",  "exec",     true,  true},
+                {"widgetRef", "控件引用", false, false, ValueKind::WidgetRef},
+                {"x",         "横向",     false, false, ValueKind::Number},
+                {"y",         "纵向",     false, false, ValueKind::Number},
+            }
+        },
+        {
+            "UI.SetColor", "设置颜色", QColor("#1a4a6a"),
+            {
+                {"exec_in",   "exec",     true,  false},
+                {"exec_out",  "exec",     true,  true},
+                {"widgetRef", "控件引用", false, false, ValueKind::WidgetRef},
+                {"r",         "R",        false, false, ValueKind::Number},
+                {"g",         "G",        false, false, ValueKind::Number},
+                {"b",         "B",        false, false, ValueKind::Number},
+                {"a",         "A",        false, false, ValueKind::Number},
+            }
+        },
+        {
+            "UI.SetAlpha", "设置透明度", QColor("#1a4a6a"),
+            {
+                {"exec_in",   "exec",     true,  false},
+                {"exec_out",  "exec",     true,  true},
+                {"widgetRef", "控件引用", false, false, ValueKind::WidgetRef},
+                {"alpha",     "透明度",   false, false, ValueKind::Number},
+            }
+        },
+        {
+            "UI.SetSize", "设置控件尺寸", QColor("#1a4a6a"),
+            {
+                {"exec_in",   "exec",     true,  false},
+                {"exec_out",  "exec",     true,  true},
+                {"widgetRef", "控件引用", false, false, ValueKind::WidgetRef},
+                {"width",     "宽",       false, false, ValueKind::Number},
+                {"height",    "高",       false, false, ValueKind::Number},
+            }
+        },
+        {
             "UI.Follow", "跟随对象", QColor("#1a4a6a"),
             {
                 {"exec_in",   "exec",     true,  false},
@@ -479,6 +685,46 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
                 {"widgetRef", "控件引用", false, false, ValueKind::WidgetRef},
                 {"exec_out",  "exec",     true,  true},
                 {"index",     "选中索引", false, true},
+            }
+        },
+        {
+            "UI.OnDragStart", "拖拽开始时", QColor("#6a2a8a"),
+            {
+                {"widgetRef",  "控件引用", false, false, ValueKind::WidgetRef},
+                {"exec_out",   "exec",     true,  true},
+                {"widgetName", "控件名",   false, true},
+                {"x",          "X",        false, true, ValueKind::Number},
+                {"y",          "Y",        false, true, ValueKind::Number},
+            }
+        },
+        {
+            "UI.OnDragMove", "拖拽移动时", QColor("#6a2a8a"),
+            {
+                {"widgetRef",  "控件引用", false, false, ValueKind::WidgetRef},
+                {"exec_out",   "exec",     true,  true},
+                {"widgetName", "控件名",   false, true},
+                {"x",          "X",        false, true, ValueKind::Number},
+                {"y",          "Y",        false, true, ValueKind::Number},
+            }
+        },
+        {
+            "UI.OnDrop", "拖拽放下时", QColor("#6a2a8a"),
+            {
+                {"widgetRef",  "控件引用", false, false, ValueKind::WidgetRef},
+                {"exec_out",   "exec",     true,  true},
+                {"widgetName", "控件名",   false, true},
+                {"x",          "X",        false, true, ValueKind::Number},
+                {"y",          "Y",        false, true, ValueKind::Number},
+            }
+        },
+        {
+            "UI.OnDragCancel", "拖拽取消时", QColor("#6a2a8a"),
+            {
+                {"widgetRef",  "控件引用", false, false, ValueKind::WidgetRef},
+                {"exec_out",   "exec",     true,  true},
+                {"widgetName", "控件名",   false, true},
+                {"x",          "X",        false, true, ValueKind::Number},
+                {"y",          "Y",        false, true, ValueKind::Number},
             }
         },
         // ── 运行时变量 ───────────────────────────────────────────────────
@@ -2732,6 +2978,7 @@ void BlueprintEditor::showContextMenu(const QPoint& pos, const QPoint& globalPos
     auto* logicMenu  = menu.addMenu("逻辑");
     auto* selfMenu   = menu.addMenu("Self");
     auto* uiMenu     = menu.addMenu("UI");
+    auto* battleMenu = menu.addMenu("战斗");
 
     for (const NodeDef& def : nodeDefs()) {
         if (!isSelfNodeVisible(def.typeId)) continue;
@@ -2743,6 +2990,7 @@ void BlueprintEditor::showContextMenu(const QPoint& pos, const QPoint& globalPos
                         def.typeId.startsWith("Flow.")       ? flowMenu   :
                         def.typeId.startsWith("UI.")         ? uiMenu     :
                         def.typeId.startsWith("Self.")       ? selfMenu   :
+                        def.typeId.startsWith("Battle.")     ? battleMenu :
                         def.typeId.startsWith("Math.")       ? mathMenu   :
                         def.typeId.startsWith("Logic.")      ? logicMenu  :
                         def.typeId.startsWith("Cmp.")        ? logicMenu  :

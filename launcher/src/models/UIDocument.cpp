@@ -18,6 +18,9 @@ QJsonObject UIWidget::toJson() const {
     o["x"]        = x;  o["y"]     = y;
     o["width"]    = width; o["height"] = height;
     o["anchor"]   = anchor;
+    o["clipChildren"] = clipChildren;
+    o["scrollX"]  = scrollX; o["scrollY"] = scrollY;
+    o["contentWidth"] = contentWidth; o["contentHeight"] = contentHeight;
     o["text"]     = text;
     o["fontSize"] = fontSize;
     o["color"]    = color.name(QColor::HexArgb);
@@ -46,6 +49,11 @@ UIWidget UIWidget::fromJson(const QJsonObject& o) {
     w.width    = (float)o["width"].toDouble(100);
     w.height   = (float)o["height"].toDouble(30);
     w.anchor   = o["anchor"].toString("左上");
+    w.clipChildren = o["clipChildren"].toBool(w.type == "UI.滚动视图");
+    w.scrollX  = (float)o["scrollX"].toDouble(0);
+    w.scrollY  = (float)o["scrollY"].toDouble(0);
+    w.contentWidth  = (float)o["contentWidth"].toDouble(0);
+    w.contentHeight = (float)o["contentHeight"].toDouble(0);
     w.text     = o["text"].toString();
     w.fontSize = o["fontSize"].toInt(16);
     w.color    = QColor(o["color"].toString("#ffffffff"));

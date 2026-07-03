@@ -1824,6 +1824,26 @@ void EditorWindow::startRuntime() {
         for (ActorBPRuntime* ar : m_actorRuntimes)
             ar->triggerDropdownChanged(instId, widgetName, idx);
     });
+    connect(m_uiRuntime, &UIRuntime::dragStarted,
+            this, [this](const QString& instId, const QString& widgetName, float x, float y) {
+        for (ActorBPRuntime* ar : m_actorRuntimes)
+            ar->triggerUIDragStarted(instId, widgetName, x, y);
+    });
+    connect(m_uiRuntime, &UIRuntime::dragMoved,
+            this, [this](const QString& instId, const QString& widgetName, float x, float y) {
+        for (ActorBPRuntime* ar : m_actorRuntimes)
+            ar->triggerUIDragMoved(instId, widgetName, x, y);
+    });
+    connect(m_uiRuntime, &UIRuntime::dropped,
+            this, [this](const QString& instId, const QString& widgetName, float x, float y) {
+        for (ActorBPRuntime* ar : m_actorRuntimes)
+            ar->triggerUIDropped(instId, widgetName, x, y);
+    });
+    connect(m_uiRuntime, &UIRuntime::dragCanceled,
+            this, [this](const QString& instId, const QString& widgetName, float x, float y) {
+        for (ActorBPRuntime* ar : m_actorRuntimes)
+            ar->triggerUIDragCanceled(instId, widgetName, x, y);
+    });
     connect(m_runtime, &BPRuntime::stateChanged, this, [this]() {
         if (!m_runtime || !m_viewport) return;
         // 触发本帧 Actor Tick
@@ -1960,6 +1980,31 @@ void EditorWindow::startRuntime() {
             m_runtime->triggerKeyUp(key);
             for (ActorBPRuntime* ar : m_actorRuntimes)
                 ar->triggerKeyUp(key);
+        });
+        connect(m_gameViewport, &GameViewport::mousePressedInGame, this,
+                [this](float screenX, float screenY, float worldX, float worldY, const QString& button) {
+            if (!m_runtime || (m_pauseBtn && m_pauseBtn->isChecked())) return;
+            m_runtime->triggerMousePressed(screenX, screenY, worldX, worldY, button);
+        });
+        connect(m_gameViewport, &GameViewport::mouseReleasedInGame, this,
+                [this](float screenX, float screenY, float worldX, float worldY, const QString& button) {
+            if (!m_runtime || (m_pauseBtn && m_pauseBtn->isChecked())) return;
+            m_runtime->triggerMouseReleased(screenX, screenY, worldX, worldY, button);
+        });
+        connect(m_gameViewport, &GameViewport::mouseMovedInGame, this,
+                [this](float screenX, float screenY, float worldX, float worldY) {
+            if (!m_runtime || (m_pauseBtn && m_pauseBtn->isChecked())) return;
+            m_runtime->triggerMouseMoved(screenX, screenY, worldX, worldY);
+        });
+        connect(m_gameViewport, &GameViewport::mouseDraggedInGame, this,
+                [this](float screenX, float screenY, float worldX, float worldY, const QString& button) {
+            if (!m_runtime || (m_pauseBtn && m_pauseBtn->isChecked())) return;
+            m_runtime->triggerMouseDragged(screenX, screenY, worldX, worldY, button);
+        });
+        connect(m_gameViewport, &GameViewport::mouseWheeledInGame, this,
+                [this](float screenX, float screenY, float worldX, float worldY, float deltaX, float deltaY) {
+            if (!m_runtime || (m_pauseBtn && m_pauseBtn->isChecked())) return;
+            m_runtime->triggerMouseWheeled(screenX, screenY, worldX, worldY, deltaX, deltaY);
         });
         m_gameViewport->setFocus();
     }

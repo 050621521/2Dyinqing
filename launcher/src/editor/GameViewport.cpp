@@ -4,6 +4,7 @@
 #include <QPainter>
 #include <QPaintEvent>
 #include <QMouseEvent>
+#include <QWheelEvent>
 #include <QKeyEvent>
 #include <QFont>
 #include <cmath>
@@ -26,6 +27,20 @@ static QString gvKeyToId(int k) {
         case Qt::Key_Control: return "Control";
         default:              return {};
     }
+}
+
+static QString gvMouseButtonToId(Qt::MouseButton button) {
+    if (button == Qt::LeftButton) return "左键";
+    if (button == Qt::RightButton) return "右键";
+    if (button == Qt::MiddleButton) return "中键";
+    return "未知";
+}
+
+static Qt::MouseButton gvFirstPressedButton(Qt::MouseButtons buttons) {
+    if (buttons & Qt::LeftButton) return Qt::LeftButton;
+    if (buttons & Qt::RightButton) return Qt::RightButton;
+    if (buttons & Qt::MiddleButton) return Qt::MiddleButton;
+    return Qt::NoButton;
 }
 
 GameViewport::GameViewport(QWidget* parent) : QWidget(parent) {
@@ -184,6 +199,45 @@ QPointF GameViewport::worldToScreen(QPointF world, const QRectF& camRect,
 QPointF GameViewport::cameraWorldToScreen(QPointF world, const QRectF& camRect,
                                            const ActorData& cam) const {
     return worldToScreen(world, camRect, cam);
+}
+
+QPointF GameViewport::cameraScreenToWorld(QPointF screen, const QRectF& camRect,
+                                           const ActorData& cam) const {
+    const float halfH  = cam.cameraSize;
+    const float aspect = cam.cameraResH > 0
+                         ? (float)cam.cameraResW / cam.cameraResH
+                         : 1.7778f;
+    const float halfW  = halfH * aspect;
+    const float scaleX = (float)camRect.width()  / (halfW * 2.0f);
+    const float scaleY = (float)camRect.height() / (halfH * 2.0f);
+    if (scaleX <= 0.0f || scaleY <= 0.0f) return screen;
+    return QPointF(cam.x + (screen.x() - camRect.center().x()) / scaleX,
+                   cam.y - (screen.y() - camRect.center().y()) / scaleY);
+}
+
+bool GameViewport::currentCameraContext(QRectF& outCamRect, ActorData& outCam) const {
+    const QList<ActorData>* actorsList = nullptr;
+    if (m_runtimeMode)
+        actorsList = &m_runtimeActors;
+    else if (m_doc)
+        actorsList = &m_doc->sortedActors();
+    if (!actorsList) return false;
+    for (const ActorData& a : *actorsList) {
+        if (a.cameraIsMain && (a.bpClass == "builtin/Camera" || a.components.contains("摄像机组件"))) {
+            const float aspect = a.cameraResH > 0 ? (float)a.cameraResW / a.cameraResH : 1.7778f;
+            outCamRect = computeCameraRect(aspect);
+            outCam = a;
+            return true;
+        }
+    }
+    return false;
+}
+
+QPointF GameViewport::screenToWorldOrSelf(QPointF screen) const {
+    QRectF camRect;
+    ActorData cam;
+    if (!currentCameraContext(camRect, cam) || !camRect.contains(screen)) return screen;
+    return cameraScreenToWorld(screen, camRect, cam);
 }
 
 void GameViewport::drawScene(QPainter& p, const QList<ActorData>& actors,
@@ -361,8 +415,39 @@ void GameViewport::renderWidget(QPainter& p, const UIWidget& w,
 
     // 渲染子控件
     if (t == "UI.面板"    || t == "UI.竖向布局" || t == "UI.横向布局" ||
-        t == "UI.网格布局" || t == "UI.滚动视图")
+        t == "UI.网格布局" || t == "UI.滚动视图") {
+        if (w.clipChildren || t == "UI.滚动视图") {
+            p.save();
+            p.setClipRect(r);
+            renderChildren(p, w.id, r, w, doc);
+            p.restore();
+        } else {
         renderChildren(p, w.id, r, w, doc);
+        }
+        if (t == "UI.滚动视图") {
+            p.save();
+            p.setPen(Qt::NoPen);
+            const QColor track(25, 34, 45, 180);
+            const QColor thumb(143, 184, 200, 210);
+            const QRectF hThumb = horizontalScrollThumbRect(w, r, doc);
+            if (!hThumb.isEmpty()) {
+                const QRectF trackRect(r.left() + 6, r.bottom() - 10, r.width() - 12, 5);
+                p.setBrush(track);
+                p.drawRoundedRect(trackRect, 2, 2);
+                p.setBrush(thumb);
+                p.drawRoundedRect(hThumb, 3, 3);
+            }
+            const QRectF vThumb = verticalScrollThumbRect(w, r, doc);
+            if (!vThumb.isEmpty()) {
+                const QRectF trackRect(r.right() - 10, r.top() + 6, 5, r.height() - 12);
+                p.setBrush(track);
+                p.drawRoundedRect(trackRect, 2, 2);
+                p.setBrush(thumb);
+                p.drawRoundedRect(vThumb, 3, 3);
+            }
+            p.restore();
+        }
+    }
 }
 
 void GameViewport::renderChildren(QPainter& p, const QString& parentId,
@@ -402,7 +487,15 @@ void GameViewport::renderChildren(QPainter& p, const QString& parentId,
         }
         return;
     }
-    // 面板 / 滚动视图：子节点用自身锚点定位
+    if (parent.type == "UI.滚动视图") {
+        const QRectF scrolledRect(parentRect.left() - parent.scrollX,
+                                  parentRect.top()  - parent.scrollY,
+                                  parentRect.width(), parentRect.height());
+        for (const UIWidget& child : children)
+            renderWidget(p, child, scrolledRect, doc);
+        return;
+    }
+    // 面板：子节点用自身锚点定位
     for (const UIWidget& child : children)
         renderWidget(p, child, parentRect, doc);
 }
@@ -443,6 +536,9 @@ void GameViewport::renderUI(QPainter& p, const QRectF& camRect, const ActorData*
 
 void GameViewport::mousePressEvent(QMouseEvent* e) {
     if (!m_uiRuntime || !m_runtimeMode) {
+        const QPointF world = screenToWorldOrSelf(e->position());
+        emit mousePressedInGame(e->position().x(), e->position().y(),
+                                world.x(), world.y(), gvMouseButtonToId(e->button()));
         QWidget::mousePressEvent(e);
         return;
     }
@@ -466,11 +562,45 @@ void GameViewport::mousePressEvent(QMouseEvent* e) {
     for (const UIInstance* inst : m_uiRuntime->shownInstances()) {
         const UIDocument& doc = inst->docCopy;
         // 将屏幕坐标转换回规范坐标系（1920×1080）
-        const QPointF localPos = QPointF(
-            (pos.x() - camRect.left() - inst->screenX) / sx,
-            (pos.y() - camRect.top()  - inst->screenY) / sy
-        );
+        const QPointF localPos = toCanonicalPos(pos, camRect, sx, sy, inst);
         for (const UIWidget& root : doc.rootWidgets()) {
+            QString thumbWidget;
+            Qt::Orientation thumbOrientation = Qt::Horizontal;
+            if (hitTestScrollThumb(localPos, root, canonicalRect, doc, thumbWidget, thumbOrientation)) {
+                for (const UIWidget& w : doc.widgets()) {
+                    if (w.name != thumbWidget) continue;
+                    m_scrollInstanceId = inst->instanceId;
+                    m_scrollWidgetName = thumbWidget;
+                    m_scrollPressPos = localPos;
+                    m_scrollStartX = w.scrollX;
+                    m_scrollStartY = w.scrollY;
+                    m_scrollThumbDragging = true;
+                    m_scrollThumbOrientation = thumbOrientation;
+                    e->accept();
+                    return;
+                }
+            }
+            QString scrollWidget;
+            if (hitTestScrollWidget(localPos, root, canonicalRect, doc, scrollWidget)) {
+                for (const UIWidget& w : doc.widgets()) {
+                    if (w.name != scrollWidget) continue;
+                    m_scrollInstanceId = inst->instanceId;
+                    m_scrollWidgetName = scrollWidget;
+                    m_scrollPressPos = pos;
+                    m_scrollStartX = w.scrollX;
+                    m_scrollStartY = w.scrollY;
+                    m_scrollDragging = true;
+                    break;
+                }
+            } else {
+                QString anyWidget;
+                if (hitTestAnyWidget(localPos, root, canonicalRect, doc, anyWidget)) {
+                    m_dragInstanceId = inst->instanceId;
+                    m_dragWidgetName = anyWidget;
+                    m_dragPressCanonical = localPos;
+                    m_uiDragActive = false;
+                }
+            }
             QString hitWidget;
             if (hitTestWidget(localPos, root, canonicalRect, doc, hitWidget)) {
                 m_uiRuntime->notifyButtonClicked(inst->instanceId, hitWidget);
@@ -479,13 +609,246 @@ void GameViewport::mousePressEvent(QMouseEvent* e) {
             }
         }
     }
+    const QPointF world = screenToWorldOrSelf(e->position());
+    emit mousePressedInGame(e->position().x(), e->position().y(),
+                            world.x(), world.y(), gvMouseButtonToId(e->button()));
     QWidget::mousePressEvent(e);
+}
+
+void GameViewport::mouseMoveEvent(QMouseEvent* e) {
+    if (!m_uiRuntime) {
+        const QPointF world = screenToWorldOrSelf(e->position());
+        if (e->buttons() == Qt::NoButton)
+            emit mouseMovedInGame(e->position().x(), e->position().y(), world.x(), world.y());
+        else
+            emit mouseDraggedInGame(e->position().x(), e->position().y(), world.x(), world.y(),
+                                    gvMouseButtonToId(gvFirstPressedButton(e->buttons())));
+        QWidget::mouseMoveEvent(e);
+        return;
+    }
+    if (!m_dragInstanceId.isEmpty() && !m_dragWidgetName.isEmpty()) {
+        const UIInstance* dragInst = nullptr;
+        for (const UIInstance* inst : m_uiRuntime->shownInstances()) {
+            if (inst->instanceId == m_dragInstanceId) { dragInst = inst; break; }
+        }
+        if (dragInst) {
+            const QList<ActorData>& actors = m_runtimeActors;
+            const ActorData* cam = nullptr;
+            for (const ActorData& a : actors) {
+                if (a.cameraIsMain && (a.bpClass == "builtin/Camera" || a.components.contains("摄像机组件"))) {
+                    cam = &a;
+                    break;
+                }
+            }
+            const float aspect = (cam && cam->cameraResH > 0)
+                                 ? (float)cam->cameraResW / cam->cameraResH : 1.7778f;
+            const QRectF camRect = computeCameraRect(aspect);
+            const float canonicalW = (cam && cam->cameraResW > 0) ? (float)cam->cameraResW : 1920.0f;
+            const float canonicalH = (cam && cam->cameraResH > 0) ? (float)cam->cameraResH : 1080.0f;
+            const QPointF localPos = toCanonicalPos(e->pos(), camRect,
+                                                    camRect.width() / canonicalW,
+                                                    camRect.height() / canonicalH,
+                                                    dragInst);
+            if (!m_uiDragActive) {
+                const QPointF d = localPos - m_dragPressCanonical;
+                if (std::hypot(d.x(), d.y()) > 6.0) {
+                    m_uiDragActive = true;
+                    m_uiRuntime->notifyDragStarted(m_dragInstanceId, m_dragWidgetName,
+                                                   (float)localPos.x(), (float)localPos.y());
+                }
+            }
+            if (m_uiDragActive) {
+                m_uiRuntime->notifyDragMoved(m_dragInstanceId, m_dragWidgetName,
+                                             (float)localPos.x(), (float)localPos.y());
+                e->accept();
+                return;
+            }
+        }
+    }
+    if (m_scrollThumbDragging && !m_scrollInstanceId.isEmpty()) {
+        const UIInstance* target = nullptr;
+        for (const UIInstance* inst : m_uiRuntime->shownInstances()) {
+            if (inst->instanceId == m_scrollInstanceId) { target = inst; break; }
+        }
+        if (!target) {
+            m_scrollThumbDragging = false;
+            QWidget::mouseMoveEvent(e);
+            return;
+        }
+        const QList<ActorData>& actors = m_runtimeActors;
+        const ActorData* cam = nullptr;
+        for (const ActorData& a : actors) {
+            if (a.cameraIsMain && (a.bpClass == "builtin/Camera" || a.components.contains("摄像机组件"))) {
+                cam = &a;
+                break;
+            }
+        }
+        const float aspect = (cam && cam->cameraResH > 0)
+                             ? (float)cam->cameraResW / cam->cameraResH : 1.7778f;
+        const QRectF camRect = computeCameraRect(aspect);
+        const float canonicalW = (cam && cam->cameraResW > 0) ? (float)cam->cameraResW : 1920.0f;
+        const float canonicalH = (cam && cam->cameraResH > 0) ? (float)cam->cameraResH : 1080.0f;
+        const QPointF localPos = toCanonicalPos(e->position(), camRect,
+                                                camRect.width() / canonicalW,
+                                                camRect.height() / canonicalH,
+                                                target);
+        for (const UIWidget& w : target->docCopy.widgets()) {
+            if (w.name != m_scrollWidgetName) continue;
+            const QRectF widgetRect = widgetScreenRect(w, QRectF(0, 0, canonicalW, canonicalH));
+            const float maxX = maxScrollX(w, target->docCopy);
+            const float maxY = maxScrollY(w, target->docCopy);
+            float nextX = w.scrollX;
+            float nextY = w.scrollY;
+            if (m_scrollThumbOrientation == Qt::Horizontal && maxX > 0.0f) {
+                const QRectF thumb = horizontalScrollThumbRect(w, widgetRect, target->docCopy);
+                const float travel = qMax(1.0f, (float)widgetRect.width() - 12.0f - (float)thumb.width());
+                nextX = qBound(0.0f, m_scrollStartX + (float)(localPos.x() - m_scrollPressPos.x()) * (maxX / travel), maxX);
+            } else if (m_scrollThumbOrientation == Qt::Vertical && maxY > 0.0f) {
+                const QRectF thumb = verticalScrollThumbRect(w, widgetRect, target->docCopy);
+                const float travel = qMax(1.0f, (float)widgetRect.height() - 12.0f - (float)thumb.height());
+                nextY = qBound(0.0f, m_scrollStartY + (float)(localPos.y() - m_scrollPressPos.y()) * (maxY / travel), maxY);
+            }
+            m_uiRuntime->setScroll(m_scrollInstanceId, m_scrollWidgetName, nextX, nextY);
+            e->accept();
+            return;
+        }
+    }
+    if (m_scrollDragging && !m_scrollInstanceId.isEmpty()) {
+        const UIInstance* target = nullptr;
+        for (const UIInstance* inst : m_uiRuntime->shownInstances()) {
+            if (inst->instanceId == m_scrollInstanceId) { target = inst; break; }
+        }
+        if (!target) {
+            m_scrollDragging = false;
+            QWidget::mouseMoveEvent(e);
+            return;
+        }
+        for (const UIWidget& w : target->docCopy.widgets()) {
+            if (w.name != m_scrollWidgetName) continue;
+            const QPointF delta = e->pos() - m_scrollPressPos;
+            const float nextX = qBound(0.0f, m_scrollStartX - (float)delta.x(), maxScrollX(w, target->docCopy));
+            const float nextY = qBound(0.0f, m_scrollStartY - (float)delta.y(), maxScrollY(w, target->docCopy));
+            m_uiRuntime->setScroll(m_scrollInstanceId, m_scrollWidgetName, nextX, nextY);
+            e->accept();
+            return;
+        }
+    }
+    const QPointF world = screenToWorldOrSelf(e->position());
+    if (e->buttons() == Qt::NoButton)
+        emit mouseMovedInGame(e->position().x(), e->position().y(), world.x(), world.y());
+    else
+        emit mouseDraggedInGame(e->position().x(), e->position().y(), world.x(), world.y(),
+                                gvMouseButtonToId(gvFirstPressedButton(e->buttons())));
+    QWidget::mouseMoveEvent(e);
+}
+
+void GameViewport::mouseReleaseEvent(QMouseEvent* e) {
+    if (!m_dragInstanceId.isEmpty() && m_uiRuntime) {
+        const UIInstance* dragInst = nullptr;
+        for (const UIInstance* inst : m_uiRuntime->shownInstances()) {
+            if (inst->instanceId == m_dragInstanceId) { dragInst = inst; break; }
+        }
+        if (dragInst && m_uiDragActive) {
+            const QList<ActorData>& actors = m_runtimeActors;
+            const ActorData* cam = nullptr;
+            for (const ActorData& a : actors) {
+                if (a.cameraIsMain && (a.bpClass == "builtin/Camera" || a.components.contains("摄像机组件"))) {
+                    cam = &a;
+                    break;
+                }
+            }
+            const float aspect = (cam && cam->cameraResH > 0)
+                                 ? (float)cam->cameraResW / cam->cameraResH : 1.7778f;
+            const QRectF camRect = computeCameraRect(aspect);
+            const float canonicalW = (cam && cam->cameraResW > 0) ? (float)cam->cameraResW : 1920.0f;
+            const float canonicalH = (cam && cam->cameraResH > 0) ? (float)cam->cameraResH : 1080.0f;
+            const QPointF localPos = toCanonicalPos(e->pos(), camRect,
+                                                    camRect.width() / canonicalW,
+                                                    camRect.height() / canonicalH,
+                                                    dragInst);
+            m_uiRuntime->notifyDropped(m_dragInstanceId, m_dragWidgetName,
+                                       (float)localPos.x(), (float)localPos.y());
+        }
+        m_dragInstanceId.clear();
+        m_dragWidgetName.clear();
+        m_uiDragActive = false;
+    }
+    if (m_scrollDragging) {
+        m_scrollDragging = false;
+        m_scrollInstanceId.clear();
+        m_scrollWidgetName.clear();
+        e->accept();
+        return;
+    }
+    if (m_scrollThumbDragging) {
+        m_scrollThumbDragging = false;
+        m_scrollInstanceId.clear();
+        m_scrollWidgetName.clear();
+        e->accept();
+        return;
+    }
+    const QPointF world = screenToWorldOrSelf(e->position());
+    emit mouseReleasedInGame(e->position().x(), e->position().y(),
+                             world.x(), world.y(), gvMouseButtonToId(e->button()));
+    QWidget::mouseReleaseEvent(e);
+}
+
+void GameViewport::wheelEvent(QWheelEvent* e) {
+    if (!m_uiRuntime || !m_runtimeMode) {
+        const QPointF world = screenToWorldOrSelf(e->position());
+        emit mouseWheeledInGame(e->position().x(), e->position().y(), world.x(), world.y(),
+                                e->angleDelta().x(), e->angleDelta().y());
+        QWidget::wheelEvent(e);
+        return;
+    }
+    const QList<ActorData>& actors = m_runtimeActors;
+    const ActorData* cam = nullptr;
+    for (const ActorData& a : actors) {
+        if (a.cameraIsMain && (a.bpClass == "builtin/Camera" || a.components.contains("摄像机组件"))) {
+            cam = &a;
+            break;
+        }
+    }
+    const float aspect = (cam && cam->cameraResH > 0)
+                         ? (float)cam->cameraResW / cam->cameraResH : 1.7778f;
+    const QRectF camRect = computeCameraRect(aspect);
+    const float canonicalW = (cam && cam->cameraResW > 0) ? (float)cam->cameraResW : 1920.0f;
+    const float canonicalH = (cam && cam->cameraResH > 0) ? (float)cam->cameraResH : 1080.0f;
+    const float sx = camRect.width()  / canonicalW;
+    const float sy = camRect.height() / canonicalH;
+    const QRectF canonicalRect(0, 0, canonicalW, canonicalH);
+
+    for (const UIInstance* inst : m_uiRuntime->shownInstances()) {
+        const UIDocument& doc = inst->docCopy;
+        const QPointF localPos = toCanonicalPos(e->position(), camRect, sx, sy, inst);
+        for (const UIWidget& root : doc.rootWidgets()) {
+            QString scrollWidget;
+            if (!hitTestScrollWidget(localPos, root, canonicalRect, doc, scrollWidget)) continue;
+            for (const UIWidget& w : doc.widgets()) {
+                if (w.name != scrollWidget) continue;
+                const QPoint num = e->angleDelta();
+                const bool horizontal = (e->modifiers() & Qt::ShiftModifier) || std::abs(num.x()) > std::abs(num.y());
+                const float step = horizontal ? -num.x() : -num.y();
+                const float nextX = horizontal ? qBound(0.0f, w.scrollX + step, maxScrollX(w, doc)) : w.scrollX;
+                const float nextY = horizontal ? w.scrollY : qBound(0.0f, w.scrollY + step, maxScrollY(w, doc));
+                m_uiRuntime->setScroll(inst->instanceId, scrollWidget, nextX, nextY);
+                e->accept();
+                return;
+            }
+        }
+    }
+    const QPointF world = screenToWorldOrSelf(e->position());
+    emit mouseWheeledInGame(e->position().x(), e->position().y(), world.x(), world.y(),
+                            e->angleDelta().x(), e->angleDelta().y());
+    QWidget::wheelEvent(e);
 }
 
 bool GameViewport::hitTestWidget(QPointF pos, const UIWidget& w, QRectF parentRect,
                                   const UIDocument& doc, QString& outWidget) const {
     if (!w.visible) return false;
     const QRectF r = widgetScreenRect(w, parentRect);
+    if ((w.clipChildren || w.type == "UI.滚动视图") && !r.contains(pos))
+        return false;
     if (w.type == "UI.按钮" && r.contains(pos)) {
         outWidget = w.name;
         return true;
@@ -537,9 +900,167 @@ bool GameViewport::hitTestChildren(QPointF pos, const QString& parentId, QRectF 
         }
         return false;
     }
+    if (parent.type == "UI.滚动视图") {
+        const QRectF scrolledRect(parentRect.left() - parent.scrollX,
+                                  parentRect.top()  - parent.scrollY,
+                                  parentRect.width(), parentRect.height());
+        for (const UIWidget& child : children) {
+            if (hitTestWidget(pos, child, scrolledRect, doc, outWidget))
+                return true;
+        }
+        return false;
+    }
     for (const UIWidget& child : children) {
         if (hitTestWidget(pos, child, parentRect, doc, outWidget))
             return true;
     }
     return false;
+}
+
+QRectF GameViewport::childrenBounds(const QString& parentId, const UIDocument& doc) const {
+    QRectF bounds;
+    bool any = false;
+    for (const UIWidget& child : doc.childrenOf(parentId)) {
+        if (!child.visible) continue;
+        QRectF r(child.x, child.y, child.width, child.height);
+        bounds = any ? bounds.united(r) : r;
+        any = true;
+    }
+    return any ? bounds : QRectF();
+}
+
+float GameViewport::maxScrollX(const UIWidget& w, const UIDocument& doc) const {
+    const QRectF b = childrenBounds(w.id, doc);
+    const float contentW = qMax(w.contentWidth, (float)b.right());
+    return qMax(0.0f, contentW - w.width);
+}
+
+float GameViewport::maxScrollY(const UIWidget& w, const UIDocument& doc) const {
+    const QRectF b = childrenBounds(w.id, doc);
+    const float contentH = qMax(w.contentHeight, (float)b.bottom());
+    return qMax(0.0f, contentH - w.height);
+}
+
+QRectF GameViewport::horizontalScrollThumbRect(const UIWidget& w, const QRectF& r,
+                                               const UIDocument& doc) const {
+    const float maxX = maxScrollX(w, doc);
+    if (w.type != "UI.滚动视图" || maxX <= 0.0f || r.width() <= 24.0f) return {};
+    const QRectF b = childrenBounds(w.id, doc);
+    const float contentW = qMax(w.contentWidth, (float)b.right());
+    if (contentW <= 0.0f) return {};
+    const float trackLeft = r.left() + 6.0f;
+    const float trackWidth = qMax(1.0f, (float)r.width() - 12.0f);
+    const float thumbWidth = qBound(28.0f, trackWidth * ((float)w.width / contentW), trackWidth);
+    const float travel = qMax(0.0f, trackWidth - thumbWidth);
+    const float ratio = maxX > 0.0f ? qBound(0.0f, w.scrollX / maxX, 1.0f) : 0.0f;
+    return QRectF(trackLeft + travel * ratio, r.bottom() - 12.0f, thumbWidth, 8.0f);
+}
+
+QRectF GameViewport::verticalScrollThumbRect(const UIWidget& w, const QRectF& r,
+                                             const UIDocument& doc) const {
+    const float maxY = maxScrollY(w, doc);
+    if (w.type != "UI.滚动视图" || maxY <= 0.0f || r.height() <= 24.0f) return {};
+    const QRectF b = childrenBounds(w.id, doc);
+    const float contentH = qMax(w.contentHeight, (float)b.bottom());
+    if (contentH <= 0.0f) return {};
+    const float trackTop = r.top() + 6.0f;
+    const float trackHeight = qMax(1.0f, (float)r.height() - 12.0f);
+    const float thumbHeight = qBound(28.0f, trackHeight * ((float)w.height / contentH), trackHeight);
+    const float travel = qMax(0.0f, trackHeight - thumbHeight);
+    const float ratio = maxY > 0.0f ? qBound(0.0f, w.scrollY / maxY, 1.0f) : 0.0f;
+    return QRectF(r.right() - 12.0f, trackTop + travel * ratio, 8.0f, thumbHeight);
+}
+
+bool GameViewport::hitTestScrollThumb(QPointF pos, const UIWidget& w, QRectF parentRect,
+                                      const UIDocument& doc, QString& outWidget,
+                                      Qt::Orientation& outOrientation) const {
+    if (!w.visible) return false;
+    const QRectF r = widgetScreenRect(w, parentRect);
+    const QString& t = w.type;
+    if (t == "UI.面板" || t == "UI.竖向布局" || t == "UI.横向布局" ||
+        t == "UI.网格布局" || t == "UI.滚动视图") {
+        const QList<UIWidget> children = doc.childrenOf(w.id);
+        QRectF childRect = r;
+        if (w.type == "UI.滚动视图")
+            childRect = QRectF(r.left() - w.scrollX, r.top() - w.scrollY, r.width(), r.height());
+        for (const UIWidget& child : children) {
+            if (hitTestScrollThumb(pos, child, childRect, doc, outWidget, outOrientation))
+                return true;
+        }
+    }
+    if (w.type != "UI.滚动视图") return false;
+    const QRectF hThumb = horizontalScrollThumbRect(w, r, doc);
+    if (!hThumb.isEmpty() && hThumb.adjusted(-2, -3, 2, 3).contains(pos)) {
+        outWidget = w.name;
+        outOrientation = Qt::Horizontal;
+        return true;
+    }
+    const QRectF vThumb = verticalScrollThumbRect(w, r, doc);
+    if (!vThumb.isEmpty() && vThumb.adjusted(-3, -2, 3, 2).contains(pos)) {
+        outWidget = w.name;
+        outOrientation = Qt::Vertical;
+        return true;
+    }
+    return false;
+}
+
+bool GameViewport::hitTestScrollWidget(QPointF pos, const UIWidget& w, QRectF parentRect,
+                                       const UIDocument& doc, QString& outWidget) const {
+    if (!w.visible) return false;
+    const QRectF r = widgetScreenRect(w, parentRect);
+    const QString& t = w.type;
+    if (t == "UI.面板" || t == "UI.竖向布局" || t == "UI.横向布局" ||
+        t == "UI.网格布局" || t == "UI.滚动视图") {
+        const QList<UIWidget> children = doc.childrenOf(w.id);
+        QRectF childRect = r;
+        if (w.type == "UI.滚动视图")
+            childRect = QRectF(r.left() - w.scrollX, r.top() - w.scrollY, r.width(), r.height());
+        for (const UIWidget& child : children) {
+            if (hitTestScrollWidget(pos, child, childRect, doc, outWidget))
+                return true;
+        }
+        if (w.type == "UI.滚动视图") {
+            QString childHit;
+            for (const UIWidget& child : children) {
+                if (hitTestAnyWidget(pos, child, childRect, doc, childHit))
+                    return false;
+            }
+        }
+    }
+    if (w.type == "UI.滚动视图" && r.contains(pos)) {
+        outWidget = w.name;
+        return true;
+    }
+    return false;
+}
+
+bool GameViewport::hitTestAnyWidget(QPointF pos, const UIWidget& w, QRectF parentRect,
+                                    const UIDocument& doc, QString& outWidget) const {
+    if (!w.visible) return false;
+    const QRectF r = widgetScreenRect(w, parentRect);
+    if ((w.clipChildren || w.type == "UI.滚动视图") && !r.contains(pos))
+        return false;
+    const QString& t = w.type;
+    if (t == "UI.面板" || t == "UI.竖向布局" || t == "UI.横向布局" ||
+        t == "UI.网格布局" || t == "UI.滚动视图") {
+        const QList<UIWidget> children = doc.childrenOf(w.id);
+        QRectF childRect = r;
+        if (w.type == "UI.滚动视图")
+            childRect = QRectF(r.left() - w.scrollX, r.top() - w.scrollY, r.width(), r.height());
+        for (auto it = children.crbegin(); it != children.crend(); ++it) {
+            if (hitTestAnyWidget(pos, *it, childRect, doc, outWidget))
+                return true;
+        }
+    }
+    if (r.contains(pos)) {
+        outWidget = w.name;
+        return true;
+    }
+    return false;
+}
+
+QPointF GameViewport::toCanonicalPos(const QPointF& pos, const QRectF& camRect,
+                                     float sx, float sy, const UIInstance* inst) const {
+    return QPointF((pos.x() - camRect.left() - inst->screenX) / sx,
+                   (pos.y() - camRect.top()  - inst->screenY) / sy);
 }

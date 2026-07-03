@@ -1,6 +1,7 @@
 #include "UIRuntime.h"
 #include <QUuid>
 #include <QDir>
+#include <algorithm>
 
 UIRuntime::UIRuntime(const QString& projectRoot, QObject* parent)
     : QObject(parent), m_projectRoot(projectRoot) {}
@@ -36,6 +37,18 @@ void UIRuntime::setPositionByName(const QString& n, float x, float y) {
 }
 void UIRuntime::setWidgetVisibleByName(const QString& n, const QString& w, bool v) {
     if (auto* i=findByName(n)) setWidgetVisible(i->instanceId, w, v);
+}
+void UIRuntime::setScrollByName(const QString& n, const QString& w, float x, float y) {
+    if (auto* i=findByName(n)) setScroll(i->instanceId, w, x, y);
+}
+void UIRuntime::setWidgetColorByName(const QString& n, const QString& w, const QColor& c) {
+    if (auto* i=findByName(n)) setWidgetColor(i->instanceId, w, c);
+}
+void UIRuntime::setWidgetAlphaByName(const QString& n, const QString& w, float a) {
+    if (auto* i=findByName(n)) setWidgetAlpha(i->instanceId, w, a);
+}
+void UIRuntime::setWidgetSizeByName(const QString& n, const QString& w, float width, float height) {
+    if (auto* i=findByName(n)) setWidgetSize(i->instanceId, w, width, height);
 }
 
 QString UIRuntime::createInstance(const QString& uiName) {
@@ -169,6 +182,66 @@ void UIRuntime::setPosition(const QString& id, float x, float y) {
     emit uiStateChanged();
 }
 
+void UIRuntime::setScroll(const QString& id, const QString& widgetName, float x, float y) {
+    UIInstance* inst = findInstance(id);
+    if (!inst) return;
+    for (const UIWidget& w : inst->docCopy.widgets()) {
+        if (w.name == widgetName) {
+            UIWidget updated = w;
+            const float maxX = qMax(0.0f, updated.contentWidth  - updated.width);
+            const float maxY = qMax(0.0f, updated.contentHeight - updated.height);
+            updated.scrollX = qBound(0.0f, x, maxX > 0.0f ? maxX : qMax(0.0f, x));
+            updated.scrollY = qBound(0.0f, y, maxY > 0.0f ? maxY : qMax(0.0f, y));
+            inst->docCopy.updateWidget(updated);
+            break;
+        }
+    }
+    emit uiStateChanged();
+}
+
+void UIRuntime::setWidgetColor(const QString& id, const QString& widgetName, const QColor& color) {
+    UIInstance* inst = findInstance(id);
+    if (!inst) return;
+    for (const UIWidget& w : inst->docCopy.widgets()) {
+        if (w.name == widgetName) {
+            UIWidget updated = w;
+            updated.color = color;
+            inst->docCopy.updateWidget(updated);
+            break;
+        }
+    }
+    emit uiStateChanged();
+}
+
+void UIRuntime::setWidgetAlpha(const QString& id, const QString& widgetName, float alpha) {
+    UIInstance* inst = findInstance(id);
+    if (!inst) return;
+    for (const UIWidget& w : inst->docCopy.widgets()) {
+        if (w.name == widgetName) {
+            UIWidget updated = w;
+            updated.alpha = qBound(0.0f, alpha, 1.0f);
+            inst->docCopy.updateWidget(updated);
+            break;
+        }
+    }
+    emit uiStateChanged();
+}
+
+void UIRuntime::setWidgetSize(const QString& id, const QString& widgetName, float width, float height) {
+    UIInstance* inst = findInstance(id);
+    if (!inst) return;
+    for (const UIWidget& w : inst->docCopy.widgets()) {
+        if (w.name == widgetName) {
+            UIWidget updated = w;
+            updated.width = qMax(1.0f, width);
+            updated.height = qMax(1.0f, height);
+            inst->docCopy.updateWidget(updated);
+            break;
+        }
+    }
+    emit uiStateChanged();
+}
+
 void UIRuntime::setFollowActor(const QString& instanceId, const QString& actorId,
                                float offsetX, float offsetY) {
     UIInstance* inst = findInstance(instanceId);
@@ -200,6 +273,22 @@ void UIRuntime::notifyButtonClicked(const QString& instanceId, const QString& wi
 
 void UIRuntime::notifyDropdownChanged(const QString& instanceId, const QString& widgetName, int index) {
     emit dropdownChanged(instanceId, widgetName, index);
+}
+
+void UIRuntime::notifyDragStarted(const QString& instanceId, const QString& widgetName, float x, float y) {
+    emit dragStarted(instanceId, widgetName, x, y);
+}
+
+void UIRuntime::notifyDragMoved(const QString& instanceId, const QString& widgetName, float x, float y) {
+    emit dragMoved(instanceId, widgetName, x, y);
+}
+
+void UIRuntime::notifyDropped(const QString& instanceId, const QString& widgetName, float x, float y) {
+    emit dropped(instanceId, widgetName, x, y);
+}
+
+void UIRuntime::notifyDragCanceled(const QString& instanceId, const QString& widgetName, float x, float y) {
+    emit dragCanceled(instanceId, widgetName, x, y);
 }
 
 void UIRuntime::setWidgetVisible(const QString& id, const QString& widgetName, bool visible) {

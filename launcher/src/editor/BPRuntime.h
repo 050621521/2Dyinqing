@@ -2,12 +2,14 @@
 #include "models/LevelDocument.h"
 #include "models/BPValue.h"
 #include "models/AnimationAsset.h"
+#include "BattleRuntime.h"
 #include <QObject>
 #include <QSet>
 #include <QTimer>
 #include <QElapsedTimer>
 #include <QMap>
 #include <QString>
+#include <memory>
 
 class UIRuntime;
 
@@ -21,6 +23,15 @@ public:
     void triggerKeyUp(const QString& key);
     void triggerButtonClick(const QString& instanceId, const QString& widgetName);
     void triggerDropdownChanged(const QString& instanceId, const QString& widgetName, int index);
+    void triggerUIDragStarted(const QString& instanceId, const QString& widgetName, float x, float y);
+    void triggerUIDragMoved  (const QString& instanceId, const QString& widgetName, float x, float y);
+    void triggerUIDropped    (const QString& instanceId, const QString& widgetName, float x, float y);
+    void triggerUIDragCanceled(const QString& instanceId, const QString& widgetName, float x, float y);
+    void triggerMousePressed(float screenX, float screenY, float worldX, float worldY, const QString& button);
+    void triggerMouseReleased(float screenX, float screenY, float worldX, float worldY, const QString& button);
+    void triggerMouseMoved(float screenX, float screenY, float worldX, float worldY);
+    void triggerMouseDragged(float screenX, float screenY, float worldX, float worldY, const QString& button);
+    void triggerMouseWheeled(float screenX, float screenY, float worldX, float worldY, float deltaX, float deltaY);
 
     const QList<ActorData>& actors()   const { return m_actors; }
     // mutableActors() 只在运行时由 ActorBPRuntime 持有指针，运行期间不允许增删 Actor，列表不会重分配
@@ -71,6 +82,10 @@ private:
     BPValue resolveOutputPin(const QString& nodeId, const QString& pinKey);
     const BPNode*    findNode(const QString& id) const;
     const ActorData* findActorByName(const QString& name) const;
+    struct MouseState;
+    void    triggerBattleEnded();
+    const BattleUnit* battleUnitByKey(const QString& key) const;
+    void    triggerMouseEvent(const QString& type, const MouseState& payload);
 
     QList<BPNode>       m_nodes;
     QList<BPConnection> m_connections;
@@ -86,6 +101,21 @@ private:
     UIRuntime*             m_uiRuntime = nullptr;
     QMap<QString, QString> m_uiRefs;      // nodeId(UI.Create) → instanceId
     QMap<QString, int>     m_dropdownIndex; // UI.OnDropdownChanged nodeId → 最新索引
+    struct UIDragState { QString widgetName; float x = 0.0f; float y = 0.0f; };
+    QMap<QString, UIDragState> m_uiDragState; // drag event nodeId → latest payload
+    struct MouseState {
+        float screenX = 0.0f;
+        float screenY = 0.0f;
+        float worldX = 0.0f;
+        float worldY = 0.0f;
+        float deltaX = 0.0f;
+        float deltaY = 0.0f;
+        QString button;
+    };
+    QMap<QString, MouseState> m_mouseState; // mouse event nodeId → latest payload
+    std::unique_ptr<BattleRuntime> m_battle;
+    QString m_lastBattleMessage;
+    bool m_battleEndNotified = false;
     QSet<QString>          m_heldKeys;     // 当前被按住的按键集合，每帧驱动按键节点的 held 链
     // 「碰撞时」事件当前上下文（执行链读取输出引脚时用）
     QString m_collSelf, m_collOther, m_collTag;

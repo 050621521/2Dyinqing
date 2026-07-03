@@ -19,6 +19,9 @@ struct UIWidget {
     float   x = 0, y = 0;
     float   width = 100, height = 30;
     QString anchor = "左上"; // 左上/正上/右上/左中/居中/右中/左下/正下/右下
+    bool    clipChildren = false; // 滚动视图/面板是否裁剪子控件
+    float   scrollX = 0, scrollY = 0;
+    float   contentWidth = 0, contentHeight = 0; // 0 = 自动按子控件范围计算
 
     // ── 类型专属 ─────────────────────────────────────────
     QString text;

@@ -26,6 +26,10 @@ public:
     void setUIRuntime(UIRuntime* ui) { m_uiRuntime = ui; }
     void triggerButtonClick(const QString& instanceId, const QString& widgetName);
     void triggerDropdownChanged(const QString& instanceId, const QString& widgetName, int index);
+    void triggerUIDragStarted(const QString& instanceId, const QString& widgetName, float x, float y);
+    void triggerUIDragMoved  (const QString& instanceId, const QString& widgetName, float x, float y);
+    void triggerUIDropped    (const QString& instanceId, const QString& widgetName, float x, float y);
+    void triggerUIDragCanceled(const QString& instanceId, const QString& widgetName, float x, float y);
     // 碰撞时：仅当 selfId == 本实例 actorId 才触发本蓝图的「碰撞时」事件
     void triggerCollision(const QString& selfId, const QString& otherId, const QString& otherTag);
 
@@ -54,4 +58,6 @@ private:
     UIRuntime*             m_uiRuntime    = nullptr;
     QMap<QString, QString> m_uiRefs;        // nodeId(UI.Create) → instanceId
     QMap<QString, int>     m_dropdownIndex; // nodeId → 最新选中索引
+    struct UIDragState { QString widgetName; float x = 0.0f; float y = 0.0f; };
+    QMap<QString, UIDragState> m_uiDragState;
 };

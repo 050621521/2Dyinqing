@@ -10,6 +10,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QRandomGenerator>
+#include <QColor>
 #include "BPEval.h"
 #include "models/BPMacro.h"
 #include <algorithm>
@@ -28,11 +29,20 @@ void BPRuntime::setUIRuntime(UIRuntime* ui) {
             this, &BPRuntime::triggerButtonClick);
     connect(ui, &UIRuntime::dropdownChanged,
             this, &BPRuntime::triggerDropdownChanged);
+    connect(ui, &UIRuntime::dragStarted,
+            this, &BPRuntime::triggerUIDragStarted);
+    connect(ui, &UIRuntime::dragMoved,
+            this, &BPRuntime::triggerUIDragMoved);
+    connect(ui, &UIRuntime::dropped,
+            this, &BPRuntime::triggerUIDropped);
+    connect(ui, &UIRuntime::dragCanceled,
+            this, &BPRuntime::triggerUIDragCanceled);
 }
 
 BPRuntime::BPRuntime(const LevelDocument* doc, QObject* parent)
     : QObject(parent)
 {
+    m_battle = std::make_unique<BattleRuntime>();
     if (!doc) return;
     m_nodes       = doc->bpNodes();
     m_connections = doc->bpConnections();
@@ -508,6 +518,35 @@ QString BPRuntime::executeNode(const QString& nodeId) {
         return "exec_out";
     }
 
+    if (node->type == "Battle.Create") {
+        if (!m_battle) m_battle = std::make_unique<BattleRuntime>();
+        const int playerHp  = qMax(1, (int)resolveDataPin(nodeId, "playerHp").toNumber());
+        const int enemyHp   = qMax(1, (int)resolveDataPin(nodeId, "enemyHp").toNumber());
+        const int energy    = qMax(0, (int)resolveDataPin(nodeId, "energy").toNumber());
+        const int maxEnergy = qMax(1, (int)resolveDataPin(nodeId, "maxEnergy").toNumber());
+        m_battle->startDefault(playerHp, enemyHp, energy, maxEnergy);
+        m_lastBattleMessage = "战斗开始";
+        m_battleEndNotified = false;
+        return "exec_out";
+    }
+
+    if (node->type == "Battle.UseCard") {
+        if (!m_battle) return "exec_out";
+        const int cardIndex = (int)resolveDataPin(nodeId, "cardIndex").toNumber();
+        const CardEffectResult r = m_battle->useCard(cardIndex);
+        m_lastBattleMessage = r.message;
+        if (m_battle->ended()) triggerBattleEnded();
+        return "exec_out";
+    }
+
+    if (node->type == "Battle.EndTurn") {
+        if (!m_battle) return "exec_out";
+        const CardEffectResult r = m_battle->endTurn();
+        m_lastBattleMessage = r.message;
+        if (m_battle->ended()) triggerBattleEnded();
+        return "exec_out";
+    }
+
     if (node->type == "Flow.Branch") {
         QString cond = resolveDataPin(nodeId, "condition").toString().toLower();
         bool truthy = !cond.isEmpty() && cond != "0" && cond != "false";
@@ -591,6 +630,42 @@ QString BPRuntime::executeNode(const QString& nodeId) {
             const QString val = resolveDataPin(nodeId, "visible").toString().toLower();
             m_uiRuntime->setWidgetVisibleByName(ui, widget,
                                                 !val.isEmpty() && val != "0" && val != "false");
+        }
+        return "exec_out";
+    }
+    if (node->type == "UI.SetScroll" || node->type == "UI.ScrollTo") {
+        if (m_uiRuntime) {
+            auto [ui, widget] = splitWidgetRef(resolveDataPin(nodeId, "widgetRef"));
+            m_uiRuntime->setScrollByName(ui, widget,
+                                         resolveDataPin(nodeId, "x").toNumber(),
+                                         resolveDataPin(nodeId, "y").toNumber());
+        }
+        return "exec_out";
+    }
+    if (node->type == "UI.SetColor") {
+        if (m_uiRuntime) {
+            auto [ui, widget] = splitWidgetRef(resolveDataPin(nodeId, "widgetRef"));
+            const int r = qBound(0, (int)resolveDataPin(nodeId, "r").toNumber(), 255);
+            const int g = qBound(0, (int)resolveDataPin(nodeId, "g").toNumber(), 255);
+            const int b = qBound(0, (int)resolveDataPin(nodeId, "b").toNumber(), 255);
+            const int a = qBound(0, (int)resolveDataPin(nodeId, "a").toNumber(), 255);
+            m_uiRuntime->setWidgetColorByName(ui, widget, QColor(r, g, b, a));
+        }
+        return "exec_out";
+    }
+    if (node->type == "UI.SetAlpha") {
+        if (m_uiRuntime) {
+            auto [ui, widget] = splitWidgetRef(resolveDataPin(nodeId, "widgetRef"));
+            m_uiRuntime->setWidgetAlphaByName(ui, widget, resolveDataPin(nodeId, "alpha").toNumber());
+        }
+        return "exec_out";
+    }
+    if (node->type == "UI.SetSize") {
+        if (m_uiRuntime) {
+            auto [ui, widget] = splitWidgetRef(resolveDataPin(nodeId, "widgetRef"));
+            m_uiRuntime->setWidgetSizeByName(ui, widget,
+                                             resolveDataPin(nodeId, "width").toNumber(),
+                                             resolveDataPin(nodeId, "height").toNumber());
         }
         return "exec_out";
     }
@@ -680,8 +755,100 @@ BPValue BPRuntime::resolveOutputPin(const QString& nodeId, const QString& pinKey
         if (pinKey == "tag")   return m_collTag;
     }
 
+    if (node->type == "Event.MouseDown" || node->type == "Event.MouseUp"
+     || node->type == "Event.MouseMove" || node->type == "Event.MouseDrag"
+     || node->type == "Event.MouseWheel") {
+        const MouseState s = m_mouseState.value(nodeId);
+        if (pinKey == "screenX") return BPValue::fromNumber(s.screenX);
+        if (pinKey == "screenY") return BPValue::fromNumber(s.screenY);
+        if (pinKey == "worldX") return BPValue::fromNumber(s.worldX);
+        if (pinKey == "worldY") return BPValue::fromNumber(s.worldY);
+        if (pinKey == "deltaX") return BPValue::fromNumber(s.deltaX);
+        if (pinKey == "deltaY") return BPValue::fromNumber(s.deltaY);
+        if (pinKey == "button") return s.button;
+    }
+
+    if (node->type == "Event.BattleEnded") {
+        if (!m_battle) return {};
+        if (pinKey == "result") return m_battle->result();
+        if (pinKey == "reason") return m_battle->reason();
+    }
+
+    if (node->type == "Battle.GetUnitStatus") {
+        const BattleUnit* unit = battleUnitByKey(resolveDataPin(nodeId, "unit").toString());
+        if (!unit) return {};
+        if (pinKey == "hp") return BPValue::fromNumber(unit->hp);
+        if (pinKey == "maxHp") return BPValue::fromNumber(unit->maxHp);
+        if (pinKey == "shield") return BPValue::fromNumber(unit->shield);
+        if (pinKey == "energy") return BPValue::fromNumber(unit->energy);
+        if (pinKey == "maxEnergy") return BPValue::fromNumber(unit->maxEnergy);
+        if (pinKey == "alive") return BPValue::fromBool(unit->alive());
+    }
+
+    if (node->type == "Battle.GetHand") {
+        if (!m_battle || !m_battle->active()) return {};
+        if (pinKey == "count") return BPValue::fromNumber(m_battle->hand().size());
+        if (pinKey == "text") return m_battle->handText();
+    }
+
+    if (node->type == "Battle.GetResult") {
+        if (!m_battle) return {};
+        if (pinKey == "ended") return BPValue::fromBool(m_battle->ended());
+        if (pinKey == "result") return m_battle->result();
+        if (pinKey == "reason") return m_battle->reason();
+        if (pinKey == "message") return m_lastBattleMessage;
+        if (pinKey == "turn") return m_battle->activeTeam();
+    }
+
+    if (node->type == "Battle.CheckRange") {
+        if (pinKey == "valid") {
+            return BPValue::fromBool(BattleRuntime::isPointInRange(
+                resolveDataPin(nodeId, "shape").toString(),
+                resolveDataPin(nodeId, "originX").toNumber(),
+                resolveDataPin(nodeId, "originY").toNumber(),
+                resolveDataPin(nodeId, "targetX").toNumber(),
+                resolveDataPin(nodeId, "targetY").toNumber(),
+                resolveDataPin(nodeId, "radius").toNumber(),
+                resolveDataPin(nodeId, "width").toNumber(),
+                resolveDataPin(nodeId, "height").toNumber(),
+                resolveDataPin(nodeId, "dirX").toNumber(),
+                resolveDataPin(nodeId, "dirY").toNumber(),
+                resolveDataPin(nodeId, "angle").toNumber()));
+        }
+    }
+
+    if (node->type == "Battle.CheckTarget") {
+        if (pinKey == "legal") {
+            const BattleUnit* target = battleUnitByKey(resolveDataPin(nodeId, "targetUnit").toString());
+            const QString requiredTeam = resolveDataPin(nodeId, "requiredTeam").toString().trimmed();
+            const bool teamOk = !target || requiredTeam.isEmpty() || requiredTeam == "任意"
+                             || target->team == requiredTeam || target->name == requiredTeam
+                             || target->id == requiredTeam;
+            const bool rangeOk = BattleRuntime::isPointInRange(
+                resolveDataPin(nodeId, "shape").toString(),
+                resolveDataPin(nodeId, "originX").toNumber(),
+                resolveDataPin(nodeId, "originY").toNumber(),
+                resolveDataPin(nodeId, "targetX").toNumber(),
+                resolveDataPin(nodeId, "targetY").toNumber(),
+                resolveDataPin(nodeId, "radius").toNumber(),
+                resolveDataPin(nodeId, "width").toNumber(),
+                resolveDataPin(nodeId, "height").toNumber(),
+                resolveDataPin(nodeId, "dirX").toNumber(),
+                resolveDataPin(nodeId, "dirY").toNumber(),
+                resolveDataPin(nodeId, "angle").toNumber());
+            return BPValue::fromBool(teamOk && rangeOk);
+        }
+    }
+
     if (node->type == "UI.OnDropdownChanged" && pinKey == "index")
         return QString::number(m_dropdownIndex.value(nodeId, 0));
+    if ((node->type == "UI.OnDragStart" || node->type == "UI.OnDragMove"
+      || node->type == "UI.OnDrop" || node->type == "UI.OnDragCancel")) {
+        const UIDragState s = m_uiDragState.value(nodeId);
+        if (pinKey == "x") return BPValue::fromNumber(s.x);
+        if (pinKey == "y") return BPValue::fromNumber(s.y);
+        if (pinKey == "widgetName") return s.widgetName;
+    }
 
     return {};
 }
@@ -698,6 +865,58 @@ const ActorData* BPRuntime::findActorByName(const QString& name) const {
     return nullptr;
 }
 
+const BattleUnit* BPRuntime::battleUnitByKey(const QString& key) const {
+    if (!m_battle || !m_battle->active()) return nullptr;
+    const QString k = key.trimmed().toLower();
+    if (k == "enemy" || k == "敌人" || k == "敌方") return &m_battle->enemy();
+    return &m_battle->player();
+}
+
+void BPRuntime::triggerBattleEnded() {
+    if (!m_battle || !m_battle->ended() || m_battleEndNotified) return;
+    m_battleEndNotified = true;
+    for (const BPNode& node : m_nodes) {
+        if (node.type != "Event.BattleEnded") continue;
+        QSet<QString> visited;
+        executeChain(node.id, "exec_out", &visited);
+    }
+    emit stateChanged();
+}
+
+void BPRuntime::triggerMouseEvent(const QString& type, const MouseState& payload) {
+    for (const BPNode& node : m_nodes) {
+        if (node.type != type) continue;
+        m_mouseState[node.id] = payload;
+        QSet<QString> visited;
+        executeChain(node.id, "exec_out", &visited);
+    }
+}
+
+void BPRuntime::triggerMousePressed(float screenX, float screenY, float worldX, float worldY, const QString& button) {
+    triggerMouseEvent("Event.MouseDown", {screenX, screenY, worldX, worldY, 0.0f, 0.0f, button});
+    emit stateChanged();
+}
+
+void BPRuntime::triggerMouseReleased(float screenX, float screenY, float worldX, float worldY, const QString& button) {
+    triggerMouseEvent("Event.MouseUp", {screenX, screenY, worldX, worldY, 0.0f, 0.0f, button});
+    emit stateChanged();
+}
+
+void BPRuntime::triggerMouseMoved(float screenX, float screenY, float worldX, float worldY) {
+    triggerMouseEvent("Event.MouseMove", {screenX, screenY, worldX, worldY, 0.0f, 0.0f, {}});
+    emit stateChanged();
+}
+
+void BPRuntime::triggerMouseDragged(float screenX, float screenY, float worldX, float worldY, const QString& button) {
+    triggerMouseEvent("Event.MouseDrag", {screenX, screenY, worldX, worldY, 0.0f, 0.0f, button});
+    emit stateChanged();
+}
+
+void BPRuntime::triggerMouseWheeled(float screenX, float screenY, float worldX, float worldY, float deltaX, float deltaY) {
+    triggerMouseEvent("Event.MouseWheel", {screenX, screenY, worldX, worldY, deltaX, deltaY, {}});
+    emit stateChanged();
+}
+
 void BPRuntime::triggerButtonClick(const QString& instanceId, const QString& widgetName) {
     QString uiName;
     if (m_uiRuntime) {
@@ -708,6 +927,82 @@ void BPRuntime::triggerButtonClick(const QString& instanceId, const QString& wid
         if (node.type != "UI.OnButtonClick") continue;
         auto [refUi, refWidget] = splitWidgetRef(resolveDataPin(node.id, "widgetRef"));
         if ((refUi == instanceId || refUi == uiName) && refWidget == widgetName) {
+            QSet<QString> visited;
+            executeChain(node.id, "exec_out", &visited);
+        }
+    }
+    emit stateChanged();
+}
+
+static bool bpDragEventMatches(const QString& nodeType, const QString& wantedType) {
+    return nodeType == wantedType;
+}
+
+void BPRuntime::triggerUIDragStarted(const QString& instanceId, const QString& widgetName, float x, float y) {
+    QString uiName;
+    if (m_uiRuntime) {
+        for (const UIInstance* inst : m_uiRuntime->shownInstances())
+            if (inst->instanceId == instanceId) { uiName = inst->uiName; break; }
+    }
+    for (const BPNode& node : m_nodes) {
+        if (!bpDragEventMatches(node.type, "UI.OnDragStart")) continue;
+        auto [refUi, refWidget] = splitWidgetRef(resolveDataPin(node.id, "widgetRef"));
+        if ((refUi == instanceId || refUi == uiName) && (refWidget.isEmpty() || refWidget == widgetName)) {
+            m_uiDragState[node.id] = {widgetName, x, y};
+            QSet<QString> visited;
+            executeChain(node.id, "exec_out", &visited);
+        }
+    }
+    emit stateChanged();
+}
+
+void BPRuntime::triggerUIDragMoved(const QString& instanceId, const QString& widgetName, float x, float y) {
+    QString uiName;
+    if (m_uiRuntime) {
+        for (const UIInstance* inst : m_uiRuntime->shownInstances())
+            if (inst->instanceId == instanceId) { uiName = inst->uiName; break; }
+    }
+    for (const BPNode& node : m_nodes) {
+        if (!bpDragEventMatches(node.type, "UI.OnDragMove")) continue;
+        auto [refUi, refWidget] = splitWidgetRef(resolveDataPin(node.id, "widgetRef"));
+        if ((refUi == instanceId || refUi == uiName) && (refWidget.isEmpty() || refWidget == widgetName)) {
+            m_uiDragState[node.id] = {widgetName, x, y};
+            QSet<QString> visited;
+            executeChain(node.id, "exec_out", &visited);
+        }
+    }
+    emit stateChanged();
+}
+
+void BPRuntime::triggerUIDropped(const QString& instanceId, const QString& widgetName, float x, float y) {
+    QString uiName;
+    if (m_uiRuntime) {
+        for (const UIInstance* inst : m_uiRuntime->shownInstances())
+            if (inst->instanceId == instanceId) { uiName = inst->uiName; break; }
+    }
+    for (const BPNode& node : m_nodes) {
+        if (!bpDragEventMatches(node.type, "UI.OnDrop")) continue;
+        auto [refUi, refWidget] = splitWidgetRef(resolveDataPin(node.id, "widgetRef"));
+        if ((refUi == instanceId || refUi == uiName) && (refWidget.isEmpty() || refWidget == widgetName)) {
+            m_uiDragState[node.id] = {widgetName, x, y};
+            QSet<QString> visited;
+            executeChain(node.id, "exec_out", &visited);
+        }
+    }
+    emit stateChanged();
+}
+
+void BPRuntime::triggerUIDragCanceled(const QString& instanceId, const QString& widgetName, float x, float y) {
+    QString uiName;
+    if (m_uiRuntime) {
+        for (const UIInstance* inst : m_uiRuntime->shownInstances())
+            if (inst->instanceId == instanceId) { uiName = inst->uiName; break; }
+    }
+    for (const BPNode& node : m_nodes) {
+        if (!bpDragEventMatches(node.type, "UI.OnDragCancel")) continue;
+        auto [refUi, refWidget] = splitWidgetRef(resolveDataPin(node.id, "widgetRef"));
+        if ((refUi == instanceId || refUi == uiName) && (refWidget.isEmpty() || refWidget == widgetName)) {
+            m_uiDragState[node.id] = {widgetName, x, y};
             QSet<QString> visited;
             executeChain(node.id, "exec_out", &visited);
         }

@@ -40,6 +40,7 @@ set(SOURCES
     src/editor/ProjectSettingsDialog.cpp
     src/editor/BlueprintEditor.cpp
     src/editor/BPRuntime.cpp
+    src/editor/BattleRuntime.cpp
     src/editor/ActorBPRuntime.cpp
     src/editor/LayoutManager.cpp
     src/editor/Recorder.cpp
@@ -78,6 +79,7 @@ set(HEADERS
     src/editor/BlueprintEditor.h
     src/editor/UndoCommands.h
     src/editor/BPRuntime.h
+    src/editor/BattleRuntime.h
     src/editor/ActorBPRuntime.h
     src/editor/BPEval.h
     src/editor/ProjectTags.h

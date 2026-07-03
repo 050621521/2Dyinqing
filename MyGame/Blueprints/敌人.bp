@@ -5,27 +5,6 @@
         "碰撞盒"
     ],
     "connections": [
-        {
-            "fromNode": "3c013084-9f95-4179-8214-e1968ed1369f",
-            "fromPin": "exec_out",
-            "id": "cf54a6f6-e058-425c-9d1d-af5da5289165",
-            "toNode": "e1455ced-f6a3-4a77-9103-c6424167dae7",
-            "toPin": "exec_in"
-        },
-        {
-            "fromNode": "1e5fe285-9e7f-4c4f-8c5a-11c1fa91c16d",
-            "fromPin": "result",
-            "id": "9e736310-7579-4375-b774-7506911bdadd",
-            "toNode": "e1455ced-f6a3-4a77-9103-c6424167dae7",
-            "toPin": "x"
-        },
-        {
-            "fromNode": "3ff60797-145d-475e-9b1a-e147b22548ef",
-            "fromPin": "result",
-            "id": "b2f1a1be-1138-4fca-81ac-0f54b4ae70a3",
-            "toNode": "e1455ced-f6a3-4a77-9103-c6424167dae7",
-            "toPin": "y"
-        }
     ],
     "defaults": {
         "active": true,
@@ -79,39 +58,5 @@
     },
     "name": "敌人",
     "nodes": [
-        {
-            "id": "3c013084-9f95-4179-8214-e1968ed1369f",
-            "params": {},
-            "type": "Event.BeginPlay",
-            "x": -400.0,
-            "y": 0.0
-        },
-        {
-            "id": "1e5fe285-9e7f-4c4f-8c5a-11c1fa91c16d",
-            "params": {
-                "min": "-500",
-                "max": "500"
-            },
-            "type": "Math.Random",
-            "x": -200.0,
-            "y": -120.0
-        },
-        {
-            "id": "3ff60797-145d-475e-9b1a-e147b22548ef",
-            "params": {
-                "min": "80",
-                "max": "440"
-            },
-            "type": "Math.Random",
-            "x": -200.0,
-            "y": 120.0
-        },
-        {
-            "id": "e1455ced-f6a3-4a77-9103-c6424167dae7",
-            "params": {},
-            "type": "Self.SetPosition",
-            "x": 60.0,
-            "y": 0.0
-        }
     ]
 }

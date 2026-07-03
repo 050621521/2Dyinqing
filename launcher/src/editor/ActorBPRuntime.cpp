@@ -2,6 +2,7 @@
 #include "UIRuntime.h"
 #include "BPRuntime.h"
 #include "BPEval.h"
+#include <QColor>
 #include <utility>
 
 static std::pair<QString,QString> splitWidgetRef(const QString& ref) {
@@ -285,6 +286,42 @@ QString ActorBPRuntime::executeNode(const QString& nodeId) {
         }
         return "exec_out";
     }
+    if (node->type == "UI.SetScroll" || node->type == "UI.ScrollTo") {
+        if (m_uiRuntime) {
+            auto [ui, widget] = splitWidgetRef(resolveDataPin(nodeId, "widgetRef"));
+            m_uiRuntime->setScrollByName(ui, widget,
+                                         resolveDataPin(nodeId, "x").toNumber(),
+                                         resolveDataPin(nodeId, "y").toNumber());
+        }
+        return "exec_out";
+    }
+    if (node->type == "UI.SetColor") {
+        if (m_uiRuntime) {
+            auto [ui, widget] = splitWidgetRef(resolveDataPin(nodeId, "widgetRef"));
+            const int r = qBound(0, (int)resolveDataPin(nodeId, "r").toNumber(), 255);
+            const int g = qBound(0, (int)resolveDataPin(nodeId, "g").toNumber(), 255);
+            const int b = qBound(0, (int)resolveDataPin(nodeId, "b").toNumber(), 255);
+            const int a = qBound(0, (int)resolveDataPin(nodeId, "a").toNumber(), 255);
+            m_uiRuntime->setWidgetColorByName(ui, widget, QColor(r, g, b, a));
+        }
+        return "exec_out";
+    }
+    if (node->type == "UI.SetAlpha") {
+        if (m_uiRuntime) {
+            auto [ui, widget] = splitWidgetRef(resolveDataPin(nodeId, "widgetRef"));
+            m_uiRuntime->setWidgetAlphaByName(ui, widget, resolveDataPin(nodeId, "alpha").toNumber());
+        }
+        return "exec_out";
+    }
+    if (node->type == "UI.SetSize") {
+        if (m_uiRuntime) {
+            auto [ui, widget] = splitWidgetRef(resolveDataPin(nodeId, "widgetRef"));
+            m_uiRuntime->setWidgetSizeByName(ui, widget,
+                                             resolveDataPin(nodeId, "width").toNumber(),
+                                             resolveDataPin(nodeId, "height").toNumber());
+        }
+        return "exec_out";
+    }
 
     return {};
 }
@@ -339,6 +376,13 @@ BPValue ActorBPRuntime::resolveOutputPin(const QString& nodeId, const QString& p
     }
     if (node->type == "UI.OnDropdownChanged" && pinKey == "index")
         return QString::number(m_dropdownIndex.value(nodeId, 0));
+    if (node->type == "UI.OnDragStart" || node->type == "UI.OnDragMove"
+     || node->type == "UI.OnDrop" || node->type == "UI.OnDragCancel") {
+        const UIDragState s = m_uiDragState.value(nodeId);
+        if (pinKey == "x") return BPValue::fromNumber(s.x);
+        if (pinKey == "y") return BPValue::fromNumber(s.y);
+        if (pinKey == "widgetName") return s.widgetName;
+    }
 
     // ── 纯数据节点（数学/比较/逻辑/数组/转换）：共享求值器，两套运行时一致 ──
     BPValue out;
@@ -371,6 +415,74 @@ void ActorBPRuntime::triggerButtonClick(const QString& instanceId, const QString
         if (node.type != "UI.OnButtonClick") continue;
         auto [refUi, refWidget] = splitWidgetRef(resolveDataPin(node.id, "widgetRef"));
         if ((refUi == instanceId || refUi == uiName) && refWidget == widgetName) {
+            QSet<QString> visited;
+            executeChain(node.id, "exec_out", &visited);
+        }
+    }
+}
+
+void ActorBPRuntime::triggerUIDragStarted(const QString& instanceId, const QString& widgetName, float x, float y) {
+    QString uiName;
+    if (m_uiRuntime) {
+        for (const UIInstance* inst : m_uiRuntime->shownInstances())
+            if (inst->instanceId == instanceId) { uiName = inst->uiName; break; }
+    }
+    for (const BPNode& node : m_bpClass->nodes) {
+        if (node.type != "UI.OnDragStart") continue;
+        auto [refUi, refWidget] = splitWidgetRef(resolveDataPin(node.id, "widgetRef"));
+        if ((refUi == instanceId || refUi == uiName) && (refWidget.isEmpty() || refWidget == widgetName)) {
+            m_uiDragState[node.id] = {widgetName, x, y};
+            QSet<QString> visited;
+            executeChain(node.id, "exec_out", &visited);
+        }
+    }
+}
+
+void ActorBPRuntime::triggerUIDragMoved(const QString& instanceId, const QString& widgetName, float x, float y) {
+    QString uiName;
+    if (m_uiRuntime) {
+        for (const UIInstance* inst : m_uiRuntime->shownInstances())
+            if (inst->instanceId == instanceId) { uiName = inst->uiName; break; }
+    }
+    for (const BPNode& node : m_bpClass->nodes) {
+        if (node.type != "UI.OnDragMove") continue;
+        auto [refUi, refWidget] = splitWidgetRef(resolveDataPin(node.id, "widgetRef"));
+        if ((refUi == instanceId || refUi == uiName) && (refWidget.isEmpty() || refWidget == widgetName)) {
+            m_uiDragState[node.id] = {widgetName, x, y};
+            QSet<QString> visited;
+            executeChain(node.id, "exec_out", &visited);
+        }
+    }
+}
+
+void ActorBPRuntime::triggerUIDropped(const QString& instanceId, const QString& widgetName, float x, float y) {
+    QString uiName;
+    if (m_uiRuntime) {
+        for (const UIInstance* inst : m_uiRuntime->shownInstances())
+            if (inst->instanceId == instanceId) { uiName = inst->uiName; break; }
+    }
+    for (const BPNode& node : m_bpClass->nodes) {
+        if (node.type != "UI.OnDrop") continue;
+        auto [refUi, refWidget] = splitWidgetRef(resolveDataPin(node.id, "widgetRef"));
+        if ((refUi == instanceId || refUi == uiName) && (refWidget.isEmpty() || refWidget == widgetName)) {
+            m_uiDragState[node.id] = {widgetName, x, y};
+            QSet<QString> visited;
+            executeChain(node.id, "exec_out", &visited);
+        }
+    }
+}
+
+void ActorBPRuntime::triggerUIDragCanceled(const QString& instanceId, const QString& widgetName, float x, float y) {
+    QString uiName;
+    if (m_uiRuntime) {
+        for (const UIInstance* inst : m_uiRuntime->shownInstances())
+            if (inst->instanceId == instanceId) { uiName = inst->uiName; break; }
+    }
+    for (const BPNode& node : m_bpClass->nodes) {
+        if (node.type != "UI.OnDragCancel") continue;
+        auto [refUi, refWidget] = splitWidgetRef(resolveDataPin(node.id, "widgetRef"));
+        if ((refUi == instanceId || refUi == uiName) && (refWidget.isEmpty() || refWidget == widgetName)) {
+            m_uiDragState[node.id] = {widgetName, x, y};
             QSet<QString> visited;
             executeChain(node.id, "exec_out", &visited);
         }

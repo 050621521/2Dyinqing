@@ -63,15 +63,34 @@
                 "id": "demo_demo_create2_demo_follow2",
                 "toNode": "demo_follow2",
                 "toPin": "widgetRef"
+            },
+            {
+                "fromNode": "demo_follow2",
+                "fromPin": "exec_out",
+                "id": "battle_demo_follow2_show_combat_ui",
+                "toNode": "battle_show_combat_ui",
+                "toPin": "exec_in"
+            },
+            {
+                "fromNode": "battle_end_turn_click",
+                "fromPin": "exec_out",
+                "id": "battle_end_turn_click_set_turn_text",
+                "toNode": "battle_set_enemy_turn_text",
+                "toPin": "exec_in"
+            },
+            {
+                "fromNode": "battle_set_enemy_turn_text",
+                "fromPin": "exec_out",
+                "id": "battle_set_enemy_turn_text_print",
+                "toNode": "battle_print_end_turn",
+                "toPin": "exec_in"
             }
         ],
-        "localVariables": [
-        ],
+        "localVariables": [],
         "nodes": [
             {
                 "id": "demo_begin",
-                "params": {
-                },
+                "params": {},
                 "type": "Event.BeginPlay",
                 "x": -600,
                 "y": -300
@@ -132,6 +151,43 @@
                 "type": "UI.Follow",
                 "x": 0,
                 "y": 60
+            },
+            {
+                "id": "battle_show_combat_ui",
+                "params": {
+                    "uiName": "战斗地图界面"
+                },
+                "type": "UI.Show",
+                "x": 300,
+                "y": 60
+            },
+            {
+                "id": "battle_end_turn_click",
+                "params": {
+                    "widgetRef": "战斗地图界面::结束回合"
+                },
+                "type": "UI.OnButtonClick",
+                "x": -600,
+                "y": 280
+            },
+            {
+                "id": "battle_set_enemy_turn_text",
+                "params": {
+                    "text": "敌方回合",
+                    "widgetRef": "战斗地图界面::回合提示"
+                },
+                "type": "UI.SetText",
+                "x": -300,
+                "y": 280
+            },
+            {
+                "id": "battle_print_end_turn",
+                "params": {
+                    "text": "已点击结束回合，切换到敌方回合"
+                },
+                "type": "Action.Print",
+                "x": 0,
+                "y": 280
             }
         ]
     },
@@ -462,12 +518,12 @@
             },
             "rotation": 0,
             "scale": {
-                "x": 100,
-                "y": 100
+                "x": 14.8,
+                "y": 10
             },
             "sortingLayer": "背景",
-            "spriteColor": "#ffffffff",
-            "spritePath": "/Users/kwy/Documents/2Dyinqing/MyGame/ziyuan/42_000_登录界面.png",
+            "spriteColor": "#ff202822",
+            "spritePath": "",
             "spriteVisible": true,
             "static": false,
             "tag": "未标记"
@@ -510,8 +566,8 @@
             "followTarget": "",
             "id": "37308997-579d-48a2-9b79-0dcc95890516",
             "layer": "默认",
-            "name": "示例单位_甲",
-            "orderInLayer": 0,
+            "name": "我方单位_武夫",
+            "orderInLayer": 30,
             "position": {
                 "x": -300,
                 "y": 0
@@ -521,7 +577,7 @@
                 "x": 100,
                 "y": 100
             },
-            "sortingLayer": "背景",
+            "sortingLayer": "前景",
             "spriteColor": "#ffffffff",
             "spritePath": "/Users/kwy/Documents/2Dyinqing/MyGame/ziyuan/wufu_walk_down_00.png",
             "spriteVisible": true,
@@ -566,8 +622,8 @@
             "followTarget": "",
             "id": "3ab1360e-8c53-49f0-ba71-cfa35441f3f4",
             "layer": "默认",
-            "name": "示例单位_乙",
-            "orderInLayer": 0,
+            "name": "敌方单位_疯子",
+            "orderInLayer": 30,
             "position": {
                 "x": 0,
                 "y": 80
@@ -577,7 +633,7 @@
                 "x": 100,
                 "y": 100
             },
-            "sortingLayer": "背景",
+            "sortingLayer": "前景",
             "spriteColor": "#ffffffff",
             "spritePath": "/Users/kwy/Documents/2Dyinqing/MyGame/ziyuan/44_000_疯子_2D模型.png",
             "spriteVisible": true,
@@ -622,8 +678,8 @@
             "followTarget": "",
             "id": "1d492370-97d6-41fc-9fbf-1c54d82c37ef",
             "layer": "默认",
-            "name": "示例单位_丙",
-            "orderInLayer": 0,
+            "name": "敌方单位_污染兽",
+            "orderInLayer": 30,
             "position": {
                 "x": 300,
                 "y": -60
@@ -633,12 +689,348 @@
                 "x": 100,
                 "y": 100
             },
-            "sortingLayer": "背景",
+            "sortingLayer": "前景",
             "spriteColor": "#ffffffff",
             "spritePath": "/Users/kwy/Documents/2Dyinqing/MyGame/ziyuan/44_001_污染兽_2D模型.png",
             "spriteVisible": true,
             "static": false,
             "tag": "未标记"
+        },
+        {
+            "active": true,
+            "animAsset": "",
+            "animAutoPlay": true,
+            "animDefaultClip": "",
+            "bpClass": "builtin/Sprite",
+            "cameraBackground": "#ff1e1e1e",
+            "cameraIsMain": false,
+            "cameraOrthographic": true,
+            "cameraResH": 1080,
+            "cameraResW": 1920,
+            "cameraSize": 540,
+            "colliderEnabled": false,
+            "colliderH": 1000,
+            "colliderOffsetX": 0,
+            "colliderOffsetY": 0,
+            "colliderResponse": "阻挡",
+            "colliderTargets": "",
+            "colliderW": 1480,
+            "components": [
+                "变换",
+                "精灵渲染器"
+            ],
+            "confinerActor": "",
+            "confinerEnabled": false,
+            "confinerMaxX": 500,
+            "confinerMaxY": 500,
+            "confinerMinX": -500,
+            "confinerMinY": -500,
+            "drawMode": "简单",
+            "flipX": false,
+            "flipY": false,
+            "followLerpSpeed": 5,
+            "followOffsetX": 0,
+            "followOffsetY": 0,
+            "followTarget": "",
+            "id": "battle-arena-floor",
+            "layer": "默认",
+            "name": "战斗场地底板",
+            "orderInLayer": 1,
+            "position": {
+                "x": 0,
+                "y": 0
+            },
+            "rotation": 0,
+            "scale": {
+                "x": 14.8,
+                "y": 10
+            },
+            "sortingLayer": "默认",
+            "spriteColor": "#ff202822",
+            "spritePath": "",
+            "spriteVisible": true,
+            "static": false,
+            "tag": "战斗地图"
+        },
+        {
+            "active": true,
+            "animAsset": "",
+            "animAutoPlay": true,
+            "animDefaultClip": "",
+            "bpClass": "builtin/Sprite",
+            "cameraBackground": "#ff1e1e1e",
+            "cameraIsMain": false,
+            "cameraOrthographic": true,
+            "cameraResH": 1080,
+            "cameraResW": 1920,
+            "cameraSize": 540,
+            "colliderEnabled": false,
+            "colliderH": 360,
+            "colliderOffsetX": 0,
+            "colliderOffsetY": 0,
+            "colliderResponse": "阻挡",
+            "colliderTargets": "",
+            "colliderW": 260,
+            "components": [
+                "变换",
+                "精灵渲染器"
+            ],
+            "confinerActor": "",
+            "confinerEnabled": false,
+            "confinerMaxX": 500,
+            "confinerMaxY": 500,
+            "confinerMinX": -500,
+            "confinerMinY": -500,
+            "drawMode": "简单",
+            "flipX": false,
+            "flipY": false,
+            "followLerpSpeed": 5,
+            "followOffsetX": 0,
+            "followOffsetY": 0,
+            "followTarget": "",
+            "id": "battle-spawn-team-1",
+            "layer": "默认",
+            "name": "出生区_team_1",
+            "orderInLayer": 5,
+            "position": {
+                "x": -430,
+                "y": 0
+            },
+            "rotation": 0,
+            "scale": {
+                "x": 2.6,
+                "y": 3.6
+            },
+            "sortingLayer": "默认",
+            "spriteColor": "#334d88cc",
+            "spritePath": "",
+            "spriteVisible": true,
+            "static": false,
+            "tag": "出生区"
+        },
+        {
+            "active": true,
+            "animAsset": "",
+            "animAutoPlay": true,
+            "animDefaultClip": "",
+            "bpClass": "builtin/Sprite",
+            "cameraBackground": "#ff1e1e1e",
+            "cameraIsMain": false,
+            "cameraOrthographic": true,
+            "cameraResH": 1080,
+            "cameraResW": 1920,
+            "cameraSize": 540,
+            "colliderEnabled": false,
+            "colliderH": 360,
+            "colliderOffsetX": 0,
+            "colliderOffsetY": 0,
+            "colliderResponse": "阻挡",
+            "colliderTargets": "",
+            "colliderW": 260,
+            "components": [
+                "变换",
+                "精灵渲染器"
+            ],
+            "confinerActor": "",
+            "confinerEnabled": false,
+            "confinerMaxX": 500,
+            "confinerMaxY": 500,
+            "confinerMinX": -500,
+            "confinerMinY": -500,
+            "drawMode": "简单",
+            "flipX": false,
+            "flipY": false,
+            "followLerpSpeed": 5,
+            "followOffsetX": 0,
+            "followOffsetY": 0,
+            "followTarget": "",
+            "id": "battle-spawn-team-2",
+            "layer": "默认",
+            "name": "出生区_team_2",
+            "orderInLayer": 5,
+            "position": {
+                "x": 430,
+                "y": 0
+            },
+            "rotation": 0,
+            "scale": {
+                "x": 2.6,
+                "y": 3.6
+            },
+            "sortingLayer": "默认",
+            "spriteColor": "#33884d4dcc",
+            "spritePath": "",
+            "spriteVisible": true,
+            "static": false,
+            "tag": "出生区"
+        },
+        {
+            "active": true,
+            "animAsset": "",
+            "animAutoPlay": true,
+            "animDefaultClip": "",
+            "bpClass": "builtin/Sprite",
+            "cameraBackground": "#ff1e1e1e",
+            "cameraIsMain": false,
+            "cameraOrthographic": true,
+            "cameraResH": 1080,
+            "cameraResW": 1920,
+            "cameraSize": 540,
+            "colliderEnabled": false,
+            "colliderH": 120,
+            "colliderOffsetX": 0,
+            "colliderOffsetY": 0,
+            "colliderResponse": "阻挡",
+            "colliderTargets": "",
+            "colliderW": 120,
+            "components": [
+                "变换",
+                "精灵渲染器"
+            ],
+            "confinerActor": "",
+            "confinerEnabled": false,
+            "confinerMaxX": 500,
+            "confinerMaxY": 500,
+            "confinerMinX": -500,
+            "confinerMinY": -500,
+            "drawMode": "简单",
+            "flipX": false,
+            "flipY": false,
+            "followLerpSpeed": 5,
+            "followOffsetX": 0,
+            "followOffsetY": 0,
+            "followTarget": "",
+            "id": "battle-obstacle-center",
+            "layer": "默认",
+            "name": "障碍_中央",
+            "orderInLayer": 20,
+            "position": {
+                "x": 0,
+                "y": 20
+            },
+            "rotation": 0,
+            "scale": {
+                "x": 1.2,
+                "y": 1.2
+            },
+            "sortingLayer": "默认",
+            "spriteColor": "#ff4a535d",
+            "spritePath": "",
+            "spriteVisible": true,
+            "static": false,
+            "tag": "障碍"
+        },
+        {
+            "active": true,
+            "animAsset": "",
+            "animAutoPlay": true,
+            "animDefaultClip": "",
+            "bpClass": "builtin/Sprite",
+            "cameraBackground": "#ff1e1e1e",
+            "cameraIsMain": false,
+            "cameraOrthographic": true,
+            "cameraResH": 1080,
+            "cameraResW": 1920,
+            "cameraSize": 540,
+            "colliderEnabled": false,
+            "colliderH": 120,
+            "colliderOffsetX": 0,
+            "colliderOffsetY": 0,
+            "colliderResponse": "阻挡",
+            "colliderTargets": "",
+            "colliderW": 360,
+            "components": [
+                "变换",
+                "精灵渲染器"
+            ],
+            "confinerActor": "",
+            "confinerEnabled": false,
+            "confinerMaxX": 500,
+            "confinerMaxY": 500,
+            "confinerMinX": -500,
+            "confinerMinY": -500,
+            "drawMode": "简单",
+            "flipX": false,
+            "flipY": false,
+            "followLerpSpeed": 5,
+            "followOffsetX": 0,
+            "followOffsetY": 0,
+            "followTarget": "",
+            "id": "battle-range-preview",
+            "layer": "默认",
+            "name": "释放范围预览",
+            "orderInLayer": 18,
+            "position": {
+                "x": -130,
+                "y": -10
+            },
+            "rotation": 0,
+            "scale": {
+                "x": 3.6,
+                "y": 1.2
+            },
+            "sortingLayer": "默认",
+            "spriteColor": "#665bd3ff",
+            "spritePath": "",
+            "spriteVisible": true,
+            "static": false,
+            "tag": "释放范围"
+        },
+        {
+            "active": true,
+            "animAsset": "",
+            "animAutoPlay": true,
+            "animDefaultClip": "",
+            "bpClass": "builtin/Sprite",
+            "cameraBackground": "#ff1e1e1e",
+            "cameraIsMain": false,
+            "cameraOrthographic": true,
+            "cameraResH": 1080,
+            "cameraResW": 1920,
+            "cameraSize": 540,
+            "colliderEnabled": false,
+            "colliderH": 150,
+            "colliderOffsetX": 0,
+            "colliderOffsetY": 0,
+            "colliderResponse": "阻挡",
+            "colliderTargets": "",
+            "colliderW": 150,
+            "components": [
+                "变换",
+                "精灵渲染器"
+            ],
+            "confinerActor": "",
+            "confinerEnabled": false,
+            "confinerMaxX": 500,
+            "confinerMaxY": 500,
+            "confinerMinX": -500,
+            "confinerMinY": -500,
+            "drawMode": "简单",
+            "flipX": false,
+            "flipY": false,
+            "followLerpSpeed": 5,
+            "followOffsetX": 0,
+            "followOffsetY": 0,
+            "followTarget": "",
+            "id": "battle-target-highlight",
+            "layer": "默认",
+            "name": "合法目标高亮",
+            "orderInLayer": 25,
+            "position": {
+                "x": 300,
+                "y": -60
+            },
+            "rotation": 0,
+            "scale": {
+                "x": 1.5,
+                "y": 1.5
+            },
+            "sortingLayer": "默认",
+            "spriteColor": "#66ffdf6e",
+            "spritePath": "",
+            "spriteVisible": true,
+            "static": false,
+            "tag": "目标高亮"
         }
     ],
     "version": "0.1"
