@@ -1,6 +1,7 @@
 #include "DetailsPanel.h"
 #include "models/ActorTypeUtils.h"
 #include "models/AnimationAsset.h"
+#include "models/BPClass.h"
 #include "ProjectTags.h"
 #include <QInputDialog>
 #include <QAction>
@@ -25,6 +26,7 @@ static const QString kManageTagItem = QStringLiteral("⚙ 管理标签…");
 #include <QHeaderView>
 #include <QColorDialog>
 #include <QFileInfo>
+#include <QDir>
 #include <QDialog>
 #include <QDirIterator>
 #include <QListWidget>
@@ -33,6 +35,27 @@ static const QString kManageTagItem = QStringLiteral("⚙ 管理标签…");
 #include <QMimeData>
 #include <QApplication>
 #include <QAbstractSpinBox>
+#include <algorithm>
+
+static QList<QPair<QString, QString>> listComponentBlueprints(const QString& projectRoot) {
+    QList<QPair<QString, QString>> items;
+    if (projectRoot.isEmpty()) return items;
+    QDir root(projectRoot);
+    QDirIterator it(projectRoot, {"*.bp"}, QDir::Files, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        const QString abs = it.next();
+        const BPClass cls = BPClass::load(abs);
+        if (cls.blueprintType != "Component") continue;
+        const QString rel = root.relativeFilePath(abs);
+        QString label = rel;
+        if (label.endsWith(".bp")) label.chop(3);
+        items.append({label, rel});
+    }
+    std::sort(items.begin(), items.end(), [](const auto& a, const auto& b) {
+        return a.first.localeAwareCompare(b.first) < 0;
+    });
+    return items;
+}
 #include <QWheelEvent>
 
 QColor DetailsPanel::typeColor(const QString& type) {
@@ -169,6 +192,21 @@ void DetailsPanel::buildHeader(QVBoxLayout* root) {
         for (const QString& comp : all) {
             if (!m_currentActor.components.contains(comp))
                 menu.addAction(comp, [this, comp]() { onAddComponent(comp); });
+        }
+        const auto componentBps = listComponentBlueprints(m_projectRoot);
+        if (!componentBps.isEmpty()) {
+            menu.addSeparator();
+            QMenu* bpMenu = menu.addMenu("组件蓝图");
+            for (const auto& item : componentBps) {
+                if (m_currentActor.componentBlueprints.contains(item.second)) continue;
+                bpMenu->addAction(item.first, [this, path = item.second]() {
+                    m_currentActor.componentBlueprints.append(path);
+                    m_currentActor.componentInstances.append(ComponentInstance::fromBlueprint(path));
+                    refreshComponentList();
+                    emit actorModified(m_currentActor);
+                });
+            }
+            if (bpMenu->isEmpty()) bpMenu->setEnabled(false);
         }
         if (!menu.isEmpty())
             menu.exec(m_addComponentBtn->mapToGlobal(
@@ -355,6 +393,7 @@ void DetailsPanel::buildComponents(QVBoxLayout* root) {
         QTreeWidgetItem* item = m_componentTree->itemAt(pos);
         if (!item || !item->parent()) return;
         const QString comp = item->data(0, Qt::UserRole).toString();
+        const QString kind = item->data(0, Qt::UserRole + 1).toString();
         if (comp.isEmpty()) return;
         QMenu menu(this);
         menu.addAction("移除组件", [this, comp]() {
@@ -362,6 +401,17 @@ void DetailsPanel::buildComponents(QVBoxLayout* root) {
             refreshComponentList();
             emit actorModified(m_currentActor);
         });
+        if (kind == "blueprint") {
+            menu.clear();
+            menu.addAction("移除组件蓝图", [this, comp]() {
+                m_currentActor.componentBlueprints.removeAll(comp);
+                m_currentActor.componentInstances.removeIf([&](const ComponentInstance& inst) {
+                    return inst.blueprint == comp;
+                });
+                refreshComponentList();
+                emit actorModified(m_currentActor);
+            });
+        }
         menu.exec(m_componentTree->viewport()->mapToGlobal(pos));
     });
 
@@ -388,12 +438,20 @@ void DetailsPanel::refreshComponentList() {
     for (const QString& comp : m_currentActor.components) {
         auto* child = new QTreeWidgetItem(QStringList{comp});
         child->setData(0, Qt::UserRole, comp);
+        child->setData(0, Qt::UserRole + 1, "builtin");
+        root->addChild(child);
+    }
+    for (const QString& comp : m_currentActor.componentBlueprints) {
+        const QString label = QFileInfo(comp).baseName() + "  (组件蓝图)";
+        auto* child = new QTreeWidgetItem(QStringList{label});
+        child->setData(0, Qt::UserRole, comp);
+        child->setData(0, Qt::UserRole + 1, "blueprint");
         root->addChild(child);
     }
     root->setExpanded(true);
 
     // 每行 22px，最少显示 3 行（根节点 + 至少两行内容空间）
-    const int rows = qMax(3, 1 + m_currentActor.components.size());
+    const int rows = qMax(3, 1 + m_currentActor.components.size() + m_currentActor.componentBlueprints.size());
     m_componentTree->setFixedHeight(rows * 22 + 6);
 
     refreshSpriteSection();

@@ -1,10 +1,12 @@
 #include "EditorWindow.h"
+#include "ComponentBPRuntime.h"
 #include "Viewport2D.h"
 #include "GameViewport.h"
 #include "BlueprintEditor.h"
 #include "BPRuntime.h"
 #include "UIRuntime.h"
 #include "UIEditor.h"
+#include "DataTableEditor.h"
 #include "models/UIDocument.h"
 #include "SceneOutliner.h"
 #include "DetailsPanel.h"
@@ -459,6 +461,8 @@ void EditorWindow::setupCentralArea() {
             this, [this](const QString& path) { openUIDocTab(path); });
     connect(cb, &ContentBrowser::enumOpenRequested,
             this, [this](const QString& path) { openEnumTab(path); });
+    connect(cb, &ContentBrowser::dataTableOpenRequested,
+            this, [this](const QString& path) { openDataTableTab(path); });
     connect(cb, &ContentBrowser::enumFileDeleted, this, [this]() { reloadGlobalVarDefs(); });
     connect(cb, &ContentBrowser::enumFileRenamed, this,
             [this](const QString& oldN, const QString& newN) {
@@ -1004,16 +1008,26 @@ static ActorData actorFromBpClass(const BPClass& bc, const QString& classPath) {
     QJsonArray compArr;
     for (const QString& c : comps) compArr.append(c);
     obj["components"] = compArr;
+    QJsonArray compBpArr;
+    for (const QString& c : bc.componentBlueprints) compBpArr.append(c);
+    obj["componentBlueprints"] = compBpArr;
+    QJsonArray compInstArr;
+    for (const ComponentInstance& c : bc.componentInstances) compInstArr.append(c.toJson());
+    obj["componentInstances"] = compInstArr;
     ActorData a = ActorData::fromJson(obj);
     a.id      = classPath;   // 非空，避免 DetailsPanel 早退
     a.name    = bc.name;
     a.bpClass = QString();   // 隐藏"编辑蓝图"按钮（这是类本身）
     a.components = comps;
+    a.componentBlueprints = bc.componentBlueprints;
+    a.componentInstances = bc.componentInstances;
     return a;
 }
 
 static void applyActorToBpClass(const ActorData& a, BPClass& bc) {
     bc.components = a.components;
+    bc.componentBlueprints = a.componentBlueprints;
+    bc.componentInstances = a.componentInstances;
     QJsonObject j = a.toJson();
     // 仅剔除「实例身份 + 位置」；缩放/旋转/组件字段保留为可继承的类默认值
     for (const char* k : {"id","name","bpClass","position","overriddenFields"})
@@ -1030,6 +1044,12 @@ static bool resolveInstanceFromClass(ActorData& inst, const BPClass& cls) {
     QJsonArray comps;
     for (const QString& c : cls.components) comps.append(c);
     j["components"] = comps;
+    QJsonArray compBps;
+    for (const QString& c : cls.componentBlueprints) compBps.append(c);
+    j["componentBlueprints"] = compBps;
+    QJsonArray compInsts;
+    for (const ComponentInstance& c : cls.componentInstances) compInsts.append(c.toJson());
+    j["componentInstances"] = compInsts;
     ActorData resolved = ActorData::fromJson(j);
     resolved.overriddenFields = inst.overriddenFields;  // fromJson 会按"无键=旧"误填，强制保留
     if (resolved.toJson() == inst.toJson()) return false;  // 无变化不标脏
@@ -1078,7 +1098,10 @@ void EditorWindow::onTabChanged(int index) {
     // 上下文切换：蓝图页显示"我的蓝图"+蓝图"细节"，隐藏视口的大纲/细节；视口页反之
     const bool bpCtx = isAnyBlueprintTab(path);
     const bool levelBpCtx = isLevelBlueprintTab(path);   // 局部变量仅关卡蓝图
-    const bool classBpCtx = path.endsWith(".bp");        // Actor 类：显示组件细节面板
+    const BPClass* activeClass = m_openBpClasses.value(path, nullptr);
+    const bool classBpCtx = path.endsWith(".bp")
+                         && activeClass
+                         && activeClass->blueprintType == "Actor"; // Actor 类：显示组件细节面板
     if (m_gvDock)         m_gvDock->toggleView(bpCtx);
     if (m_varDetailsDock) m_varDetailsDock->toggleView(bpCtx);
     if (m_localVarDock)        m_localVarDock->toggleView(levelBpCtx);
@@ -1193,6 +1216,17 @@ void EditorWindow::onTabChanged(int index) {
         m_uiEditor->setUndoStack(doc->undoStack(), nullptr);
         if (m_centralStack) m_centralStack->setCurrentWidget(m_uiEditor);
         m_activeUndoStack = doc->undoStack();
+        return;
+    }
+
+    if (path.endsWith(".datatable")) {
+        DataTableEditor* ed = m_openDataTables.value(path, nullptr);
+        if (!ed) {
+            if (m_centralStack) m_centralStack->setCurrentWidget(m_viewportPage);
+            return;
+        }
+        if (m_centralStack) m_centralStack->setCurrentWidget(ed);
+        m_activeUndoStack = nullptr;
         return;
     }
 
@@ -1369,7 +1403,8 @@ void EditorWindow::onTabChanged(int index) {
             after.overriddenFields = before.overriddenFields;
             const QJsonObject bj = before.toJson(), aj = after.toJson();
             for (const QString& k : aj.keys()) {
-                if (k == "id" || k == "name" || k == "components" || k == "overriddenFields")
+                if (k == "id" || k == "name" || k == "components"
+                    || k == "componentBlueprints" || k == "componentInstances" || k == "overriddenFields")
                     continue;
                 if (aj[k] != bj[k]) after.overriddenFields.insert(k);
             }
@@ -1449,7 +1484,8 @@ void EditorWindow::onTabChanged(int index) {
                 after.overriddenFields = before.overriddenFields;
                 const QJsonObject bj = before.toJson(), aj = after.toJson();
                 for (const QString& k : aj.keys()) {
-                    if (k == "id" || k == "name" || k == "components" || k == "overriddenFields")
+                    if (k == "id" || k == "name" || k == "components"
+                        || k == "componentBlueprints" || k == "componentInstances" || k == "overriddenFields")
                         continue;
                     if (aj[k] != bj[k]) after.overriddenFields.insert(k);
                 }
@@ -1509,6 +1545,26 @@ void EditorWindow::onTabClosed(int index) {
         }
         m_openUIDocs.remove(path);
         delete doc;
+        m_docTabBar->removeTab(index);
+        if (m_centralStack) m_centralStack->setCurrentWidget(m_viewportPage);
+        updateSaveLabel();
+        return;
+    }
+
+    if (path.endsWith(".datatable")) {
+        DataTableEditor* ed = m_openDataTables.value(path, nullptr);
+        if (ed && ed->isDirty()) {
+            const auto ret = QMessageBox::question(this, "保存",
+                QString("数据表「%1」有未保存的修改，是否保存？").arg(ed->tableName()),
+                QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel);
+            if (ret == QMessageBox::Cancel) return;
+            if (ret == QMessageBox::Yes) ed->save();
+        }
+        if (ed) {
+            m_centralStack->removeWidget(ed);
+            m_openDataTables.remove(path);
+            delete ed;
+        }
         m_docTabBar->removeTab(index);
         if (m_centralStack) m_centralStack->setCurrentWidget(m_viewportPage);
         updateSaveLabel();
@@ -1604,6 +1660,15 @@ void EditorWindow::closeEvent(QCloseEvent* e) {
         if (ret == QMessageBox::Cancel) { e->ignore(); return; }
         if (ret == QMessageBox::Save) bc->save();
     }
+    for (auto it = m_openDataTables.begin(); it != m_openDataTables.end(); ++it) {
+        DataTableEditor* ed = it.value();
+        if (!ed || !ed->isDirty()) continue;
+        const auto ret = QMessageBox::question(this, "未保存的更改",
+            QString("数据表「%1」有未保存的更改，是否保存？").arg(ed->tableName()),
+            QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel);
+        if (ret == QMessageBox::Cancel) { e->ignore(); return; }
+        if (ret == QMessageBox::Save) ed->save();
+    }
     m_dirtyBpClasses.clear();
     qDeleteAll(m_openLevels);
     m_openLevels.clear();
@@ -1611,6 +1676,8 @@ void EditorWindow::closeEvent(QCloseEvent* e) {
     m_openBpClasses.clear();
     qDeleteAll(m_openUIDocs);
     m_openUIDocs.clear();
+    qDeleteAll(m_openDataTables);
+    m_openDataTables.clear();
     emit editorClosed();
     e->accept();
 }
@@ -1620,10 +1687,30 @@ void EditorWindow::saveCurrentLevel() {
     if (index < 0) return;
     const QString path = m_docTabBar->tabData(index).toString();
 
+    if (isAnyBlueprintTab(path) && !isLevelBlueprintTab(path)) {
+        if (BlueprintEditor* ed = m_bpInstances.value(path).editor) {
+            ed->saveBpClass();
+            m_dirtyBpClasses.remove(path);
+            updateTabTitle(index);
+            updateSaveLabel();
+        }
+        return;
+    }
+
     if (path.endsWith(".ui")) {
         UIDocument* doc = m_openUIDocs.value(path);
         if (doc && doc->isDirty()) {
             doc->save();
+            updateTabTitle(index);
+            updateSaveLabel();
+        }
+        return;
+    }
+
+    if (path.endsWith(".datatable")) {
+        DataTableEditor* ed = m_openDataTables.value(path, nullptr);
+        if (ed && ed->isDirty()) {
+            ed->save();
             updateTabTitle(index);
             updateSaveLabel();
         }
@@ -1651,6 +1738,9 @@ void EditorWindow::saveAllLevels() {
         if (it.value()->isDirty())
             it.value()->save();
     }
+    for (DataTableEditor* ed : m_openDataTables) {
+        if (ed && ed->isDirty()) ed->save();
+    }
     updateSaveLabel();
 }
 
@@ -1667,6 +1757,17 @@ void EditorWindow::updateTabTitle(int index) {
         return;
     }
     const QString baseName = QFileInfo(data).baseName();
+    if (data.endsWith(".datatable")) {
+        DataTableEditor* ed = m_openDataTables.value(data, nullptr);
+        const bool dirty = ed && ed->isDirty();
+        m_docTabBar->setTabText(index, dirty ? "● " + baseName : "  " + baseName);
+        return;
+    }
+    if (data.endsWith(".bp")) {
+        const bool dirty = m_dirtyBpClasses.contains(data);
+        m_docTabBar->setTabText(index, dirty ? "● " + baseName : "  " + baseName);
+        return;
+    }
     LevelDocument* doc = m_openLevels.value(data);
     const bool dirty = doc && doc->isDirty();
     m_docTabBar->setTabText(index, dirty ? "● " + baseName : "  " + baseName);
@@ -1727,6 +1828,12 @@ BlueprintEditor* EditorWindow::ensureBpInstance(const QString& tabId) {
         const QString bpPath = tabId;
         connect(inst.editor, &BlueprintEditor::bpClassModified, this, [this, bpPath]() {
             m_dirtyBpClasses.insert(bpPath);
+            for (int i = 0; i < m_docTabBar->count(); ++i)
+                if (m_docTabBar->tabData(i).toString() == bpPath) {
+                    updateTabTitle(i);
+                    break;
+                }
+            updateSaveLabel();
         });
     }
 
@@ -1771,6 +1878,9 @@ void EditorWindow::updateSaveLabel() {
         if (doc->isDirty()) ++dirtyCount;
     for (UIDocument* ud : m_openUIDocs)
         if (ud->isDirty()) ++dirtyCount;
+    for (DataTableEditor* ed : m_openDataTables)
+        if (ed && ed->isDirty()) ++dirtyCount;
+    dirtyCount += m_dirtyBpClasses.size();
     m_saveLabel->setText(dirtyCount == 0 ? "已保存" : QString("%1 未保存").arg(dirtyCount));
 }
 
@@ -1818,31 +1928,43 @@ void EditorWindow::startRuntime() {
             this, [this](const QString& instId, const QString& widgetName) {
         for (ActorBPRuntime* ar : m_actorRuntimes)
             ar->triggerButtonClick(instId, widgetName);
+        for (ComponentBPRuntime* cr : m_componentRuntimes)
+            cr->triggerButtonClick(instId, widgetName);
     });
     connect(m_uiRuntime, &UIRuntime::dropdownChanged,
             this, [this](const QString& instId, const QString& widgetName, int idx) {
         for (ActorBPRuntime* ar : m_actorRuntimes)
             ar->triggerDropdownChanged(instId, widgetName, idx);
+        for (ComponentBPRuntime* cr : m_componentRuntimes)
+            cr->triggerDropdownChanged(instId, widgetName, idx);
     });
     connect(m_uiRuntime, &UIRuntime::dragStarted,
             this, [this](const QString& instId, const QString& widgetName, float x, float y) {
         for (ActorBPRuntime* ar : m_actorRuntimes)
             ar->triggerUIDragStarted(instId, widgetName, x, y);
+        for (ComponentBPRuntime* cr : m_componentRuntimes)
+            cr->triggerUIDragStarted(instId, widgetName, x, y);
     });
     connect(m_uiRuntime, &UIRuntime::dragMoved,
             this, [this](const QString& instId, const QString& widgetName, float x, float y) {
         for (ActorBPRuntime* ar : m_actorRuntimes)
             ar->triggerUIDragMoved(instId, widgetName, x, y);
+        for (ComponentBPRuntime* cr : m_componentRuntimes)
+            cr->triggerUIDragMoved(instId, widgetName, x, y);
     });
     connect(m_uiRuntime, &UIRuntime::dropped,
             this, [this](const QString& instId, const QString& widgetName, float x, float y) {
         for (ActorBPRuntime* ar : m_actorRuntimes)
             ar->triggerUIDropped(instId, widgetName, x, y);
+        for (ComponentBPRuntime* cr : m_componentRuntimes)
+            cr->triggerUIDropped(instId, widgetName, x, y);
     });
     connect(m_uiRuntime, &UIRuntime::dragCanceled,
             this, [this](const QString& instId, const QString& widgetName, float x, float y) {
         for (ActorBPRuntime* ar : m_actorRuntimes)
             ar->triggerUIDragCanceled(instId, widgetName, x, y);
+        for (ComponentBPRuntime* cr : m_componentRuntimes)
+            cr->triggerUIDragCanceled(instId, widgetName, x, y);
     });
     connect(m_runtime, &BPRuntime::stateChanged, this, [this]() {
         if (!m_runtime || !m_viewport) return;
@@ -1850,6 +1972,8 @@ void EditorWindow::startRuntime() {
         const float dt = m_runtime->lastDt();
         for (ActorBPRuntime* ar : m_actorRuntimes)
             ar->triggerTick(dt);
+        for (ComponentBPRuntime* cr : m_componentRuntimes)
+            cr->triggerTick(dt);
         // 所有移动完成后跑碰撞 pass（分轴阻挡 + 重叠事件）
         m_runtime->runCollisionPass();
         m_viewport->updateRuntimeActors(m_runtime->actors());
@@ -1864,6 +1988,8 @@ void EditorWindow::startRuntime() {
             [this](const QString& selfId, const QString& otherId, const QString& otherTag) {
         for (ActorBPRuntime* ar : m_actorRuntimes)
             ar->triggerCollision(selfId, otherId, otherTag);
+        for (ComponentBPRuntime* cr : m_componentRuntimes)
+            cr->triggerCollision(selfId, otherId, otherTag);
     });
 
     // 暂停时屏蔽按键事件
@@ -1872,12 +1998,16 @@ void EditorWindow::startRuntime() {
         m_runtime->triggerKeyDown(key);
         for (ActorBPRuntime* ar : m_actorRuntimes)
             ar->triggerKeyDown(key);
+        for (ComponentBPRuntime* cr : m_componentRuntimes)
+            cr->triggerKeyDown(key);
     });
     connect(m_viewport, &Viewport2D::keyReleased, this, [this](const QString& key) {
         if (!m_runtime || (m_pauseBtn && m_pauseBtn->isChecked())) return;
         m_runtime->triggerKeyUp(key);
         for (ActorBPRuntime* ar : m_actorRuntimes)
             ar->triggerKeyUp(key);
+        for (ComponentBPRuntime* cr : m_componentRuntimes)
+            cr->triggerKeyUp(key);
     });
 
     connect(m_runtime, &BPRuntime::loadLevelRequested, this,
@@ -1912,39 +2042,72 @@ void EditorWindow::startRuntime() {
     m_viewport->setRuntimeMode(true, m_runtime->actors());
     m_runtime->triggerBeginPlay();
 
-    // 为每个有节点的 Actor 创建 ActorBPRuntime
-    for (const ActorData& actor : doc->actors()) {
-        const BPClass* bc = nullptr;
-        if (actor.bpClass.startsWith("builtin/")) {
-            bc = BPClass::findBuiltin(actor.bpClass);
-        } else if (!actor.bpClass.isEmpty()) {
-            bc = m_openBpClasses.value(actor.bpClass, nullptr);
-            if (!bc) {
-                auto* loaded = new BPClass(BPClass::load(
-                    m_project.path + "/" + actor.bpClass));
-                m_openBpClasses[actor.bpClass] = loaded;
-                bc = loaded;
-            }
+    auto resolveBpPath = [this](const QString& ref) {
+        if (QFileInfo(ref).isAbsolute()) return ref;
+        return QDir(m_project.path).filePath(ref);
+    };
+    auto loadBpClass = [this, &resolveBpPath](const QString& ref) -> const BPClass* {
+        if (ref.isEmpty()) return nullptr;
+        if (ref.startsWith("builtin/")) return BPClass::findBuiltin(ref);
+        const QString abs = resolveBpPath(ref);
+        const QString key = QDir(m_project.path).relativeFilePath(abs);
+        BPClass* loaded = m_openBpClasses.value(key, nullptr);
+        if (!loaded) loaded = m_openBpClasses.value(abs, nullptr);
+        if (!loaded) {
+            loaded = new BPClass(BPClass::load(abs));
+            m_openBpClasses[key] = loaded;
         }
-        if (bc && bc->hasNodes()) {
-            auto* ar = new ActorBPRuntime(bc, actor.id,
+        return loaded;
+    };
+    auto attachRuntime = [this](const BPClass* bc, const QString& actorId) {
+        if (!bc || !bc->hasNodes()) return;
+        auto* ar = new ActorBPRuntime(bc, actorId,
+                                      &m_runtime->mutableActors(), m_runtime, this);
+        m_actorRuntimes.append(ar);
+        ar->setUIRuntime(m_uiRuntime);
+        connect(ar, &ActorBPRuntime::printOutput,
+                this, [this](const QString& text) {
+                    m_runtime->appendPrintLog(text);
+                });
+        connect(ar, &ActorBPRuntime::loadLevelRequested,
+                m_runtime, &BPRuntime::loadLevelRequested);
+        connect(ar, &ActorBPRuntime::backLevelRequested,
+                m_runtime, &BPRuntime::backLevelRequested);
+    };
+    auto attachComponentRuntime = [this](const BPClass* bc, const QString& actorId, const ComponentInstance& instance) {
+        if (!bc || !bc->hasNodes() || !instance.enabled) return;
+        auto* cr = new ComponentBPRuntime(bc, actorId, instance,
                                           &m_runtime->mutableActors(), m_runtime, this);
-            m_actorRuntimes.append(ar);
-            ar->setUIRuntime(m_uiRuntime);
-            connect(ar, &ActorBPRuntime::printOutput,
-                    this, [this](const QString& text) {
-                        m_runtime->appendPrintLog(text);
-                    });
-            // Actor 蓝图的换关请求转交关卡运行时（复用同一套换关处理）
-            connect(ar, &ActorBPRuntime::loadLevelRequested,
-                    m_runtime, &BPRuntime::loadLevelRequested);
-            connect(ar, &ActorBPRuntime::backLevelRequested,
-                    m_runtime, &BPRuntime::backLevelRequested);
+        m_componentRuntimes.append(cr);
+        cr->setUIRuntime(m_uiRuntime);
+        connect(cr, &ComponentBPRuntime::printOutput,
+                this, [this](const QString& text) {
+                    m_runtime->appendPrintLog(text);
+                });
+        connect(cr, &ComponentBPRuntime::loadLevelRequested,
+                m_runtime, &BPRuntime::loadLevelRequested);
+        connect(cr, &ComponentBPRuntime::backLevelRequested,
+                m_runtime, &BPRuntime::backLevelRequested);
+    };
+
+    // 为每个有节点的 Actor 蓝图和组件蓝图创建运行时实例
+    for (const ActorData& actor : m_runtime->actors()) {
+        const BPClass* bc = nullptr;
+        if (!actor.bpClass.isEmpty()) bc = loadBpClass(actor.bpClass);
+        attachRuntime(bc, actor.id);
+        QList<ComponentInstance> instances = actor.componentInstances;
+        if (instances.isEmpty()) {
+            for (const QString& componentRef : actor.componentBlueprints)
+                instances.append(ComponentInstance::fromBlueprint(componentRef));
         }
+        for (const ComponentInstance& component : instances)
+            attachComponentRuntime(loadBpClass(component.blueprint), actor.id, component);
     }
-    // 触发各 Actor 蓝图 BeginPlay
+    // 触发各 Actor 蓝图和组件蓝图 BeginPlay
     for (ActorBPRuntime* ar : m_actorRuntimes)
         ar->triggerBeginPlay();
+    for (ComponentBPRuntime* cr : m_componentRuntimes)
+        cr->triggerBeginPlay();
 
     m_viewport->updateRuntimeActors(m_runtime->actors());
     m_viewport->syncPrintLog(m_runtime->printLog());
@@ -1974,12 +2137,16 @@ void EditorWindow::startRuntime() {
             m_runtime->triggerKeyDown(key);
             for (ActorBPRuntime* ar : m_actorRuntimes)
                 ar->triggerKeyDown(key);
+            for (ComponentBPRuntime* cr : m_componentRuntimes)
+                cr->triggerKeyDown(key);
         });
         connect(m_gameViewport, &GameViewport::keyReleased, this, [this](const QString& key) {
             if (!m_runtime || (m_pauseBtn && m_pauseBtn->isChecked())) return;
             m_runtime->triggerKeyUp(key);
             for (ActorBPRuntime* ar : m_actorRuntimes)
                 ar->triggerKeyUp(key);
+            for (ComponentBPRuntime* cr : m_componentRuntimes)
+                cr->triggerKeyUp(key);
         });
         connect(m_gameViewport, &GameViewport::mousePressedInGame, this,
                 [this](float screenX, float screenY, float worldX, float worldY, const QString& button) {
@@ -2028,6 +2195,8 @@ void EditorWindow::stopRuntime() {
     if (m_viewport) disconnect(m_viewport, &Viewport2D::keyPressed, this, nullptr);
     qDeleteAll(m_actorRuntimes);
     m_actorRuntimes.clear();
+    qDeleteAll(m_componentRuntimes);
+    m_componentRuntimes.clear();
     delete m_runtime;
     m_runtime = nullptr;
     delete m_uiRuntime;
@@ -2286,6 +2455,53 @@ void EditorWindow::openUIDocTab(const QString& uiFilePath) {
         QSignalBlocker b(m_docTabBar);
         idx = m_docTabBar->addTab("  " + QFileInfo(uiFilePath).baseName());
         m_docTabBar->setTabData(idx, uiFilePath);
+        updateTabTooltip(idx);
+    }
+    if (m_docTabBar->currentIndex() == idx)
+        onTabChanged(idx);
+    else
+        m_docTabBar->setCurrentIndex(idx);
+}
+
+void EditorWindow::openDataTableTab(const QString& dataTablePath) {
+    for (int i = 0; i < m_docTabBar->count(); ++i) {
+        if (m_docTabBar->tabData(i).toString() == dataTablePath) {
+            m_docTabBar->setCurrentIndex(i);
+            return;
+        }
+    }
+
+    DataTableEditor* ed = m_openDataTables.value(dataTablePath, nullptr);
+    if (!ed) {
+        ed = new DataTableEditor();
+        if (!ed->load(dataTablePath)) { delete ed; return; }
+        m_openDataTables[dataTablePath] = ed;
+        m_centralStack->addWidget(ed);
+        connect(ed, &DataTableEditor::modified, this, [this, dataTablePath]() {
+            for (int i = 0; i < m_docTabBar->count(); ++i) {
+                if (m_docTabBar->tabData(i).toString() == dataTablePath) {
+                    updateTabTitle(i);
+                    break;
+                }
+            }
+            updateSaveLabel();
+        });
+        connect(ed, &DataTableEditor::saved, this, [this, dataTablePath]() {
+            for (int i = 0; i < m_docTabBar->count(); ++i) {
+                if (m_docTabBar->tabData(i).toString() == dataTablePath) {
+                    updateTabTitle(i);
+                    break;
+                }
+            }
+            updateSaveLabel();
+        });
+    }
+
+    int idx;
+    {
+        QSignalBlocker b(m_docTabBar);
+        idx = m_docTabBar->addTab("  " + QFileInfo(dataTablePath).baseName());
+        m_docTabBar->setTabData(idx, dataTablePath);
         updateTabTooltip(idx);
     }
     if (m_docTabBar->currentIndex() == idx)

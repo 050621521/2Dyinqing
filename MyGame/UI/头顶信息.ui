@@ -1,4 +1,5 @@
 {
+    "assetId": "91488e56-0d0d-434a-8c5e-b98e28c4b0d1",
     "name": "头顶信息",
     "version": "0.1",
     "widgets": [
@@ -22,7 +23,7 @@
             "spacing": 4,
             "text": "",
             "type": "UI.进度条",
-            "value": 1.0,
+            "value": 1,
             "visible": true,
             "width": 180,
             "x": -90,
@@ -48,7 +49,7 @@
             "spacing": 4,
             "text": "",
             "type": "UI.进度条",
-            "value": 1.0,
+            "value": 1,
             "visible": true,
             "width": 180,
             "x": -90,

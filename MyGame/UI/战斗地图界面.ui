@@ -1,4 +1,5 @@
 {
+    "assetId": "3ee34bc7-2878-45a8-bb9b-f930c4272842",
     "name": "战斗地图界面",
     "version": "0.1",
     "widgets": [
@@ -528,8 +529,11 @@
             "bgColor": "#ff162d45",
             "cellH": 50,
             "cellW": 50,
+            "clipChildren": true,
             "color": "#ffffffff",
             "columns": 4,
+            "contentHeight": 196,
+            "contentWidth": 2220,
             "fillColor": "#ff50c864",
             "fontSize": 16,
             "height": 196,
@@ -538,6 +542,8 @@
             "name": "手牌区",
             "nineSlice": false,
             "parentId": "",
+            "scrollX": 0,
+            "scrollY": 0,
             "selectedIndex": 0,
             "spacing": 4,
             "text": "",
@@ -546,12 +552,7 @@
             "visible": true,
             "width": 1920,
             "x": 0,
-            "y": -196,
-            "clipChildren": true,
-            "scrollX": 0,
-            "scrollY": 0,
-            "contentWidth": 2220,
-            "contentHeight": 196
+            "y": -196
         },
         {
             "alpha": 1,
@@ -1805,6 +1806,37 @@
             "width": 112,
             "x": 8,
             "y": 108
+        },
+        {
+            "alpha": 1,
+            "anchor": "正上",
+            "bgColor": "#b0000000",
+            "cellH": 50,
+            "cellW": 50,
+            "clipChildren": false,
+            "color": "#fffff1b8",
+            "columns": 4,
+            "contentHeight": 0,
+            "contentWidth": 0,
+            "fillColor": "#ff50c864",
+            "fontSize": 22,
+            "height": 34,
+            "id": "battle-message-text",
+            "imagePath": "",
+            "name": "战斗消息",
+            "nineSlice": false,
+            "parentId": "",
+            "scrollX": 0,
+            "scrollY": 0,
+            "selectedIndex": 0,
+            "spacing": 4,
+            "text": "拖出急救卡并松开可回复生命",
+            "type": "UI.文本",
+            "value": 1,
+            "visible": true,
+            "width": 520,
+            "x": -260,
+            "y": 170
         }
     ]
 }

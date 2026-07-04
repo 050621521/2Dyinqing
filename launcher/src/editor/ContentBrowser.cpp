@@ -1,6 +1,8 @@
 #include "ContentBrowser.h"
 #include "models/BPClass.h"
 #include "models/AnimationAsset.h"
+#include "models/DataTable.h"
+#include "models/AssetDependencyScanner.h"
 #include "GlobalVars.h"
 #include <QHBoxLayout>
 #include <QVBoxLayout>
@@ -32,7 +34,7 @@
 #include <QKeyEvent>
 
 ContentBrowser::ContentBrowser(const QString& projectRoot, QWidget* parent)
-    : QWidget(parent), m_projectRoot(projectRoot), m_currentPath(projectRoot)
+    : QWidget(parent), m_projectRoot(projectRoot), m_currentPath(projectRoot), m_assetRegistry(projectRoot)
 {
     setObjectName("contentBrowser");
 
@@ -217,14 +219,16 @@ ContentBrowser::ContentBrowser(const QString& projectRoot, QWidget* parent)
 
         QString newFileName = newBase;
         if      (type == "level") newFileName += ".level";
-        else if (type == "bp")    newFileName += ".bp";
+        else if (type == "bp" || type == "bp.effect" || type == "bp.component") newFileName += ".bp";
         else if (type == "ui")    newFileName += ".ui";
         else if (type == "anim")  newFileName += ".anim";
+        else if (type == "datatable") newFileName += ".datatable";
         else if (type == "image") newFileName += "." + QFileInfo(oldPath).suffix();
 
         const QString newPath = QFileInfo(oldPath).dir().filePath(newFileName);
         if (newPath == oldPath) return;
         if (!QFile::rename(oldPath, newPath)) { restoreName(); return; }
+        m_assetRegistry.noteAssetMoved(oldPath, newPath);
 
         QSignalBlocker b(m_assetGrid);
         item->setData(Qt::UserRole + 1, newPath);
@@ -250,6 +254,7 @@ ContentBrowser::ContentBrowser(const QString& projectRoot, QWidget* parent)
         if (!QFile::rename(oldPath, newPath)) {
             QSignalBlocker b(m_folderTree); item->setText(0, oldName); return;
         }
+        m_assetRegistry.noteAssetMoved(oldPath, newPath);
         QSignalBlocker b(m_folderTree);
         item->setData(0, Qt::UserRole, newPath);
         populateFolder(m_currentPath.startsWith(oldPath)
@@ -257,6 +262,7 @@ ContentBrowser::ContentBrowser(const QString& projectRoot, QWidget* parent)
             : m_currentPath);
     });
 
+    refreshAssetRegistry();
     buildFolderTree();
     populateFolder(m_projectRoot);
 }
@@ -352,6 +358,42 @@ QIcon ContentBrowser::makeUIDocIcon() {
     return icon;
 }
 
+QIcon ContentBrowser::makeEffectBpIcon() {
+    static QIcon icon;
+    if (!icon.isNull()) return icon;
+    QPixmap px(64, 64);
+    px.fill(Qt::transparent);
+    QPainter p(&px);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setBrush(QColor("#5a2a68"));
+    p.setPen(Qt::NoPen);
+    p.drawRoundedRect(8, 8, 48, 48, 8, 8);
+    p.setPen(Qt::white);
+    QFont f; f.setPixelSize(16); f.setBold(true);
+    p.setFont(f);
+    p.drawText(px.rect(), Qt::AlignCenter, "FX");
+    icon = QIcon(px);
+    return icon;
+}
+
+QIcon ContentBrowser::makeComponentBpIcon() {
+    static QIcon icon;
+    if (!icon.isNull()) return icon;
+    QPixmap px(64, 64);
+    px.fill(Qt::transparent);
+    QPainter p(&px);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setBrush(QColor("#2f5f4f"));
+    p.setPen(Qt::NoPen);
+    p.drawRoundedRect(8, 8, 48, 48, 8, 8);
+    p.setPen(Qt::white);
+    QFont f; f.setPixelSize(16); f.setBold(true);
+    p.setFont(f);
+    p.drawText(px.rect(), Qt::AlignCenter, "CP");
+    icon = QIcon(px);
+    return icon;
+}
+
 QIcon ContentBrowser::makeAnimIcon() {
     static QIcon icon;
     if (!icon.isNull()) return icon;
@@ -374,6 +416,29 @@ QIcon ContentBrowser::makeAnimIcon() {
     QPolygon tri;
     tri << QPoint(28, 24) << QPoint(28, 40) << QPoint(42, 32);
     p.drawPolygon(tri);
+    icon = QIcon(px);
+    return icon;
+}
+
+QIcon ContentBrowser::makeDataTableIcon() {
+    static QIcon icon;
+    if (!icon.isNull()) return icon;
+
+    QPixmap px(64, 56);
+    px.fill(Qt::transparent);
+    QPainter p(&px);
+    p.setRenderHint(QPainter::Antialiasing);
+
+    p.setBrush(QColor("#24384a"));
+    p.setPen(QPen(QColor("#6db7ff"), 2));
+    p.drawRoundedRect(9, 10, 46, 38, 5, 5);
+
+    p.setPen(QPen(QColor(216, 237, 255, 180), 1));
+    p.drawLine(22, 12, 22, 46);
+    p.drawLine(38, 12, 38, 46);
+    p.drawLine(11, 23, 53, 23);
+    p.drawLine(11, 35, 53, 35);
+
     icon = QIcon(px);
     return icon;
 }
@@ -491,6 +556,7 @@ void ContentBrowser::addDirToTree(QTreeWidgetItem* parent, const QString& absPat
 // ── 网格填充 ──────────────────────────────────────────────────────────
 
 void ContentBrowser::populateFolder(const QString& absPath) {
+    refreshAssetRegistry();
     m_currentPath = absPath;
     m_currentEntries.clear();
     m_currentTypes.clear();
@@ -511,11 +577,14 @@ void ContentBrowser::populateFolder(const QString& absPath) {
         m_currentTypes   << "level";
     }
 
-    // .bp 蓝图类文件
+    // .bp 蓝图文件：通过内部 blueprintType 区分 Actor / Effect / Component
     const QStringList bpFiles = dir.entryList({"*.bp"}, QDir::Files, QDir::Name);
     for (const QString& bp : bpFiles) {
         m_currentEntries << bp;
-        m_currentTypes   << "bp";
+        const BPClass cls = BPClass::load(dir.filePath(bp));
+        m_currentTypes   << (cls.blueprintType == "Effect" ? "bp.effect"
+                            : cls.blueprintType == "Component" ? "bp.component"
+                            : "bp");
     }
 
     // .ui UI 文档文件
@@ -537,6 +606,13 @@ void ContentBrowser::populateFolder(const QString& absPath) {
     for (const QString& an : animFiles) {
         m_currentEntries << an;
         m_currentTypes   << "anim";
+    }
+
+    // .datatable 数据表
+    const QStringList dataTableFiles = dir.entryList({"*.datatable"}, QDir::Files, QDir::Name);
+    for (const QString& table : dataTableFiles) {
+        m_currentEntries << table;
+        m_currentTypes   << "datatable";
     }
 
     // 图片文件
@@ -563,7 +639,7 @@ void ContentBrowser::onSearchChanged(const QString& text) {
             continue;
 
         const QString absPath = m_currentPath + "/" + name;
-        const QString label   = (type == "level" || type == "bp" || type == "ui" || type == "anim")
+        const QString label   = (type == "level" || type == "bp" || type == "bp.effect" || type == "bp.component" || type == "ui" || type == "anim" || type == "datatable")
             ? QFileInfo(name).baseName()
             : name;
 
@@ -572,8 +648,11 @@ void ContentBrowser::onSearchChanged(const QString& text) {
         if      (type == "dir")   item->setIcon(makeFolderIcon());
         else if (type == "level") item->setIcon(makeLevelIcon());
         else if (type == "bp")    item->setIcon(makeBpClassIcon());
+        else if (type == "bp.effect") item->setIcon(makeEffectBpIcon());
+        else if (type == "bp.component") item->setIcon(makeComponentBpIcon());
         else if (type == "ui")    item->setIcon(makeUIDocIcon());
         else if (type == "anim")  item->setIcon(makeAnimIcon());
+        else if (type == "datatable") item->setIcon(makeDataTableIcon());
         else if (type == "image") item->setIcon(makeImageIcon(absPath));
         item->setData(Qt::UserRole,     type);
         item->setData(Qt::UserRole + 1, absPath);
@@ -611,10 +690,14 @@ void ContentBrowser::onGridItemDoubleClicked(QListWidgetItem* item) {
         emit levelOpenRequested(path);
     } else if (type == "bp") {
         emit bpClassOpenRequested(path);
+    } else if (type == "bp.effect" || type == "bp.component") {
+        emit bpClassOpenRequested(path);
     } else if (type == "ui") {
         emit uiDocOpenRequested(path);
     } else if (type == "enum") {
         emit enumOpenRequested(path);
+    } else if (type == "datatable") {
+        emit dataTableOpenRequested(path);
     } else if (type == "image") {
         emit imageAssignRequested(path);
     }
@@ -662,23 +745,14 @@ bool ContentBrowser::eventFilter(QObject* obj, QEvent* e) {
             if (!item) return true;
             const QString type = item->data(Qt::UserRole).toString();
             const QString path = item->data(Qt::UserRole + 1).toString();
-            const QString name = QFileInfo(path).fileName();
             if (type == "level") {
-                if (QMessageBox::question(this, "删除", QString("确定删除「%1」？").arg(name),
-                        QMessageBox::Yes | QMessageBox::Cancel) != QMessageBox::Yes) return true;
-                QFile::remove(path);
-                populateFolder(m_currentPath);
-                emit levelFileDeleted(path);
-            } else if (type == "bp") {
-                if (QMessageBox::question(this, "删除蓝图", QString("确定删除「%1」？").arg(name),
-                        QMessageBox::Yes | QMessageBox::Cancel) != QMessageBox::Yes) return true;
-                QFile::remove(path);
-                populateFolder(m_currentPath);
+                if (deleteAssetWithProtection(path, type)) emit levelFileDeleted(path);
+            } else if (type == "bp" || type == "bp.effect" || type == "bp.component") {
+                deleteAssetWithProtection(path, type);
             } else if (type == "ui") {
-                if (QMessageBox::question(this, "删除UI", QString("确定删除「%1」？").arg(name),
-                        QMessageBox::Yes | QMessageBox::Cancel) != QMessageBox::Yes) return true;
-                QFile::remove(path);
-                populateFolder(m_currentPath);
+                deleteAssetWithProtection(path, type);
+            } else if (type == "datatable") {
+                deleteAssetWithProtection(path, type);
             }
             return true;
         }
@@ -703,12 +777,7 @@ void ContentBrowser::showGridContextMenu(const QPoint& pos) {
                 m_assetGrid->editItem(item);
             });
             menu.addAction("删除", [this, path]() {
-                const QString name = QFileInfo(path).fileName();
-                if (QMessageBox::question(this, "删除", QString("确定删除「%1」？").arg(name),
-                    QMessageBox::Yes | QMessageBox::Cancel) != QMessageBox::Yes) return;
-                QFile::remove(path);
-                populateFolder(m_currentPath);
-                emit levelFileDeleted(path);
+                if (deleteAssetWithProtection(path, "level")) emit levelFileDeleted(path);
             });
         } else if (type == "dir") {
             menu.addAction("进入文件夹", [this, path]() {
@@ -740,41 +809,34 @@ void ContentBrowser::showGridContextMenu(const QPoint& pos) {
                     QMessageBox::warning(this, "删除文件夹", "删除失败，请确认文件夹未被占用。");
                 }
             });
-        } else if (type == "bp") {
+        } else if (type == "bp" || type == "bp.effect" || type == "bp.component") {
             menu.addAction("打开", [this, path]() {
                 emit bpClassOpenRequested(path);
             });
             menu.addSeparator();
+            menu.addAction("检查引用", [this, path]() { showReferenceReport(path); });
             menu.addAction("重命名", [this, item]() {
                 m_assetGrid->editItem(item);
             });
-            menu.addAction("删除", [this, path]() {
-                const QString name = QFileInfo(path).fileName();
-                if (QMessageBox::question(this, "删除蓝图",
-                        QString("确定删除「%1」？").arg(name),
-                        QMessageBox::Yes | QMessageBox::Cancel) != QMessageBox::Yes) return;
-                QFile::remove(path);
-                populateFolder(m_currentPath);
+            menu.addAction("删除", [this, path, type]() {
+                deleteAssetWithProtection(path, type);
             });
         } else if (type == "ui") {
             menu.addAction("打开", [this, path]() {
                 emit uiDocOpenRequested(path);
             });
             menu.addSeparator();
+            menu.addAction("检查引用", [this, path]() { showReferenceReport(path); });
             menu.addAction("重命名", [this, item]() {
                 m_assetGrid->editItem(item);
             });
             menu.addAction("删除", [this, path]() {
-                const QString name = QFileInfo(path).fileName();
-                if (QMessageBox::question(this, "删除UI",
-                        QString("确定删除「%1」？").arg(name),
-                        QMessageBox::Yes | QMessageBox::Cancel) != QMessageBox::Yes) return;
-                QFile::remove(path);
-                populateFolder(m_currentPath);
+                deleteAssetWithProtection(path, "ui");
             });
         } else if (type == "enum") {
             menu.addAction("打开", [this, path]() { emit enumOpenRequested(path); });
             menu.addSeparator();
+            menu.addAction("检查引用", [this, path]() { showReferenceReport(path); });
             menu.addAction("重命名", [this, path]() {
                 bool ok;
                 const QString oldName = QFileInfo(path).baseName();
@@ -786,44 +848,43 @@ void ContentBrowser::showGridContextMenu(const QPoint& pos) {
                 const QString newPath = QFileInfo(path).absolutePath() + "/" + newName + ".enum";
                 e.save(newPath);
                 QFile::remove(path);
+                m_assetRegistry.noteAssetMoved(path, newPath);
                 populateFolder(m_currentPath);
                 emit enumFileRenamed(oldName, newName);
             });
             menu.addAction("删除", [this, path]() {
-                const QString name = QFileInfo(path).fileName();
-                if (QMessageBox::question(this, "删除枚举",
-                        QString("确定删除「%1」？").arg(name),
-                        QMessageBox::Yes | QMessageBox::Cancel) != QMessageBox::Yes) return;
-                QFile::remove(path);
-                populateFolder(m_currentPath);
-                emit enumFileDeleted();
+                if (deleteAssetWithProtection(path, "enum")) emit enumFileDeleted();
             });
         } else if (type == "anim") {
+            menu.addAction("检查引用", [this, path]() { showReferenceReport(path); });
+            menu.addSeparator();
             menu.addAction("重命名", [this, item]() {
                 m_assetGrid->editItem(item);
             });
             menu.addAction("删除", [this, path]() {
-                if (QMessageBox::question(this, "删除动画",
-                        QString("确定删除「%1」？").arg(QFileInfo(path).fileName()),
-                        QMessageBox::Yes | QMessageBox::Cancel) != QMessageBox::Yes) return;
-                QFile::remove(path);
-                populateFolder(m_currentPath);
+                deleteAssetWithProtection(path, "anim");
+            });
+        } else if (type == "datatable") {
+            menu.addAction("打开", [this, path]() { emit dataTableOpenRequested(path); });
+            menu.addSeparator();
+            menu.addAction("检查引用", [this, path]() { showReferenceReport(path); });
+            menu.addAction("重命名", [this, item]() {
+                m_assetGrid->editItem(item);
+            });
+            menu.addAction("删除", [this, path]() {
+                deleteAssetWithProtection(path, "datatable");
             });
         } else if (type == "image") {
             menu.addAction("指定给当前精灵", [this, path]() {
                 emit imageAssignRequested(path);
             });
             menu.addSeparator();
+            menu.addAction("检查引用", [this, path]() { showReferenceReport(path); });
             menu.addAction("重命名", [this, item]() {
                 m_assetGrid->editItem(item);
             });
             menu.addAction("删除", [this, path]() {
-                if (QMessageBox::question(this, "删除图片",
-                        QString("确定删除「%1」？").arg(QFileInfo(path).fileName()),
-                        QMessageBox::Yes | QMessageBox::Cancel) != QMessageBox::Yes) return;
-                QFile::remove(path);
-                m_imageIconCache.remove(path);
-                populateFolder(m_currentPath);
+                if (deleteAssetWithProtection(path, "image")) m_imageIconCache.remove(path);
             });
         }
     } else {
@@ -846,13 +907,74 @@ void ContentBrowser::showGridContextMenu(const QPoint& pos) {
             const QString name = QInputDialog::getText(this, "新建蓝图类", "蓝图类名称：",
                                                         QLineEdit::Normal, "新蓝图", &ok);
             if (!ok || name.trimmed().isEmpty()) return;
-            const QString dir = m_projectRoot + "/Blueprints";
-            QDir().mkpath(dir);
-            const QString path = dir + "/" + name.trimmed() + ".bp";
+            const QString path = m_currentPath + "/" + name.trimmed() + ".bp";
+            if (QFile::exists(path)) {
+                QMessageBox::warning(this, "新建蓝图类", "同名蓝图类已存在。");
+                return;
+            }
             BPClass bc;
             bc.name     = name.trimmed();
             bc.filePath = path;
             bc.save();
+            populateFolder(m_currentPath);
+        });
+        menu.addAction("新建效果蓝图", this, [this]() {
+            bool ok;
+            const QString name = QInputDialog::getText(this, "新建效果蓝图", "效果蓝图名称：",
+                                                        QLineEdit::Normal, "新效果", &ok);
+            if (!ok || name.trimmed().isEmpty()) return;
+            const QString path = m_currentPath + "/" + name.trimmed() + ".bp";
+            if (QFile::exists(path)) {
+                QMessageBox::warning(this, "新建效果蓝图", "同名效果蓝图已存在。");
+                return;
+            }
+            BPClass bp;
+            bp.name = name.trimmed();
+            bp.filePath = path;
+            bp.blueprintType = "Effect";
+            BPNode entry;
+            entry.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+            entry.type = "Event.EffectExecute";
+            entry.x = 80;
+            entry.y = 80;
+            bp.nodes << entry;
+            bp.save();
+            populateFolder(m_currentPath);
+        });
+        menu.addAction("新建组件蓝图", this, [this]() {
+            bool ok;
+            const QString name = QInputDialog::getText(this, "新建组件蓝图", "组件蓝图名称：",
+                                                        QLineEdit::Normal, "新组件", &ok);
+            if (!ok || name.trimmed().isEmpty()) return;
+            const QString path = m_currentPath + "/" + name.trimmed() + ".bp";
+            if (QFile::exists(path)) {
+                QMessageBox::warning(this, "新建组件蓝图", "同名组件蓝图已存在。");
+                return;
+            }
+            BPClass bp;
+            bp.name = name.trimmed();
+            bp.filePath = path;
+            bp.blueprintType = "Component";
+            BPNode entry;
+            entry.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+            entry.type = "Event.BeginPlay";
+            entry.x = 80;
+            entry.y = 80;
+            bp.nodes << entry;
+            bp.save();
+            populateFolder(m_currentPath);
+        });
+        menu.addAction("新建数据表", this, [this]() {
+            bool ok;
+            const QString name = QInputDialog::getText(this, "新建数据表", "数据表名称：",
+                                                        QLineEdit::Normal, "新数据表", &ok);
+            if (!ok || name.trimmed().isEmpty()) return;
+            const QString path = m_currentPath + "/" + name.trimmed() + ".datatable";
+            if (QFile::exists(path)) {
+                QMessageBox::warning(this, "新建数据表", "同名数据表已存在。");
+                return;
+            }
+            DataTable::makeDefault(name.trimmed(), path).save();
             populateFolder(m_currentPath);
         });
         menu.addAction("新建UI", this, [this]() {
@@ -860,9 +982,11 @@ void ContentBrowser::showGridContextMenu(const QPoint& pos) {
             const QString name = QInputDialog::getText(this, "新建UI", "UI名称：",
                                                         QLineEdit::Normal, "新UI", &ok);
             if (!ok || name.trimmed().isEmpty()) return;
-            const QString dir = m_projectRoot + "/UI";
-            QDir().mkpath(dir);
-            const QString path = dir + "/" + name.trimmed() + ".ui";
+            const QString path = m_currentPath + "/" + name.trimmed() + ".ui";
+            if (QFile::exists(path)) {
+                QMessageBox::warning(this, "新建UI", "同名UI已存在。");
+                return;
+            }
             QJsonObject root;
             root["name"]    = name.trimmed();
             root["version"] = "0.1";
@@ -974,6 +1098,110 @@ bool ContentBrowser::createLevelFile(const QString& filePath) {
     QFile f(filePath);
     if (!f.open(QIODevice::WriteOnly)) return false;
     f.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
+    return true;
+}
+
+void ContentBrowser::refreshAssetRegistry() {
+    m_assetRegistry.setProjectRoot(m_projectRoot);
+    m_assetRegistry.rebuild(true);
+}
+
+QString ContentBrowser::deleteTitleForType(const QString& type) const {
+    if (type == "level") return "删除关卡";
+    if (type == "bp.effect") return "删除效果蓝图";
+    if (type == "bp.component") return "删除组件蓝图";
+    if (type == "bp") return "删除蓝图";
+    if (type == "ui") return "删除UI";
+    if (type == "enum") return "删除枚举";
+    if (type == "anim") return "删除动画";
+    if (type == "datatable") return "删除数据表";
+    if (type == "image") return "删除图片";
+    return "删除";
+}
+
+QString ContentBrowser::dependencyMessage(const AssetRecord& target, const QList<AssetDependency>& deps) const {
+    QStringList lines;
+    lines << QString("「%1」正在被以下资产引用，不能删除：").arg(target.name);
+    const int maxLines = qMin(deps.size(), 8);
+    for (int i = 0; i < maxLines; ++i) {
+        const AssetDependency& dep = deps[i];
+        lines << QString("- %1「%2」：%3")
+                     .arg(dep.sourceType, dep.sourceName, dep.detail.isEmpty() ? "资产引用" : dep.detail);
+    }
+    if (deps.size() > maxLines)
+        lines << QString("另有 %1 处引用未显示。").arg(deps.size() - maxLines);
+    lines << "请先移除引用，再删除该资产。";
+    return lines.join("\n");
+}
+
+void ContentBrowser::showReferenceReport(const QString& path) {
+    refreshAssetRegistry();
+    AssetRecord target = m_assetRegistry.recordForFile(path);
+    if (target.path.isEmpty()) {
+        QMessageBox::information(this, "检查引用", "当前文件没有登记为资产。");
+        return;
+    }
+
+    AssetDependencyScanner scanner(m_projectRoot);
+    const QList<AssetDependency> deps = scanner.findReferences(target);
+    const QStringList redirects = m_assetRegistry.redirectPathsForAsset(target.id);
+
+    QStringList lines;
+    lines << QString("资产：%1").arg(target.path);
+    lines << QString("类型：%1").arg(target.type);
+    lines << "";
+    lines << "引用者：";
+    if (deps.isEmpty()) {
+        lines << "- 无";
+    } else {
+        for (const AssetDependency& dep : deps) {
+            lines << QString("- %1「%2」：%3")
+                         .arg(dep.sourceType,
+                              dep.sourceName,
+                              dep.detail.isEmpty() ? "资产引用" : dep.detail);
+        }
+    }
+    lines << "";
+    lines << "旧路径重定向：";
+    if (redirects.isEmpty()) {
+        lines << "- 无";
+    } else {
+        for (const QString& oldPath : redirects)
+            lines << QString("- %1 -> %2").arg(oldPath, target.path);
+    }
+
+    QMessageBox::information(this, "检查引用", lines.join("\n"));
+}
+
+bool ContentBrowser::deleteAssetWithProtection(const QString& path, const QString& type) {
+    refreshAssetRegistry();
+    AssetRecord target = m_assetRegistry.recordForFile(path);
+    if (target.path.isEmpty()) {
+        target.path = m_assetRegistry.normalizePath(path);
+        target.type = type;
+        target.name = QFileInfo(path).completeBaseName();
+        target.suffix = QFileInfo(path).suffix();
+    }
+
+    AssetDependencyScanner scanner(m_projectRoot);
+    const QList<AssetDependency> deps = scanner.findReferences(target);
+    if (!deps.isEmpty()) {
+        QMessageBox::warning(this, deleteTitleForType(type), dependencyMessage(target, deps));
+        return false;
+    }
+
+    const QString name = QFileInfo(path).fileName();
+    if (QMessageBox::question(this, deleteTitleForType(type),
+            QString("确定删除「%1」？").arg(name),
+            QMessageBox::Yes | QMessageBox::Cancel) != QMessageBox::Yes) {
+        return false;
+    }
+    if (!QFile::remove(path)) {
+        QMessageBox::warning(this, deleteTitleForType(type), "删除失败，请确认文件未被占用。");
+        return false;
+    }
+    refreshAssetRegistry();
+    populateFolder(m_currentPath);
     return true;
 }
 

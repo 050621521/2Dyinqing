@@ -1,0 +1,224 @@
+{
+    "assets": [
+        {
+            "id": "65ea1acb-9c5b-485e-8f4d-960bb5c8b097",
+            "name": "角色选择界面",
+            "path": "UI/角色选择界面.ui",
+            "suffix": "ui",
+            "type": "ui"
+        },
+        {
+            "id": "4c91c0e2-79ed-4dce-adf3-23111dbce8f8",
+            "name": "单人界面",
+            "path": "UI/单人界面.ui",
+            "suffix": "ui",
+            "type": "ui"
+        },
+        {
+            "id": "3ee34bc7-2878-45a8-bb9b-f930c4272842",
+            "name": "战斗地图界面",
+            "path": "UI/战斗地图界面.ui",
+            "suffix": "ui",
+            "type": "ui"
+        },
+        {
+            "id": "5b5d5fa4-816c-4676-ab7f-232275857c04",
+            "name": "标准关卡界面",
+            "path": "UI/标准关卡界面.ui",
+            "suffix": "ui",
+            "type": "ui"
+        },
+        {
+            "id": "20e39992-99a2-41d6-b83b-70e0ff534795",
+            "name": "游戏HUD",
+            "path": "UI/登录界面.ui",
+            "suffix": "ui",
+            "type": "ui"
+        },
+        {
+            "id": "91488e56-0d0d-434a-8c5e-b98e28c4b0d1",
+            "name": "头顶信息",
+            "path": "UI/头顶信息.ui",
+            "suffix": "ui",
+            "type": "ui"
+        },
+        {
+            "id": "7fc5b406-b319-46ce-8a16-787bbe71077e",
+            "name": "敌人",
+            "path": "Blueprints/敌人.bp",
+            "suffix": "bp",
+            "type": "bp"
+        },
+        {
+            "id": "748e2598-2560-4703-baef-a049f1b86983",
+            "name": "卡牌管理组件",
+            "path": "Blueprints/Components/卡牌管理组件.bp",
+            "suffix": "bp",
+            "type": "bp.component"
+        },
+        {
+            "id": "f7f7d40f-88f1-4c8a-874b-1b3c1d6df3d2",
+            "name": "角色",
+            "path": "Blueprints/角色.bp",
+            "suffix": "bp",
+            "type": "bp"
+        },
+        {
+            "id": "30b17a23-549c-4355-9822-e5d02b02dc89",
+            "name": "NewBlueprint",
+            "path": "Blueprints/NewBlueprint.bp",
+            "suffix": "bp",
+            "type": "bp"
+        },
+        {
+            "id": "053fc3a2-41cf-47ed-8e42-cb8d2235bc49",
+            "name": "卡牌表",
+            "path": "DataTables/卡牌表.datatable",
+            "suffix": "datatable",
+            "type": "datatable"
+        },
+        {
+            "id": "path:ziyuan/42_000_登录界面.png",
+            "name": "42_000_登录界面",
+            "path": "ziyuan/42_000_登录界面.png",
+            "suffix": "png",
+            "type": "image"
+        },
+        {
+            "id": "path:ziyuan/44_001_污染兽_2D模型.png",
+            "name": "44_001_污染兽_2D模型",
+            "path": "ziyuan/44_001_污染兽_2D模型.png",
+            "suffix": "png",
+            "type": "image"
+        },
+        {
+            "id": "path:ziyuan/wufu_walk_down_00.png",
+            "name": "wufu_walk_down_00",
+            "path": "ziyuan/wufu_walk_down_00.png",
+            "suffix": "png",
+            "type": "image"
+        },
+        {
+            "id": "path:ziyuan/44_000_疯子_2D模型.png",
+            "name": "44_000_疯子_2D模型",
+            "path": "ziyuan/44_000_疯子_2D模型.png",
+            "suffix": "png",
+            "type": "image"
+        },
+        {
+            "id": "a2dd0576-575a-4964-8f1b-bd699cb0b013",
+            "name": "模式",
+            "path": "枚举/模式.enum",
+            "suffix": "enum",
+            "type": "enum"
+        },
+        {
+            "id": "4d418a6b-36d3-44f1-bb82-c23877ed6dc6",
+            "name": "单人模式",
+            "path": "枚举/单人模式.enum",
+            "suffix": "enum",
+            "type": "enum"
+        },
+        {
+            "id": "51038a35-73d4-40dc-a768-f23cb1e8fd64",
+            "name": "角色",
+            "path": "枚举/角色.enum",
+            "suffix": "enum",
+            "type": "enum"
+        },
+        {
+            "id": "c3fbcb37-c979-4183-b761-59951861c574",
+            "name": "NewLevel",
+            "path": "Levels/登录界面.level",
+            "suffix": "level",
+            "type": "level"
+        },
+        {
+            "id": "9ed8d74b-5379-4045-a5b3-bcc494f20e2c",
+            "name": "NewLevel0",
+            "path": "Levels/单人模式.level",
+            "suffix": "level",
+            "type": "level"
+        },
+        {
+            "id": "52dd6bfd-0c29-4ee5-9d43-490f39f7220e",
+            "name": "标准地图界面",
+            "path": "Levels/标准地图界面.level",
+            "suffix": "level",
+            "type": "level"
+        },
+        {
+            "id": "ec7d2aee-eab8-480b-964c-ec575bc99226",
+            "name": "战斗地图界面",
+            "path": "Levels/战斗地图界面.level",
+            "suffix": "level",
+            "type": "level"
+        },
+        {
+            "id": "f532fc5e-8055-4c0f-aea3-6860cecee756",
+            "name": "角色选择界面",
+            "path": "Levels/角色选择界面.level",
+            "suffix": "level",
+            "type": "level"
+        },
+        {
+            "id": "9b12db89-7911-4ac7-a98a-67e242d06f9a",
+            "name": "护盾",
+            "path": "Effects/护盾.bp",
+            "suffix": "bp",
+            "type": "bp.effect"
+        },
+        {
+            "id": "208161fb-2bf5-4b21-8eb2-b3145a12bb9d",
+            "name": "获得能量",
+            "path": "Effects/获得能量.bp",
+            "suffix": "bp",
+            "type": "bp.effect"
+        },
+        {
+            "id": "baaf1744-da1a-488d-9008-df571a438272",
+            "name": "伤害",
+            "path": "Effects/伤害.bp",
+            "suffix": "bp",
+            "type": "bp.effect"
+        },
+        {
+            "id": "ec2227ca-c7f6-4196-a661-b7e5cbb9ca78",
+            "name": "治疗",
+            "path": "Effects/治疗.bp",
+            "suffix": "bp",
+            "type": "bp.effect"
+        },
+        {
+            "id": "path:动画/43_002_机械师_移动_精灵表.png",
+            "name": "43_002_机械师_移动_精灵表",
+            "path": "动画/43_002_机械师_移动_精灵表.png",
+            "suffix": "png",
+            "type": "image"
+        },
+        {
+            "id": "fe21ddc8-4438-487b-8e83-033ba62b37c5",
+            "name": "机械师",
+            "path": "动画/机械师.anim",
+            "suffix": "anim",
+            "type": "anim"
+        },
+        {
+            "id": "path:动画/43_001_武夫_移动_精灵表.png",
+            "name": "43_001_武夫_移动_精灵表",
+            "path": "动画/43_001_武夫_移动_精灵表.png",
+            "suffix": "png",
+            "type": "image"
+        },
+        {
+            "id": "f06cac8f-0ae0-4494-8faa-4d6ef627c394",
+            "name": "武夫",
+            "path": "动画/武夫.anim",
+            "suffix": "anim",
+            "type": "anim"
+        }
+    ],
+    "redirects": {
+    },
+    "version": 1
+}

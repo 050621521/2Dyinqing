@@ -1,12 +1,20 @@
 #include "UIRuntime.h"
+#include "models/AssetRef.h"
+#include "models/AssetRegistry.h"
 #include <QUuid>
-#include <QDir>
 #include <algorithm>
 
 UIRuntime::UIRuntime(const QString& projectRoot, QObject* parent)
     : QObject(parent), m_projectRoot(projectRoot) {}
 
 UIRuntime::~UIRuntime() { qDeleteAll(m_all); }
+
+static QString resolveUIPath(const QString& projectRoot, const QString& uiRef) {
+    AssetRegistry registry(projectRoot);
+    registry.load();
+    return AssetResolver(projectRoot, &registry)
+        .resolve(SoftAssetRef::fromString(uiRef, "ui"), "UI", ".ui");
+}
 
 UIInstance* UIRuntime::findInstance(const QString& id) {
     for (UIInstance* inst : m_all)
@@ -52,7 +60,7 @@ void UIRuntime::setWidgetSizeByName(const QString& n, const QString& w, float wi
 }
 
 QString UIRuntime::createInstance(const QString& uiName) {
-    const QString path = m_projectRoot + "/UI/" + uiName + ".ui";
+    const QString path = resolveUIPath(m_projectRoot, uiName);
     UIDocument tmpl;
     if (!tmpl.load(path)) return {};
 

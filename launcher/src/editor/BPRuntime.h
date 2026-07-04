@@ -3,6 +3,9 @@
 #include "models/BPValue.h"
 #include "models/AnimationAsset.h"
 #include "BattleRuntime.h"
+#include "BlueprintExecutionContext.h"
+#include "BlueprintNodeExecutor.h"
+#include "BlueprintVariableScope.h"
 #include <QObject>
 #include <QSet>
 #include <QTimer>
@@ -12,11 +15,16 @@
 #include <memory>
 
 class UIRuntime;
+class DataTableRuntimeService;
+class EffectRuntime;
+class CardRuntimeController;
+class BattleUiPresenter;
 
 class BPRuntime : public QObject {
     Q_OBJECT
 public:
     explicit BPRuntime(const LevelDocument* doc, QObject* parent = nullptr);
+    ~BPRuntime() override;
 
     void triggerBeginPlay();
     void triggerKeyDown(const QString& key);
@@ -42,11 +50,12 @@ public:
 
     void setUIRuntime(UIRuntime* ui);
     // 全局变量表（由 EditorWindow 持有，跨关卡保留）
-    void setGlobalVars(QMap<QString, BPValue>* g) { m_globalVars = g; }
+    void setGlobalVars(QMap<QString, BPValue>* g) { m_globalVars = g; m_globalScope.setStore(g); }
     // 读取全局变量（供 ActorBPRuntime 的 Global.Get 复用同一张全局表）
     BPValue globalVar(const QString& name) const {
-        return m_globalVars ? m_globalVars->value(name) : BPValue();
+        return m_globalScope.get(name);
     }
+    BlueprintVariableScope* globalScope() { return &m_globalScope; }
 
     // 碰撞 pass：每帧所有移动完成后调用（分轴阻挡解析 + 重叠事件）
     void runCollisionPass();
@@ -86,17 +95,21 @@ private:
     void    triggerBattleEnded();
     const BattleUnit* battleUnitByKey(const QString& key) const;
     void    triggerMouseEvent(const QString& type, const MouseState& payload);
+    CardEffectResult useBattleCardByWidget(const QString& widgetName);
+    void    refreshBattleUi();
 
     QList<BPNode>       m_nodes;
     QList<BPConnection> m_connections;
     QList<ActorData>    m_actors;
+    QString             m_projectRoot;
     QStringList         m_printLog;
     QMap<QString, BPValue> m_varStore;  // 本关运行内变量表（name → value）
     QMap<QString, BPValue>* m_globalVars = nullptr;  // 全局变量表（EditorWindow 持有）
+    BlueprintVariableScope m_localScope;
+    BlueprintVariableScope m_globalScope;
 
     // ForEach 迭代状态：nodeId → (当前元素, 当前索引)，循环体内的输出引脚读取它
-    struct LoopState { BPValue element; int index = 0; };
-    QHash<QString, LoopState> m_loopState;
+    QHash<QString, BlueprintLoopState> m_loopState;
 
     UIRuntime*             m_uiRuntime = nullptr;
     QMap<QString, QString> m_uiRefs;      // nodeId(UI.Create) → instanceId
@@ -114,6 +127,10 @@ private:
     };
     QMap<QString, MouseState> m_mouseState; // mouse event nodeId → latest payload
     std::unique_ptr<BattleRuntime> m_battle;
+    std::unique_ptr<DataTableRuntimeService> m_dataTables;
+    std::unique_ptr<EffectRuntime> m_effectRuntime;
+    std::unique_ptr<CardRuntimeController> m_cardController;
+    std::unique_ptr<BattleUiPresenter> m_battleUiPresenter;
     QString m_lastBattleMessage;
     bool m_battleEndNotified = false;
     QSet<QString>          m_heldKeys;     // 当前被按住的按键集合，每帧驱动按键节点的 held 链
@@ -122,6 +139,8 @@ private:
     // 接触状态：actorId → 当前正接触的对方 id 集合（用于「刚接触触发一次」）
     QHash<QString, QSet<QString>> m_overlapState;
     QHash<QString, AnimationAsset> m_animCache;  // .anim 路径 → 已加载资源
+    BlueprintExecutionContext m_context;
+    QSet<QString> m_reportedUnknownNodes;
 
     QTimer*       m_tickTimer  = nullptr;
     QElapsedTimer m_elapsedTimer;

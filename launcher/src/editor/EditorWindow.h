@@ -23,6 +23,7 @@ class BPRuntime;
 class UIRuntime;
 class UIEditor;
 class UIDocument;
+class DataTableEditor;
 #include "ActorBPRuntime.h"
 #include "models/BPClass.h"
 #include "GlobalVars.h"
@@ -30,6 +31,7 @@ class GlobalVarPanel;
 class ContentBrowser;
 class LayoutManager;
 class DocTabBar;
+class ComponentBPRuntime;
 
 namespace ads {
     class CDockManager;
@@ -71,6 +73,7 @@ private:
     void embedBp(const QString& tabId);
     void openBpClassTab(const QString& bpClassPath);
     void openUIDocTab(const QString& uiFilePath);
+    void openDataTableTab(const QString& dataTablePath);
 
 private slots:
     void onTabChanged(int index);
@@ -162,10 +165,12 @@ private:
     UIRuntime* m_uiRuntime = nullptr;
     UIEditor*  m_uiEditor  = nullptr;
     QList<ActorBPRuntime*>   m_actorRuntimes;
+    QList<ComponentBPRuntime*> m_componentRuntimes;
     // 跨上下文单键编辑快捷键（F/Esc/Delete/退格）：运行时挂起，避免抢占游戏按键
     QList<class QShortcut*>   m_editorSingleKeyShortcuts;
     QMap<QString, BPClass*>  m_openBpClasses;
     QMap<QString, UIDocument*> m_openUIDocs;
+    QMap<QString, DataTableEditor*> m_openDataTables;
     float m_ppu = 100.0f;
 
     QMap<QString, LevelDocument*> m_openLevels;

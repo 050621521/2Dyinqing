@@ -531,7 +531,40 @@ void GameViewport::renderUI(QPainter& p, const QRectF& camRect, const ActorData*
             renderWidget(p, root, canonicalRect, doc);
         p.restore();
     }
+    renderDragGhost(p, camRect, cam);
     p.restore();
+}
+
+void GameViewport::renderDragGhost(QPainter& p, const QRectF& camRect, const ActorData* cam) const {
+    if (!m_uiRuntime || !m_uiDragActive || m_dragInstanceId.isEmpty() || m_dragVisualWidgetName.isEmpty())
+        return;
+
+    const float canonicalW = (cam && cam->cameraResW > 0) ? (float)cam->cameraResW : 1920.0f;
+    const float canonicalH = (cam && cam->cameraResH > 0) ? (float)cam->cameraResH : 1080.0f;
+    const float sx = camRect.width()  / canonicalW;
+    const float sy = camRect.height() / canonicalH;
+
+    for (const UIInstance* inst : m_uiRuntime->shownInstances()) {
+        if (inst->instanceId != m_dragInstanceId) continue;
+        const UIDocument& doc = inst->docCopy;
+        const UIWidget* w = findWidgetByName(doc, m_dragVisualWidgetName);
+        if (!w) return;
+
+        const QPointF topLeft = m_dragVisualCanonical - m_dragVisualOffset;
+        const QRectF ghostParent(topLeft.x() - w->x, topLeft.y() - w->y,
+                                 w->width, w->height);
+
+        p.save();
+        p.translate(camRect.left() + inst->screenX, camRect.top() + inst->screenY);
+        p.scale(sx, sy);
+        p.translate(topLeft.x() + w->width / 2.0f, topLeft.y() + w->height / 2.0f);
+        p.scale(1.08, 1.08);
+        p.translate(-(topLeft.x() + w->width / 2.0f), -(topLeft.y() + w->height / 2.0f));
+        p.setOpacity(0.92);
+        renderWidget(p, *w, ghostParent, doc);
+        p.restore();
+        return;
+    }
 }
 
 void GameViewport::mousePressEvent(QMouseEvent* e) {
@@ -595,9 +628,18 @@ void GameViewport::mousePressEvent(QMouseEvent* e) {
             } else {
                 QString anyWidget;
                 if (hitTestAnyWidget(localPos, root, canonicalRect, doc, anyWidget)) {
+                    const QString cardWidget = cardRootForWidget(doc, anyWidget);
                     m_dragInstanceId = inst->instanceId;
-                    m_dragWidgetName = anyWidget;
+                    m_dragWidgetName = cardWidget;
+                    m_dragVisualWidgetName = cardWidget.startsWith("卡_") ? cardWidget : QString();
                     m_dragPressCanonical = localPos;
+                    m_dragVisualCanonical = localPos;
+                    m_dragVisualOffset = QPointF();
+                    QRectF dragRect;
+                    if (!m_dragVisualWidgetName.isEmpty()
+                        && widgetRectByName(m_dragVisualWidgetName, root, canonicalRect, doc, dragRect)) {
+                        m_dragVisualOffset = localPos - dragRect.topLeft();
+                    }
                     m_uiDragActive = false;
                 }
             }
@@ -653,13 +695,16 @@ void GameViewport::mouseMoveEvent(QMouseEvent* e) {
                 const QPointF d = localPos - m_dragPressCanonical;
                 if (std::hypot(d.x(), d.y()) > 6.0) {
                     m_uiDragActive = true;
+                    m_dragVisualCanonical = localPos;
                     m_uiRuntime->notifyDragStarted(m_dragInstanceId, m_dragWidgetName,
                                                    (float)localPos.x(), (float)localPos.y());
                 }
             }
             if (m_uiDragActive) {
+                m_dragVisualCanonical = localPos;
                 m_uiRuntime->notifyDragMoved(m_dragInstanceId, m_dragWidgetName,
                                              (float)localPos.x(), (float)localPos.y());
+                update();
                 e->accept();
                 return;
             }
@@ -771,7 +816,11 @@ void GameViewport::mouseReleaseEvent(QMouseEvent* e) {
         }
         m_dragInstanceId.clear();
         m_dragWidgetName.clear();
+        m_dragVisualWidgetName.clear();
+        m_dragVisualOffset = QPointF();
+        m_dragVisualCanonical = QPointF();
         m_uiDragActive = false;
+        update();
     }
     if (m_scrollDragging) {
         m_scrollDragging = false;
@@ -1055,6 +1104,92 @@ bool GameViewport::hitTestAnyWidget(QPointF pos, const UIWidget& w, QRectF paren
     if (r.contains(pos)) {
         outWidget = w.name;
         return true;
+    }
+    return false;
+}
+
+const UIWidget* GameViewport::findWidgetByName(const UIDocument& doc, const QString& name) const {
+    for (const UIWidget& w : doc.widgets())
+        if (w.name == name) return &w;
+    return nullptr;
+}
+
+const UIWidget* GameViewport::findWidgetById(const UIDocument& doc, const QString& id) const {
+    for (const UIWidget& w : doc.widgets())
+        if (w.id == id) return &w;
+    return nullptr;
+}
+
+QString GameViewport::cardRootForWidget(const UIDocument& doc, const QString& widgetName) const {
+    const UIWidget* w = findWidgetByName(doc, widgetName);
+    for (int guard = 0; w && guard < 64; ++guard) {
+        if (w->name.startsWith("卡_")) return w->name;
+        if (w->parentId.isEmpty()) break;
+        w = findWidgetById(doc, w->parentId);
+    }
+    return widgetName;
+}
+
+bool GameViewport::widgetRectByName(const QString& widgetName, const UIWidget& w,
+                                    QRectF parentRect, const UIDocument& doc, QRectF& outRect) const {
+    if (!w.visible) return false;
+    const QRectF r = widgetScreenRect(w, parentRect);
+    if (w.name == widgetName) {
+        outRect = r;
+        return true;
+    }
+
+    const QList<UIWidget> children = doc.childrenOf(w.id);
+    if (children.isEmpty()) return false;
+
+    if (w.type == "UI.竖向布局") {
+        float y = r.top();
+        for (const UIWidget& child : children) {
+            if (!child.visible) continue;
+            if (widgetRectByName(widgetName, child,
+                                 QRectF(r.left(), y - child.y, r.width(), child.height + child.y),
+                                 doc, outRect))
+                return true;
+            y += child.height + w.spacing;
+        }
+        return false;
+    }
+    if (w.type == "UI.横向布局") {
+        float x = r.left();
+        for (const UIWidget& child : children) {
+            if (!child.visible) continue;
+            if (widgetRectByName(widgetName, child,
+                                 QRectF(x - child.x, r.top(), child.width + child.x, r.height()),
+                                 doc, outRect))
+                return true;
+            x += child.width + w.spacing;
+        }
+        return false;
+    }
+    if (w.type == "UI.网格布局") {
+        int col = 0, row = 0;
+        for (const UIWidget& child : children) {
+            if (!child.visible) {
+                col++;
+                if (col >= w.columns) { col = 0; row++; }
+                continue;
+            }
+            const float cx = r.left() + col * (w.cellW + w.spacing);
+            const float cy = r.top()  + row * (w.cellH + w.spacing);
+            if (widgetRectByName(widgetName, child, QRectF(cx, cy, w.cellW, w.cellH), doc, outRect))
+                return true;
+            col++;
+            if (col >= w.columns) { col = 0; row++; }
+        }
+        return false;
+    }
+
+    QRectF childRect = r;
+    if (w.type == "UI.滚动视图")
+        childRect = QRectF(r.left() - w.scrollX, r.top() - w.scrollY, r.width(), r.height());
+    for (const UIWidget& child : children) {
+        if (widgetRectByName(widgetName, child, childRect, doc, outRect))
+            return true;
     }
     return false;
 }

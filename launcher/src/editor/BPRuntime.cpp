@@ -1,4 +1,9 @@
 #include "BPRuntime.h"
+#include "BattleUiPresenter.h"
+#include "BlueprintNodeExecutor.h"
+#include "CardRuntimeController.h"
+#include "DataTableRuntimeService.h"
+#include "EffectRuntime.h"
 #include "UIRuntime.h"
 #include <QSet>
 #include <QDebug>
@@ -24,6 +29,8 @@ static std::pair<QString,QString> splitWidgetRef(const QString& ref) {
 
 void BPRuntime::setUIRuntime(UIRuntime* ui) {
     m_uiRuntime = ui;
+    if (m_battleUiPresenter)
+        m_battleUiPresenter->setUIRuntime(ui);
     if (!ui) return;
     connect(ui, &UIRuntime::buttonClicked,
             this, &BPRuntime::triggerButtonClick);
@@ -55,15 +62,30 @@ BPRuntime::BPRuntime(const LevelDocument* doc, QObject* parent)
         else if (d.type.startsWith("array:")) m_varStore[d.name] = BPValue::fromArray({});
         else                                  m_varStore[d.name] = BPValue::fromString("");
     }
+    m_localScope.setStore(&m_varStore);
 
     // 工程根：关卡在 {project}/Levels/x.level，上溯一级
-    QString projectRoot;
     if (!doc->filePath().isEmpty()) {
         QDir d(QFileInfo(doc->filePath()).absolutePath());
         d.cdUp();
-        projectRoot = d.absolutePath();
+        m_projectRoot = d.absolutePath();
     }
-    flattenMacros(projectRoot);
+    m_context.setRuntimeKind(BlueprintRuntimeKind::Level);
+    m_context.setBlueprintInfo(QFileInfo(doc->filePath()).completeBaseName(), doc->filePath());
+    m_dataTables = std::make_unique<DataTableRuntimeService>(m_projectRoot);
+    m_dataTables->setDiagnosticCallback([this](const QString& text) {
+        appendPrintLog(text);
+    });
+    m_effectRuntime = std::make_unique<EffectRuntime>(m_projectRoot, m_battle.get());
+    m_effectRuntime->setPrintCallback([this](const QString& text) {
+        appendPrintLog(text);
+    });
+    m_effectRuntime->setDiagnosticCallback([this](const QString& text) {
+        appendPrintLog(text);
+    });
+    m_cardController = std::make_unique<CardRuntimeController>(m_battle.get(), m_dataTables.get(), m_effectRuntime.get());
+    m_battleUiPresenter = std::make_unique<BattleUiPresenter>(m_uiRuntime);
+    flattenMacros(m_projectRoot);
 
     m_tickTimer = new QTimer(this);
     m_tickTimer->setInterval(16);
@@ -71,6 +93,8 @@ BPRuntime::BPRuntime(const LevelDocument* doc, QObject* parent)
     m_tickTimer->start();
     m_elapsedTimer.start();
 }
+
+BPRuntime::~BPRuntime() = default;
 
 void BPRuntime::flattenMacros(const QString& projectRoot) {
     const QList<BPMacro> libMacros =
@@ -227,6 +251,7 @@ void BPRuntime::runCollisionPass() {
 }
 
 void BPRuntime::triggerCollision(const QString& selfId, const QString& otherId, const QString& otherTag) {
+    m_context.setEventName("Event.OnCollision");
     m_collSelf = selfId; m_collOther = otherId; m_collTag = otherTag;
     for (const BPNode& node : m_nodes) {
         if (node.type != "Event.OnCollision") continue;
@@ -339,6 +364,7 @@ void BPRuntime::tickComponents(float dt) {
 
 void BPRuntime::triggerTick(float dt) {
     m_deltaTick = dt;
+    m_context.setEventName("Event.Tick");
     for (const BPNode& node : m_nodes) {
         if (node.type == "Event.Tick") {
             QSet<QString> visited;
@@ -348,6 +374,7 @@ void BPRuntime::triggerTick(float dt) {
     // 持续按住：对每个被按住的键，每帧驱动其按键节点的 held 链
     for (const QString& key : m_heldKeys) {
         const QString typeId = "Event.Key." + key;
+        m_context.setEventName(typeId);
         for (const BPNode& node : m_nodes) {
             if (node.type == typeId) {
                 QSet<QString> visited;
@@ -358,6 +385,7 @@ void BPRuntime::triggerTick(float dt) {
 }
 
 void BPRuntime::triggerBeginPlay() {
+    m_context.setEventName("Event.BeginPlay");
     initAnimations();
     for (const BPNode& node : m_nodes) {
         if (node.type == "Event.BeginPlay") {
@@ -371,6 +399,7 @@ void BPRuntime::triggerBeginPlay() {
 void BPRuntime::triggerKeyDown(const QString& key) {
     m_heldKeys.insert(key);
     const QString typeId = "Event.Key." + key;
+    m_context.setEventName(typeId);
     for (const BPNode& node : m_nodes) {
         if (node.type == typeId) {
             QSet<QString> visited;
@@ -383,6 +412,7 @@ void BPRuntime::triggerKeyDown(const QString& key) {
 void BPRuntime::triggerKeyUp(const QString& key) {
     m_heldKeys.remove(key);
     const QString typeId = "Event.Key." + key;
+    m_context.setEventName(typeId);
     for (const BPNode& node : m_nodes) {
         if (node.type == typeId) {
             QSet<QString> visited;
@@ -413,73 +443,28 @@ void BPRuntime::executeChain(const QString& fromNodeId, const QString& fromPin,
 QString BPRuntime::executeNode(const QString& nodeId) {
     const BPNode* node = findNode(nodeId);
     if (!node) return {};
+    m_context.enterNode(*node);
 
-    if (node->type == "Action.Print") {
-        appendPrintLog(resolveDataPin(nodeId, "text"));
-        return "exec_out";
-    }
-
-    if (node->type == "Global.Set") {
-        if (m_globalVars) {
-            const QString name = node->params.value("varName");
-            if (!name.isEmpty()) (*m_globalVars)[name] = resolveDataPin(nodeId, "value");
-        }
-        return "exec_out";
-    }
-
-    if (node->type == "Local.Set") {
-        const QString name = node->params.value("varName");
-        if (!name.isEmpty()) m_varStore[name] = resolveDataPin(nodeId, "value");
-        return "exec_out";
-    }
-
-    if (node->type == "Var.SetNumber" || node->type == "Var.SetBool" || node->type == "Var.SetString") {
-        QString name  = resolveDataPin(nodeId, "name");
-        QString value = resolveDataPin(nodeId, "value");
-        if (!name.isEmpty()) m_varStore[name] = value;
-        return "exec_out";
-    }
-
-    // 数组变量操作（exec）：读全局数组 → 改 → 写回
-    if (node->type == "Array.Add"       || node->type == "Array.RemoveAt"
-     || node->type == "Array.RemoveValue" || node->type == "Array.SetAt"
-     || node->type == "Array.Clear") {
-        const QString name  = node->params.value("varName");
-        const bool    local = node->params.value("scope") == "local";  // 否则全局
-        if (!name.isEmpty() && (local || m_globalVars)) {
-            BPValue cur = local ? m_varStore.value(name) : m_globalVars->value(name);
-            QList<BPValue>& arr = cur.arrayRef();
-            if (node->type == "Array.Add") {
-                arr.append(resolveDataPin(nodeId, "value"));
-            } else if (node->type == "Array.Clear") {
-                arr.clear();
-            } else if (node->type == "Array.RemoveAt") {
-                const int i = (int)resolveDataPin(nodeId, "index").toNumber();
-                if (i >= 0 && i < arr.size()) arr.removeAt(i);
-            } else if (node->type == "Array.RemoveValue") {
-                const BPValue v = resolveDataPin(nodeId, "value");
-                for (int i = 0; i < arr.size(); ++i)
-                    if (arr[i].typedEquals(v)) { arr.removeAt(i); break; }
-            } else if (node->type == "Array.SetAt") {
-                const int i = (int)resolveDataPin(nodeId, "index").toNumber();
-                if (i >= 0 && i < arr.size()) arr[i] = resolveDataPin(nodeId, "value");
-            }
-            if (local) m_varStore[name] = cur;
-            else       (*m_globalVars)[name] = cur;
-        }
-        return "exec_out";
-    }
-
-    // 遍历(ForEach)：对数组快照逐元素执行循环体（每次迭代独立 visited），完成后走 completed
-    if (node->type == "Flow.ForEach") {
-        const QList<BPValue> arr = resolveDataPin(nodeId, "array").toArray();  // 快照
-        for (int i = 0; i < arr.size(); ++i) {
-            m_loopState[nodeId] = {arr[i], i};
-            QSet<QString> bodyVisited;                  // 每次迭代独立上下文，循环体可重入
-            executeChain(nodeId, "loop_body", &bodyVisited);
-        }
-        m_loopState.remove(nodeId);
-        return "completed";
+    BlueprintNodeExecutor::ExecState sharedState;
+    sharedState.context = &m_context;
+    sharedState.localScope = &m_localScope;
+    sharedState.globalScope = &m_globalScope;
+    sharedState.loopState = &m_loopState;
+    sharedState.print = [this](const QString& text) { appendPrintLog(text); };
+    sharedState.diagnostic = [this](const QString& text) { appendPrintLog(text); };
+    sharedState.loadLevel = [this](const QString& levelName) { emit loadLevelRequested(levelName); };
+    sharedState.backLevel = [this]() { emit backLevelRequested(); };
+    sharedState.runFromPin = [this](const QString& fromNodeId, const QString& fromPin) {
+        QSet<QString> bodyVisited;
+        executeChain(fromNodeId, fromPin, &bodyVisited);
+    };
+    QString sharedNextPin;
+    if (BlueprintNodeExecutor::executeSharedNode(
+            *node,
+            [this, nodeId](const QString& pinKey) { return resolveDataPin(nodeId, pinKey); },
+            sharedState,
+            &sharedNextPin)) {
+        return sharedNextPin;
     }
 
     if (node->type == "Action.MoveActor") {
@@ -496,18 +481,6 @@ QString BPRuntime::executeNode(const QString& nodeId) {
         return "exec_out";
     }
 
-    if (node->type == "Action.LoadLevel") {
-        const QString levelName = resolveDataPin(nodeId, "levelName");
-        if (!levelName.isEmpty())
-            emit loadLevelRequested(levelName);
-        return {};
-    }
-
-    if (node->type == "Action.BackLevel") {
-        emit backLevelRequested();
-        return {};
-    }
-
     if (node->type == "Action.SetActive") {
         QString actorId = resolveDataPin(nodeId, "actorId");
         QString val     = resolveDataPin(nodeId, "active").toString().toLower();
@@ -522,20 +495,29 @@ QString BPRuntime::executeNode(const QString& nodeId) {
         if (!m_battle) m_battle = std::make_unique<BattleRuntime>();
         const int playerHp  = qMax(1, (int)resolveDataPin(nodeId, "playerHp").toNumber());
         const int enemyHp   = qMax(1, (int)resolveDataPin(nodeId, "enemyHp").toNumber());
+        const int playerMaxHp = qMax(0, (int)resolveDataPin(nodeId, "playerMaxHp").toNumber());
         const int energy    = qMax(0, (int)resolveDataPin(nodeId, "energy").toNumber());
         const int maxEnergy = qMax(1, (int)resolveDataPin(nodeId, "maxEnergy").toNumber());
-        m_battle->startDefault(playerHp, enemyHp, energy, maxEnergy);
+        m_battle->startDefault(playerHp, enemyHp, energy, maxEnergy, playerMaxHp);
+        const QString tableRef = resolveDataPin(nodeId, "cardTable").toString();
+        if (!tableRef.trimmed().isEmpty() && m_cardController)
+            m_cardController->setHandFromTable(tableRef);
         m_lastBattleMessage = "战斗开始";
         m_battleEndNotified = false;
+        refreshBattleUi();
         return "exec_out";
     }
 
     if (node->type == "Battle.UseCard") {
         if (!m_battle) return "exec_out";
+        const QString cardId = resolveDataPin(nodeId, "cardId").toString();
         const int cardIndex = (int)resolveDataPin(nodeId, "cardIndex").toNumber();
-        const CardEffectResult r = m_battle->useCard(cardIndex);
+        const CardEffectResult r = m_cardController
+                                 ? m_cardController->useCard(cardId, cardIndex)
+                                 : CardEffectResult{false, "卡牌运行时未初始化"};
         m_lastBattleMessage = r.message;
         if (m_battle->ended()) triggerBattleEnded();
+        refreshBattleUi();
         return "exec_out";
     }
 
@@ -544,32 +526,8 @@ QString BPRuntime::executeNode(const QString& nodeId) {
         const CardEffectResult r = m_battle->endTurn();
         m_lastBattleMessage = r.message;
         if (m_battle->ended()) triggerBattleEnded();
+        refreshBattleUi();
         return "exec_out";
-    }
-
-    if (node->type == "Flow.Branch") {
-        QString cond = resolveDataPin(nodeId, "condition").toString().toLower();
-        bool truthy = !cond.isEmpty() && cond != "0" && cond != "false";
-        return truthy ? "true" : "false";
-    }
-
-    if (node->type == "Flow.Switch") {
-        // 取「值」输入，逐个分支比较；每分支比较值可连变量(caseval_<id>)或用字面量
-        const QString v = resolveDataPin(nodeId, "value");
-        const QJsonDocument d = QJsonDocument::fromJson(node->params.value("branches").toUtf8());
-        if (d.isArray()) {
-            for (const QJsonValue& bv : d.array()) {
-                const QJsonObject o = bv.toObject();
-                const QString id = o.value("id").toString();
-                if (id.isEmpty()) continue;
-                QString cmp = resolveDataPin(nodeId, "caseval_" + id);     // 连线 or params 字面量
-                if (cmp.isEmpty()) cmp = o.value("value").toString();      // 兼容旧数据
-                if (cmp == v) return "case_" + id;
-            }
-        }
-        const QString hd = node->params.value("hasDefault").toLower();
-        if (hd == "true" || hd == "1") return "default";
-        return {};
     }
 
     auto uiRef = [&](const QString& pinKey) -> QString {
@@ -586,6 +544,7 @@ QString BPRuntime::executeNode(const QString& nodeId) {
         if (m_uiRuntime) {
             auto [uiName, widgetName] = splitWidgetRef(uiRef("widgetRef"));
             m_uiRuntime->showWidgetByName(uiName, widgetName);
+            refreshBattleUi();
         }
         return "exec_out";
     }
@@ -679,6 +638,11 @@ QString BPRuntime::executeNode(const QString& nodeId) {
         return "exec_out";
     }
 
+    const QString unknownKey = node->id + ":" + node->type;
+    if (!m_reportedUnknownNodes.contains(unknownKey)) {
+        m_reportedUnknownNodes.insert(unknownKey);
+        appendPrintLog(m_context.formatDiagnostic(QString("未处理的执行节点：%1").arg(node->type)));
+    }
     return {};
 }
 
@@ -703,6 +667,21 @@ BPValue BPRuntime::resolveOutputPin(const QString& nodeId, const QString& pinKey
     if (node->type == "UI.Ref") {
         const QString uiName = node->params.value("uiName");
         return uiName + "::" + pinKey;  // 所有控件引脚返回 "uiName::widgetName"
+    }
+
+    BlueprintNodeExecutor::ExecState sharedState;
+    sharedState.context = &m_context;
+    sharedState.localScope = &m_localScope;
+    sharedState.globalScope = &m_globalScope;
+    sharedState.loopState = &m_loopState;
+    BPValue sharedOut;
+    if (BlueprintNodeExecutor::resolveSharedOutput(
+            *node,
+            pinKey,
+            [this, nodeId](const QString& pk) { return resolveDataPin(nodeId, pk); },
+            sharedState,
+            &sharedOut)) {
+        return sharedOut;
     }
 
     // 全局变量读取
@@ -800,6 +779,24 @@ BPValue BPRuntime::resolveOutputPin(const QString& nodeId, const QString& pinKey
         if (pinKey == "turn") return m_battle->activeTeam();
     }
 
+    if (node->type == "Battle.HasTag" && pinKey == "has") {
+        if (!m_battle) return BPValue::fromBool(false);
+        return BPValue::fromBool(m_battle->hasTag(resolveDataPin(nodeId, "unit").toString(),
+                                                 resolveDataPin(nodeId, "tag").toString()));
+    }
+
+    if (node->type == "Data.GetField" && pinKey == "value") {
+        if (!m_dataTables) return {};
+        return m_dataTables->fieldValue(resolveDataPin(nodeId, "table").toString(),
+                                        resolveDataPin(nodeId, "recordId").toString(),
+                                        resolveDataPin(nodeId, "field").toString());
+    }
+
+    if (node->type == "Data.GetRecordCount" && pinKey == "count") {
+        if (!m_dataTables) return BPValue::fromNumber(0);
+        return BPValue::fromNumber(m_dataTables->recordCount(resolveDataPin(nodeId, "table").toString()));
+    }
+
     if (node->type == "Battle.CheckRange") {
         if (pinKey == "valid") {
             return BPValue::fromBool(BattleRuntime::isPointInRange(
@@ -872,9 +869,25 @@ const BattleUnit* BPRuntime::battleUnitByKey(const QString& key) const {
     return &m_battle->player();
 }
 
+void BPRuntime::refreshBattleUi() {
+    if (m_battleUiPresenter)
+        m_battleUiPresenter->refresh(m_battle.get(), m_lastBattleMessage);
+}
+
+CardEffectResult BPRuntime::useBattleCardByWidget(const QString& widgetName) {
+    const CardEffectResult r = m_cardController
+                             ? m_cardController->useCardByWidget(widgetName)
+                             : CardEffectResult{false, "卡牌运行时未初始化"};
+    m_lastBattleMessage = r.message;
+    if (m_battle->ended()) triggerBattleEnded();
+    refreshBattleUi();
+    return r;
+}
+
 void BPRuntime::triggerBattleEnded() {
     if (!m_battle || !m_battle->ended() || m_battleEndNotified) return;
     m_battleEndNotified = true;
+    m_context.setEventName("Event.BattleEnded");
     for (const BPNode& node : m_nodes) {
         if (node.type != "Event.BattleEnded") continue;
         QSet<QString> visited;
@@ -884,6 +897,7 @@ void BPRuntime::triggerBattleEnded() {
 }
 
 void BPRuntime::triggerMouseEvent(const QString& type, const MouseState& payload) {
+    m_context.setEventName(type);
     for (const BPNode& node : m_nodes) {
         if (node.type != type) continue;
         m_mouseState[node.id] = payload;
@@ -918,6 +932,7 @@ void BPRuntime::triggerMouseWheeled(float screenX, float screenY, float worldX, 
 }
 
 void BPRuntime::triggerButtonClick(const QString& instanceId, const QString& widgetName) {
+    m_context.setEventName("UI.OnButtonClick");
     QString uiName;
     if (m_uiRuntime) {
         for (const UIInstance* inst : m_uiRuntime->shownInstances())
@@ -939,6 +954,7 @@ static bool bpDragEventMatches(const QString& nodeType, const QString& wantedTyp
 }
 
 void BPRuntime::triggerUIDragStarted(const QString& instanceId, const QString& widgetName, float x, float y) {
+    m_context.setEventName("UI.OnDragStart");
     QString uiName;
     if (m_uiRuntime) {
         for (const UIInstance* inst : m_uiRuntime->shownInstances())
@@ -957,6 +973,7 @@ void BPRuntime::triggerUIDragStarted(const QString& instanceId, const QString& w
 }
 
 void BPRuntime::triggerUIDragMoved(const QString& instanceId, const QString& widgetName, float x, float y) {
+    m_context.setEventName("UI.OnDragMove");
     QString uiName;
     if (m_uiRuntime) {
         for (const UIInstance* inst : m_uiRuntime->shownInstances())
@@ -975,11 +992,13 @@ void BPRuntime::triggerUIDragMoved(const QString& instanceId, const QString& wid
 }
 
 void BPRuntime::triggerUIDropped(const QString& instanceId, const QString& widgetName, float x, float y) {
+    m_context.setEventName("UI.OnDrop");
     QString uiName;
     if (m_uiRuntime) {
         for (const UIInstance* inst : m_uiRuntime->shownInstances())
             if (inst->instanceId == instanceId) { uiName = inst->uiName; break; }
     }
+    bool handledByBlueprint = false;
     for (const BPNode& node : m_nodes) {
         if (!bpDragEventMatches(node.type, "UI.OnDrop")) continue;
         auto [refUi, refWidget] = splitWidgetRef(resolveDataPin(node.id, "widgetRef"));
@@ -987,12 +1006,16 @@ void BPRuntime::triggerUIDropped(const QString& instanceId, const QString& widge
             m_uiDragState[node.id] = {widgetName, x, y};
             QSet<QString> visited;
             executeChain(node.id, "exec_out", &visited);
+            handledByBlueprint = true;
         }
     }
+    if (!handledByBlueprint && widgetName.startsWith("卡_"))
+        useBattleCardByWidget(widgetName);
     emit stateChanged();
 }
 
 void BPRuntime::triggerUIDragCanceled(const QString& instanceId, const QString& widgetName, float x, float y) {
+    m_context.setEventName("UI.OnDragCancel");
     QString uiName;
     if (m_uiRuntime) {
         for (const UIInstance* inst : m_uiRuntime->shownInstances())
@@ -1012,6 +1035,7 @@ void BPRuntime::triggerUIDragCanceled(const QString& instanceId, const QString& 
 
 void BPRuntime::triggerDropdownChanged(const QString& instanceId,
                                         const QString& widgetName, int index) {
+    m_context.setEventName("UI.OnDropdownChanged");
     QString uiName;
     if (m_uiRuntime) {
         for (const UIInstance* inst : m_uiRuntime->shownInstances())

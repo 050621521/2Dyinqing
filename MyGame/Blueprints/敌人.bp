@@ -1,4 +1,5 @@
 {
+    "assetId": "7fc5b406-b319-46ce-8a16-787bbe71077e",
     "components": [
         "变换",
         "精灵渲染器",
@@ -17,6 +18,13 @@
         "cameraResH": 1080,
         "cameraResW": 1920,
         "cameraSize": 5,
+        "colliderEnabled": true,
+        "colliderH": 70,
+        "colliderOffsetX": 0,
+        "colliderOffsetY": 0,
+        "colliderResponse": "重叠",
+        "colliderTargets": "",
+        "colliderW": 70,
         "components": [
             "变换",
             "精灵渲染器",
@@ -47,14 +55,7 @@
         "spritePath": "",
         "spriteVisible": true,
         "static": false,
-        "tag": "敌人",
-        "colliderEnabled": true,
-        "colliderW": 70,
-        "colliderH": 70,
-        "colliderOffsetX": 0,
-        "colliderOffsetY": 0,
-        "colliderResponse": "重叠",
-        "colliderTargets": ""
+        "tag": "敌人"
     },
     "name": "敌人",
     "nodes": [

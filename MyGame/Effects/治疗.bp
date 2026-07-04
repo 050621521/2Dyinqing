@@ -1,0 +1,36 @@
+{
+    "assetId": "ec2227ca-c7f6-4196-a661-b7e5cbb9ca78",
+    "assetType": "蓝图",
+    "blueprintType": "Effect",
+    "connections": [
+        {
+            "fromNode": "effect_entry",
+            "fromPin": "exec_out",
+            "id": "entry_to_heal",
+            "toNode": "heal_player",
+            "toPin": "exec_in"
+        }
+    ],
+    "defaults": {
+    },
+    "name": "治疗",
+    "nodes": [
+        {
+            "id": "effect_entry",
+            "params": {
+            },
+            "type": "Event.EffectExecute",
+            "x": 80,
+            "y": 80
+        },
+        {
+            "id": "heal_player",
+            "params": {
+                "unit": "self"
+            },
+            "type": "Battle.HealUnit",
+            "x": 340,
+            "y": 80
+        }
+    ]
+}

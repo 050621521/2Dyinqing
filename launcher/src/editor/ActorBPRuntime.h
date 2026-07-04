@@ -2,7 +2,11 @@
 #include "models/LevelDocument.h"
 #include "models/BPClass.h"
 #include "models/BPValue.h"
+#include "BlueprintExecutionContext.h"
+#include "BlueprintNodeExecutor.h"
+#include "BlueprintVariableScope.h"
 #include <QObject>
+#include <QJsonObject>
 #include <QSet>
 #include <QMap>
 
@@ -24,6 +28,10 @@ public:
     void triggerKeyUp(const QString& key);
     void triggerTick(float dt);
     void setUIRuntime(UIRuntime* ui) { m_uiRuntime = ui; }
+    void configureExecutionContext(BlueprintRuntimeKind kind,
+                                   const QString& ownerActorId = {},
+                                   const QString& componentInstanceId = {});
+    void applyVariableOverrides(const QJsonObject& overrides);
     void triggerButtonClick(const QString& instanceId, const QString& widgetName);
     void triggerDropdownChanged(const QString& instanceId, const QString& widgetName, int index);
     void triggerUIDragStarted(const QString& instanceId, const QString& widgetName, float x, float y);
@@ -57,7 +65,12 @@ private:
     QString           m_collOther, m_collTag;   // 「碰撞时」事件当前上下文（self = m_actorId）
     UIRuntime*             m_uiRuntime    = nullptr;
     QMap<QString, QString> m_uiRefs;        // nodeId(UI.Create) → instanceId
+    QMap<QString, BPValue> m_varStore;       // Actor/组件蓝图实例自己的运行时变量表
+    BlueprintVariableScope m_localScope;
+    QHash<QString, BlueprintLoopState> m_loopState;
     QMap<QString, int>     m_dropdownIndex; // nodeId → 最新选中索引
     struct UIDragState { QString widgetName; float x = 0.0f; float y = 0.0f; };
     QMap<QString, UIDragState> m_uiDragState;
+    BlueprintExecutionContext m_context;
+    QSet<QString> m_reportedUnknownNodes;
 };

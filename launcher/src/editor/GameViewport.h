@@ -57,6 +57,7 @@ private:
     QRectF  widgetScreenRect(const UIWidget& w, const QRectF& parentRect) const;
     void    renderWidget(QPainter& p, const UIWidget& w,
                          const QRectF& parentRect, const UIDocument& doc) const;
+    void    renderDragGhost(QPainter& p, const QRectF& camRect, const ActorData* cam) const;
     void    renderChildren(QPainter& p, const QString& parentId,
                            const QRectF& parentRect, const UIWidget& parent,
                            const UIDocument& doc) const;
@@ -78,6 +79,11 @@ private:
                                 const UIDocument& doc, QString& outWidget) const;
     bool    hitTestAnyWidget(QPointF pos, const UIWidget& w, QRectF parentRect,
                              const UIDocument& doc, QString& outWidget) const;
+    const UIWidget* findWidgetByName(const UIDocument& doc, const QString& name) const;
+    const UIWidget* findWidgetById(const UIDocument& doc, const QString& id) const;
+    QString cardRootForWidget(const UIDocument& doc, const QString& widgetName) const;
+    bool    widgetRectByName(const QString& widgetName, const UIWidget& w,
+                             QRectF parentRect, const UIDocument& doc, QRectF& outRect) const;
     QPointF toCanonicalPos(const QPointF& pos, const QRectF& camRect,
                            float sx, float sy, const UIInstance* inst) const;
 
@@ -99,6 +105,9 @@ private:
     Qt::Orientation m_scrollThumbOrientation = Qt::Horizontal;
     QString m_dragInstanceId;
     QString m_dragWidgetName;
+    QString m_dragVisualWidgetName;
     QPointF m_dragPressCanonical;
+    QPointF m_dragVisualOffset;
+    QPointF m_dragVisualCanonical;
     bool    m_uiDragActive = false;
 };

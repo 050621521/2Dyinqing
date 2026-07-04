@@ -2,6 +2,8 @@
 #include <QWidget>
 #include <QHash>
 #include <QIcon>
+#include "models/AssetDependencyScanner.h"
+#include "models/AssetRegistry.h"
 
 class QTreeWidget;
 class QTreeWidgetItem;
@@ -23,6 +25,7 @@ signals:
     void bpClassOpenRequested(const QString& bpFilePath);
     void uiDocOpenRequested(const QString& path);
     void enumOpenRequested(const QString& path);
+    void dataTableOpenRequested(const QString& path);
     void enumFileRenamed(const QString& oldName, const QString& newName);
     void enumFileDeleted();
 
@@ -47,9 +50,17 @@ private:
     static QIcon makeFolderIcon();
     static QIcon makeLevelIcon();
     static QIcon makeBpClassIcon();
+    static QIcon makeEffectBpIcon();
+    static QIcon makeComponentBpIcon();
     static QIcon makeUIDocIcon();
     static QIcon makeAnimIcon();
+    static QIcon makeDataTableIcon();
     QIcon makeImageIcon(const QString& path);
+    QString deleteTitleForType(const QString& type) const;
+    bool deleteAssetWithProtection(const QString& path, const QString& type);
+    QString dependencyMessage(const AssetRecord& target, const QList<AssetDependency>& deps) const;
+    void showReferenceReport(const QString& path);
+    void refreshAssetRegistry();
 
     QString      m_projectRoot;
     QString      m_currentPath;
@@ -63,4 +74,5 @@ private:
     QLabel*      m_countLabel  = nullptr;
 
     QHash<QString, QIcon> m_imageIconCache;
+    AssetRegistry m_assetRegistry;
 };

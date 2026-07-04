@@ -1,0 +1,36 @@
+{
+    "assetId": "baaf1744-da1a-488d-9008-df571a438272",
+    "assetType": "蓝图",
+    "blueprintType": "Effect",
+    "connections": [
+        {
+            "fromNode": "effect_entry",
+            "fromPin": "exec_out",
+            "id": "entry_to_damage",
+            "toNode": "damage_enemy",
+            "toPin": "exec_in"
+        }
+    ],
+    "defaults": {
+    },
+    "name": "伤害",
+    "nodes": [
+        {
+            "id": "effect_entry",
+            "params": {
+            },
+            "type": "Event.EffectExecute",
+            "x": 80,
+            "y": 80
+        },
+        {
+            "id": "damage_enemy",
+            "params": {
+                "unit": "enemy"
+            },
+            "type": "Battle.DamageUnit",
+            "x": 340,
+            "y": 80
+        }
+    ]
+}

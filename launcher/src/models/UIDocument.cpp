@@ -11,6 +11,7 @@ QJsonObject UIWidget::toJson() const {
     QJsonObject o;
     o["id"]       = id;
     o["name"]     = name;
+    if (!bindingKey.trimmed().isEmpty()) o["bindingKey"] = bindingKey;
     o["type"]     = type;
     o["parentId"] = parentId;
     o["visible"]  = visible;
@@ -40,6 +41,7 @@ UIWidget UIWidget::fromJson(const QJsonObject& o) {
     UIWidget w;
     w.id       = o["id"].toString();
     w.name     = o["name"].toString();
+    w.bindingKey = o["bindingKey"].toString();
     w.type     = o["type"].toString();
     w.parentId = o["parentId"].toString();
     w.visible  = o["visible"].toBool(true);

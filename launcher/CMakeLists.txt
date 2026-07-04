@@ -31,6 +31,10 @@ set(SOURCES
     src/models/ProjectManager.cpp
     src/models/LevelDocument.cpp
     src/models/BPValue.cpp
+    src/models/AssetRef.cpp
+    src/models/AssetRegistry.cpp
+    src/models/AssetDependencyScanner.cpp
+    src/models/DataTable.cpp
     src/models/AnimationAsset.cpp
     src/editor/EditorWindow.cpp
     src/editor/Viewport2D.cpp
@@ -39,8 +43,17 @@ set(SOURCES
     src/editor/ContentBrowser.cpp
     src/editor/ProjectSettingsDialog.cpp
     src/editor/BlueprintEditor.cpp
+    src/editor/BlueprintExecutionContext.cpp
+    src/editor/BlueprintVariableScope.cpp
+    src/editor/BlueprintNodeExecutor.cpp
     src/editor/BPRuntime.cpp
     src/editor/BattleRuntime.cpp
+    src/editor/DataTableRuntimeService.cpp
+    src/editor/EffectRuntime.cpp
+    src/editor/CardRuntimeController.cpp
+    src/editor/BattleUiPresenter.cpp
+    src/editor/UiBindingRuntime.cpp
+    src/editor/ComponentBPRuntime.cpp
     src/editor/ActorBPRuntime.cpp
     src/editor/LayoutManager.cpp
     src/editor/Recorder.cpp
@@ -52,6 +65,7 @@ set(SOURCES
     src/editor/GlobalVars.cpp
     src/editor/GlobalVarPanel.cpp
     src/editor/EnumEditor.cpp
+    src/editor/DataTableEditor.cpp
     src/models/UIDocument.cpp
     src/editor/UIRuntime.cpp
     src/editor/UIEditor.cpp
@@ -69,6 +83,10 @@ set(HEADERS
     src/models/ProjectManager.h
     src/models/ActorTypeUtils.h
     src/models/BPValue.h
+    src/models/AssetRef.h
+    src/models/AssetRegistry.h
+    src/models/AssetDependencyScanner.h
+    src/models/DataTable.h
     src/models/AnimationAsset.h
     src/editor/EditorWindow.h
     src/editor/Viewport2D.h
@@ -77,9 +95,18 @@ set(HEADERS
     src/editor/ContentBrowser.h
     src/editor/ProjectSettingsDialog.h
     src/editor/BlueprintEditor.h
+    src/editor/BlueprintExecutionContext.h
+    src/editor/BlueprintVariableScope.h
+    src/editor/BlueprintNodeExecutor.h
     src/editor/UndoCommands.h
     src/editor/BPRuntime.h
     src/editor/BattleRuntime.h
+    src/editor/DataTableRuntimeService.h
+    src/editor/EffectRuntime.h
+    src/editor/CardRuntimeController.h
+    src/editor/BattleUiPresenter.h
+    src/editor/UiBindingRuntime.h
+    src/editor/ComponentBPRuntime.h
     src/editor/ActorBPRuntime.h
     src/editor/BPEval.h
     src/editor/ProjectTags.h
@@ -93,6 +120,7 @@ set(HEADERS
     src/editor/GlobalVars.h
     src/editor/GlobalVarPanel.h
     src/editor/EnumEditor.h
+    src/editor/DataTableEditor.h
     src/models/UIDocument.h
     src/editor/UIRuntime.h
     src/editor/UIEditor.h

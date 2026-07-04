@@ -1,4 +1,5 @@
 {
+    "assetId": "ec7d2aee-eab8-480b-964c-ec575bc99226",
     "blueprint": {
         "connections": [
             {
@@ -65,13 +66,6 @@
                 "toPin": "widgetRef"
             },
             {
-                "fromNode": "demo_follow2",
-                "fromPin": "exec_out",
-                "id": "battle_demo_follow2_show_combat_ui",
-                "toNode": "battle_show_combat_ui",
-                "toPin": "exec_in"
-            },
-            {
                 "fromNode": "battle_end_turn_click",
                 "fromPin": "exec_out",
                 "id": "battle_end_turn_click_set_turn_text",
@@ -84,13 +78,29 @@
                 "id": "battle_set_enemy_turn_text_print",
                 "toNode": "battle_print_end_turn",
                 "toPin": "exec_in"
+            },
+            {
+                "fromNode": "demo_follow2",
+                "fromPin": "exec_out",
+                "id": "battle_demo_follow2_create_runtime",
+                "toNode": "battle_create_runtime",
+                "toPin": "exec_in"
+            },
+            {
+                "fromNode": "battle_create_runtime",
+                "fromPin": "exec_out",
+                "id": "battle_create_runtime_show_combat_ui",
+                "toNode": "battle_show_combat_ui",
+                "toPin": "exec_in"
             }
         ],
-        "localVariables": [],
+        "localVariables": [
+        ],
         "nodes": [
             {
                 "id": "demo_begin",
-                "params": {},
+                "params": {
+                },
                 "type": "Event.BeginPlay",
                 "x": -600,
                 "y": -300
@@ -188,6 +198,20 @@
                 "type": "Action.Print",
                 "x": 0,
                 "y": 280
+            },
+            {
+                "id": "battle_create_runtime",
+                "params": {
+                    "cardTable": "DataTables/卡牌表.datatable",
+                    "enemyHp": "60",
+                    "energy": "3",
+                    "maxEnergy": "5",
+                    "playerHp": "80",
+                    "playerMaxHp": "100"
+                },
+                "type": "Battle.Create",
+                "x": 300,
+                "y": -120
             }
         ]
     },
@@ -491,6 +515,9 @@
             "colliderResponse": "阻挡",
             "colliderTargets": "",
             "colliderW": 100,
+            "componentBlueprints": [
+                "Blueprints/Components/卡牌管理组件.bp"
+            ],
             "components": [
                 "变换",
                 "精灵渲染器"

@@ -9,7 +9,10 @@
 struct BPClass {
     QString                  name;
     QString                  filePath;   // 空字符串 = 内置类
+    QString                  blueprintType = "Actor"; // Actor | Effect | Component（后续）
     QStringList              components;
+    QStringList              componentBlueprints; // Actor 类默认挂载的组件蓝图
+    QList<ComponentInstance> componentInstances;  // Actor 类默认挂载的组件实例
     QMap<QString, QVariant>  defaults;
     QList<BPNode>            nodes;
     QList<BPConnection>      connections;

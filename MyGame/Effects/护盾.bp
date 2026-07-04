@@ -1,0 +1,36 @@
+{
+    "assetId": "9b12db89-7911-4ac7-a98a-67e242d06f9a",
+    "assetType": "蓝图",
+    "blueprintType": "Effect",
+    "connections": [
+        {
+            "fromNode": "effect_entry",
+            "fromPin": "exec_out",
+            "id": "entry_to_shield",
+            "toNode": "shield_player",
+            "toPin": "exec_in"
+        }
+    ],
+    "defaults": {
+    },
+    "name": "护盾",
+    "nodes": [
+        {
+            "id": "effect_entry",
+            "params": {
+            },
+            "type": "Event.EffectExecute",
+            "x": 80,
+            "y": 80
+        },
+        {
+            "id": "shield_player",
+            "params": {
+                "unit": "self"
+            },
+            "type": "Battle.AddShield",
+            "x": 340,
+            "y": 80
+        }
+    ]
+}

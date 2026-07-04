@@ -6,10 +6,22 @@
 
 QJsonObject BPClass::toJson() const {
     QJsonObject obj;
+    obj["assetType"] = "蓝图";
+    obj["blueprintType"] = blueprintType.isEmpty() ? "Actor" : blueprintType;
     obj["name"] = name;
     QJsonArray comps;
     for (const QString& c : components) comps.append(c);
     obj["components"] = comps;
+    QJsonArray compBps;
+    for (const QString& c : componentBlueprints) compBps.append(c);
+    obj["componentBlueprints"] = compBps;
+    QJsonArray compInstancesArr;
+    if (!componentInstances.isEmpty()) {
+        for (const ComponentInstance& c : componentInstances) compInstancesArr.append(c.toJson());
+    } else {
+        for (const QString& c : componentBlueprints) compInstancesArr.append(ComponentInstance::fromBlueprint(c).toJson());
+    }
+    obj["componentInstances"] = compInstancesArr;
     QJsonObject defs;
     for (auto it = defaults.constBegin(); it != defaults.constEnd(); ++it)
         defs[it.key()] = QJsonValue::fromVariant(it.value());  // 保留 bool/number 类型
@@ -27,8 +39,23 @@ BPClass BPClass::fromJson(const QJsonObject& obj, const QString& fp) {
     BPClass bc;
     bc.name     = obj["name"].toString();
     bc.filePath = fp;
+    bc.blueprintType = obj["blueprintType"].toString(obj["assetType"].toString() == "效果蓝图" ? "Effect" : "Actor");
     for (const QJsonValue& v : obj["components"].toArray())
         bc.components.append(v.toString());
+    for (const QJsonValue& v : obj["componentBlueprints"].toArray())
+        bc.componentBlueprints.append(v.toString());
+    for (const QJsonValue& v : obj["componentInstances"].toArray()) {
+        ComponentInstance c = ComponentInstance::fromJson(v);
+        if (!c.blueprint.isEmpty()) bc.componentInstances.append(c);
+    }
+    if (bc.componentInstances.isEmpty()) {
+        for (const QString& bp : bc.componentBlueprints)
+            bc.componentInstances.append(ComponentInstance::fromBlueprint(bp));
+    }
+    if (bc.componentBlueprints.isEmpty()) {
+        for (const ComponentInstance& c : bc.componentInstances)
+            bc.componentBlueprints.append(c.blueprint);
+    }
     const QJsonObject defs = obj["defaults"].toObject();
     for (auto it = defs.constBegin(); it != defs.constEnd(); ++it)
         bc.defaults[it.key()] = it.value().toVariant();
@@ -64,10 +91,10 @@ const BPClass* BPClass::findBuiltin(const QString& bpClass) {
 
 QList<BPClass> BPClass::builtinClasses() {
     return {
-        { "Sprite",  {}, {"变换", "精灵渲染器"},  {}, {}, {} },
-        { "Camera",  {}, {"变换", "摄像机组件"},   {}, {}, {} },
-        { "Light",   {}, {"变换", "点光源"},       {}, {}, {} },
-        { "Trigger", {}, {"变换", "碰撞盒"},       {}, {}, {} },
-        { "Empty",   {}, {"变换"},                {}, {}, {} },
+        { "Sprite",  {}, "Actor", {"变换", "精灵渲染器"},  {}, {}, {}, {}, {} },
+        { "Camera",  {}, "Actor", {"变换", "摄像机组件"},   {}, {}, {}, {}, {} },
+        { "Light",   {}, "Actor", {"变换", "点光源"},       {}, {}, {}, {}, {} },
+        { "Trigger", {}, "Actor", {"变换", "碰撞盒"},       {}, {}, {}, {}, {} },
+        { "Empty",   {}, "Actor", {"变换"},                {}, {}, {}, {}, {} },
     };
 }

@@ -10,6 +10,17 @@
 #include <QUndoStack>
 #include "editor/GlobalVars.h"   // 复用 GlobalVarDef（name+type）作为局部变量声明
 
+struct ComponentInstance {
+    QString id;
+    QString blueprint;
+    bool enabled = true;
+    QJsonObject defaultOverrides;
+
+    QJsonObject toJson() const;
+    static ComponentInstance fromJson(const QJsonValue& value);
+    static ComponentInstance fromBlueprint(const QString& blueprint);
+};
+
 struct ActorData {
     QString id;
     QString name;
@@ -23,6 +34,8 @@ struct ActorData {
     QString     tag        = "未标记";
     QString     layer      = "默认";
     QStringList components;
+    QStringList componentBlueprints; // 挂载的组件蓝图路径，项目相对路径或绝对路径
+    QList<ComponentInstance> componentInstances; // 真实组件蓝图实例；旧 componentBlueprints 自动迁移
 
     // 活继承：已被本实例覆盖的字段（toJson 键名）；未覆盖字段跟随蓝图类默认值
     QSet<QString> overriddenFields;

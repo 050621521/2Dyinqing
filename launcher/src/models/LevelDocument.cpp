@@ -1,9 +1,41 @@
 #include "LevelDocument.h"
+#include "AssetRef.h"
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QUuid>
 #include <QSaveFile>
+
+QJsonObject ComponentInstance::toJson() const {
+    QJsonObject obj;
+    obj["componentInstanceId"] = id;
+    obj["componentBlueprint"] = SoftAssetRef::fromString(blueprint, "bp.component").toJson();
+    obj["enabled"] = enabled;
+    if (!defaultOverrides.isEmpty()) obj["defaultOverrides"] = defaultOverrides;
+    return obj;
+}
+
+ComponentInstance ComponentInstance::fromJson(const QJsonValue& value) {
+    if (value.isString()) return fromBlueprint(value.toString());
+    const QJsonObject obj = value.toObject();
+    ComponentInstance c;
+    c.id = obj.value("componentInstanceId").toString();
+    const QJsonValue bpValue = obj.contains("componentBlueprint") ? obj.value("componentBlueprint") : obj.value("blueprint");
+    const SoftAssetRef bpRef = SoftAssetRef::fromVariant(bpValue, "bp.component");
+    c.blueprint = bpRef.path.isEmpty() ? bpRef.assetId : bpRef.path;
+    c.enabled = obj.value("enabled").toBool(true);
+    c.defaultOverrides = obj.value("defaultOverrides").toObject();
+    if (c.id.isEmpty()) c.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    return c;
+}
+
+ComponentInstance ComponentInstance::fromBlueprint(const QString& blueprint) {
+    ComponentInstance c;
+    c.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    c.blueprint = blueprint;
+    c.enabled = true;
+    return c;
+}
 
 // ── ActorData ─────────────────────────────────────────────────────────
 
@@ -24,6 +56,16 @@ QJsonObject ActorData::toJson() const {
     QJsonArray compArr;
     for (const QString& c : components) compArr.append(c);
     obj["components"]  = compArr;
+    QJsonArray compBpArr;
+    for (const QString& c : componentBlueprints) compBpArr.append(c);
+    obj["componentBlueprints"] = compBpArr;
+    QJsonArray compInstArr;
+    if (!componentInstances.isEmpty()) {
+        for (const ComponentInstance& c : componentInstances) compInstArr.append(c.toJson());
+    } else {
+        for (const QString& c : componentBlueprints) compInstArr.append(ComponentInstance::fromBlueprint(c).toJson());
+    }
+    obj["componentInstances"] = compInstArr;
     if (!overriddenFields.isEmpty()) {
         QJsonArray ovArr;
         for (const QString& f : overriddenFields) ovArr.append(f);
@@ -88,6 +130,20 @@ ActorData ActorData::fromJson(const QJsonObject& obj) {
     a.layer    = obj["layer"].toString("默认");
     for (const QJsonValue& v : obj["components"].toArray())
         a.components.append(v.toString());
+    for (const QJsonValue& v : obj["componentBlueprints"].toArray())
+        a.componentBlueprints.append(v.toString());
+    for (const QJsonValue& v : obj["componentInstances"].toArray()) {
+        ComponentInstance c = ComponentInstance::fromJson(v);
+        if (!c.blueprint.isEmpty()) a.componentInstances.append(c);
+    }
+    if (a.componentInstances.isEmpty()) {
+        for (const QString& bp : a.componentBlueprints)
+            a.componentInstances.append(ComponentInstance::fromBlueprint(bp));
+    }
+    if (a.componentBlueprints.isEmpty()) {
+        for (const ComponentInstance& c : a.componentInstances)
+            a.componentBlueprints.append(c.blueprint);
+    }
     a.spritePath   = obj["spritePath"].toString();
     a.spriteColor  = QColor(obj["spriteColor"].toString("#ffffffff"));
     a.sortingLayer = obj["sortingLayer"].toString("默认");
@@ -131,7 +187,8 @@ ActorData ActorData::fromJson(const QJsonObject& obj) {
         // 旧关卡无此键：视为全部字段已覆盖（保持快照值，不因引入活继承而突变）
         const QJsonObject all = a.toJson();
         for (const QString& k : all.keys())
-            if (k != "id" && k != "name" && k != "components" && k != "overriddenFields")
+            if (k != "id" && k != "name" && k != "components"
+                && k != "componentBlueprints" && k != "overriddenFields")
                 a.overriddenFields.insert(k);
     }
     return a;

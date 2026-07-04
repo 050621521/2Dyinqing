@@ -10,6 +10,7 @@ struct UIWidget {
     // ── 通用 ──────────────────────────────────────────────
     QString id;
     QString name;
+    QString bindingKey; // 玩法用途键，例如 battle.hpText
     QString type;       // "UI.面板"、"UI.文本"、"UI.按钮" …
     QString parentId;   // 空 = 根节点
     bool    visible = true;

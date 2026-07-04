@@ -1,0 +1,40 @@
+{
+    "assetId": "748e2598-2560-4703-baef-a049f1b86983",
+    "assetType": "蓝图",
+    "blueprintType": "Component",
+    "componentBlueprints": [
+    ],
+    "components": [
+    ],
+    "connections": [
+        {
+            "fromNode": "begin_play",
+            "fromPin": "exec_out",
+            "id": "begin_to_print",
+            "toNode": "print_ready",
+            "toPin": "exec_in"
+        }
+    ],
+    "defaults": {
+    },
+    "name": "卡牌管理组件",
+    "nodes": [
+        {
+            "id": "begin_play",
+            "params": {
+            },
+            "type": "Event.BeginPlay",
+            "x": 80,
+            "y": 80
+        },
+        {
+            "id": "print_ready",
+            "params": {
+                "text": "卡牌管理组件已初始化"
+            },
+            "type": "Action.Print",
+            "x": 320,
+            "y": 80
+        }
+    ]
+}

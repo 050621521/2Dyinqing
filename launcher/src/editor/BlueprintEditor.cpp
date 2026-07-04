@@ -21,12 +21,14 @@
 #include <QListWidget>
 #include <QTimer>
 #include <QDir>
+#include <QDirIterator>
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QInputDialog>
 #include <QMessageBox>
+#include <algorithm>
 
 // ── bpClass/doc 统一读写辅助 ─────────────────────────────────────────
 
@@ -149,12 +151,43 @@ static bool nodeIsUIRef(const QString& type) {
     return type == "UI.Ref";
 }
 
+static QString resolveUIPath(const QString& projectRoot, const QString& uiRef) {
+    const QString ref = uiRef.trimmed();
+    if (ref.isEmpty()) return {};
+    QFileInfo info(ref);
+    if (info.isAbsolute()) return ref;
+    if (ref.endsWith(".ui"))
+        return QDir(projectRoot).filePath(ref);
+    if (ref.contains('/'))
+        return QDir(projectRoot).filePath(ref + ".ui");
+    return QDir(projectRoot).filePath("UI/" + ref + ".ui");
+}
+
+static QList<QPair<QString, QString>> listUIAssets(const QString& projectRoot) {
+    QList<QPair<QString, QString>> items;
+    if (projectRoot.isEmpty()) return items;
+    QDir root(projectRoot);
+    QDirIterator it(projectRoot, {"*.ui"}, QDir::Files, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        const QString abs = it.next();
+        const QString rel = root.relativeFilePath(abs);
+        QString display = rel;
+        if (display.endsWith(".ui"))
+            display.chop(3);
+        items.append({display, rel});
+    }
+    std::sort(items.begin(), items.end(), [](const auto& a, const auto& b) {
+        return a.first.localeAwareCompare(b.first) < 0;
+    });
+    return items;
+}
+
 QStringList BlueprintEditor::loadWidgetNames(const QString& uiName) const {
     if (uiName.isEmpty()) return {};
     if (m_uiWidgetCache.contains(uiName)) return m_uiWidgetCache.value(uiName);
     if (m_projectRoot.isEmpty()) return {};
     UIDocument doc;
-    if (!doc.load(m_projectRoot + "/UI/" + uiName + ".ui")) return {};
+    if (!doc.load(resolveUIPath(m_projectRoot, uiName))) return {};
     QStringList names;
     for (const UIWidget& w : doc.widgets()) names << w.name;
     m_uiWidgetCache[uiName] = names;
@@ -301,14 +334,26 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
             }
         },
         {
+            "Event.EffectExecute", "执行效果", QColor("#6a2a8a"),
+            {
+                {"exec_out", "exec", true, true},
+                {"source",   "来源对象", false, true, ValueKind::ActorRef},
+                {"target",   "目标对象", false, true, ValueKind::ActorRef},
+                {"value",    "数值",     false, true, ValueKind::Number},
+                {"recordId", "记录ID",   false, true},
+            }
+        },
+        {
             "Battle.Create", "创建战斗", QColor("#5a2a1a"),
             {
                 {"exec_in",   "exec",     true,  false},
                 {"exec_out",  "exec",     true,  true},
                 {"playerHp",  "玩家生命", false, false, ValueKind::Number},
+                {"playerMaxHp", "玩家最大生命", false, false, ValueKind::Number},
                 {"enemyHp",   "敌方生命", false, false, ValueKind::Number},
                 {"energy",    "初始能量", false, false, ValueKind::Number},
                 {"maxEnergy", "最大能量", false, false, ValueKind::Number},
+                {"cardTable", "卡牌表",   false, false},
             }
         },
         {
@@ -317,6 +362,7 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
                 {"exec_in",   "exec",     true,  false},
                 {"exec_out",  "exec",     true,  true},
                 {"cardIndex", "卡牌序号", false, false, ValueKind::Number},
+                {"cardId",    "卡牌ID",   false, false},
             }
         },
         {
@@ -373,6 +419,80 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
             }
         },
         {
+            "Battle.DamageUnit", "造成伤害", QColor("#5a2a1a"),
+            {
+                {"exec_in",  "exec", true, false},
+                {"exec_out", "exec", true, true},
+                {"unit",     "目标单位", false, false},
+                {"value",    "数值", false, false, ValueKind::Number},
+            }
+        },
+        {
+            "Battle.HealUnit", "回复生命", QColor("#5a2a1a"),
+            {
+                {"exec_in",  "exec", true, false},
+                {"exec_out", "exec", true, true},
+                {"unit",     "目标单位", false, false},
+                {"value",    "数值", false, false, ValueKind::Number},
+            }
+        },
+        {
+            "Battle.AddShield", "获得护盾", QColor("#5a2a1a"),
+            {
+                {"exec_in",  "exec", true, false},
+                {"exec_out", "exec", true, true},
+                {"unit",     "目标单位", false, false},
+                {"value",    "数值", false, false, ValueKind::Number},
+            }
+        },
+        {
+            "Battle.AddEnergy", "获得能量", QColor("#5a2a1a"),
+            {
+                {"exec_in",  "exec", true, false},
+                {"exec_out", "exec", true, true},
+                {"unit",     "目标单位", false, false},
+                {"value",    "数值", false, false, ValueKind::Number},
+            }
+        },
+        {
+            "Battle.AddTag", "添加状态", QColor("#5a2a1a"),
+            {
+                {"exec_in",  "exec", true, false},
+                {"exec_out", "exec", true, true},
+                {"unit",     "目标单位", false, false},
+                {"tag",      "状态", false, false},
+                {"stacks",   "层数", false, false, ValueKind::Number},
+                {"turns",    "持续回合", false, false, ValueKind::Number},
+            }
+        },
+        {
+            "Battle.RemoveTag", "移除状态", QColor("#5a2a1a"),
+            {
+                {"exec_in",  "exec", true, false},
+                {"exec_out", "exec", true, true},
+                {"unit",     "目标单位", false, false},
+                {"tag",      "状态", false, false},
+            }
+        },
+        {
+            "Battle.SetTagStacks", "设置状态层数", QColor("#5a2a1a"),
+            {
+                {"exec_in",  "exec", true, false},
+                {"exec_out", "exec", true, true},
+                {"unit",     "目标单位", false, false},
+                {"tag",      "状态", false, false},
+                {"stacks",   "层数", false, false, ValueKind::Number},
+            }
+        },
+        {
+            "Battle.HasTag", "是否有状态", QColor("#5a2a1a"),
+            {
+                {"unit", "目标单位", false, false},
+                {"tag",  "状态", false, false},
+                {"has",  "拥有", false, true, ValueKind::Bool},
+            }
+        },
+        {
             "Battle.CheckTarget", "检查目标", QColor("#5a2a1a"),
             {
                 {"targetUnit",   "目标单位", false, false},
@@ -389,6 +509,22 @@ const QList<BlueprintEditor::NodeDef>& BlueprintEditor::nodeDefs() {
                 {"dirY",         "方向Y",    false, false, ValueKind::Number},
                 {"angle",        "角度",     false, false, ValueKind::Number},
                 {"legal",        "合法",     false, true,  ValueKind::Bool},
+            }
+        },
+        {
+            "Data.GetField", "获取表字段", QColor("#2f5870"),
+            {
+                {"table",    "数据表", false, false},
+                {"recordId", "记录ID", false, false},
+                {"field",    "字段",   false, false},
+                {"value",    "值",     false, true, ValueKind::Any},
+            }
+        },
+        {
+            "Data.GetRecordCount", "获取表记录数", QColor("#2f5870"),
+            {
+                {"table", "数据表", false, false},
+                {"count", "数量",   false, true, ValueKind::Number},
             }
         },
         {
@@ -2979,6 +3115,7 @@ void BlueprintEditor::showContextMenu(const QPoint& pos, const QPoint& globalPos
     auto* selfMenu   = menu.addMenu("Self");
     auto* uiMenu     = menu.addMenu("UI");
     auto* battleMenu = menu.addMenu("战斗");
+    auto* dataMenu   = menu.addMenu("数据");
 
     for (const NodeDef& def : nodeDefs()) {
         if (!isSelfNodeVisible(def.typeId)) continue;
@@ -2991,6 +3128,7 @@ void BlueprintEditor::showContextMenu(const QPoint& pos, const QPoint& globalPos
                         def.typeId.startsWith("UI.")         ? uiMenu     :
                         def.typeId.startsWith("Self.")       ? selfMenu   :
                         def.typeId.startsWith("Battle.")     ? battleMenu :
+                        def.typeId.startsWith("Data.")       ? dataMenu   :
                         def.typeId.startsWith("Math.")       ? mathMenu   :
                         def.typeId.startsWith("Logic.")      ? logicMenu  :
                         def.typeId.startsWith("Cmp.")        ? logicMenu  :
@@ -3503,11 +3641,9 @@ QList<QPair<QString, QString>> BlueprintEditor::buildAnimAssetItems() const {
 QList<QPair<QString, QString>> BlueprintEditor::buildWidgetItems() const {
     QList<QPair<QString, QString>> items;
     if (m_projectRoot.isEmpty()) return items;
-    QDir uiDir(m_projectRoot + "/UI");
-    for (const QString& fn : uiDir.entryList({"*.ui"}, QDir::Files, QDir::Name)) {
-        const QString uiName = QFileInfo(fn).baseName();
-        for (const QString& w : loadWidgetNames(uiName))
-            items.append({uiName + "/" + w, uiName + "::" + w});  // 显示 UI名/控件名，写回 UI名::控件名
+    for (const auto& ui : listUIAssets(m_projectRoot)) {
+        for (const QString& w : loadWidgetNames(ui.second))
+            items.append({ui.first + "/" + w, ui.second + "::" + w});
     }
     return items;
 }
@@ -3703,22 +3839,16 @@ void BlueprintEditor::showUIAssetPicker(QPoint screenPos, const QString& nodeId)
         if (n.id == nodeId) { nodeType = n.type; break; }
     const bool showWidgets = (nodeType == "UI.Show" || nodeType == "UI.Hide");
 
-    // 扫描 UI/ 目录下的 .ui 文件
-    QDir uiDir(m_projectRoot + "/UI");
-    QStringList uiNames;
-    for (const QString& fn : uiDir.entryList({"*.ui"}, QDir::Files))
-        uiNames << QFileInfo(fn).baseName();
-
     // 构建条目列表：value = 存储值（"uiName" 或 "uiName::widget"），display = 显示文字
     struct Entry { QString value; QString display; };
     QList<Entry> entries;
-    for (const QString& uiName : uiNames) {
+    for (const auto& ui : listUIAssets(m_projectRoot)) {
         if (showWidgets) {
-            entries.append({uiName, uiName + "（整体）"});
-            for (const QString& w : loadWidgetNames(uiName))
-                entries.append({uiName + "::" + w, "  " + w});
+            entries.append({ui.second, ui.first + "（整体）"});
+            for (const QString& w : loadWidgetNames(ui.second))
+                entries.append({ui.second + "::" + w, "  " + w});
         } else {
-            entries.append({uiName, uiName});
+            entries.append({ui.second, ui.first});
         }
     }
 

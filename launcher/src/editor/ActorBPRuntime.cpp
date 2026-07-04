@@ -2,7 +2,9 @@
 #include "UIRuntime.h"
 #include "BPRuntime.h"
 #include "BPEval.h"
+#include "BlueprintNodeExecutor.h"
 #include <QColor>
+#include <QJsonValue>
 #include <utility>
 
 static std::pair<QString,QString> splitWidgetRef(const QString& ref) {
@@ -11,13 +13,44 @@ static std::pair<QString,QString> splitWidgetRef(const QString& ref) {
     return {ref.left(sep), ref.mid(sep + 2)};
 }
 
+static BPValue bpValueFromVariant(const QVariant& v) {
+    if (v.typeId() == QMetaType::Bool) return BPValue::fromBool(v.toBool());
+    if (v.canConvert<double>() && v.typeId() != QMetaType::QString)
+        return BPValue::fromNumber(v.toDouble());
+    return BPValue::fromJsonValue(QJsonValue::fromVariant(v));
+}
+
 ActorBPRuntime::ActorBPRuntime(const BPClass* bpClass,
                                 const QString& actorId,
                                 QList<ActorData>* actors,
                                 BPRuntime* rt,
                                 QObject* parent)
     : QObject(parent), m_bpClass(bpClass), m_actorId(actorId), m_actors(actors), m_rt(rt)
-{}
+{
+    m_context.setRuntimeKind(BlueprintRuntimeKind::Actor);
+    m_context.setBlueprint(m_bpClass);
+    m_context.setOwnerActor(m_actorId);
+    if (m_bpClass) {
+        for (auto it = m_bpClass->defaults.constBegin(); it != m_bpClass->defaults.constEnd(); ++it)
+            m_varStore[it.key()] = bpValueFromVariant(it.value());
+    }
+    m_localScope.setStore(&m_varStore);
+}
+
+void ActorBPRuntime::configureExecutionContext(BlueprintRuntimeKind kind,
+                                               const QString& ownerActorId,
+                                               const QString& componentInstanceId) {
+    m_context.setRuntimeKind(kind);
+    m_context.setBlueprint(m_bpClass);
+    m_context.setOwnerActor(ownerActorId.isEmpty() ? m_actorId : ownerActorId);
+    m_context.setComponentInstance(componentInstanceId);
+}
+
+void ActorBPRuntime::applyVariableOverrides(const QJsonObject& overrides) {
+    for (auto it = overrides.constBegin(); it != overrides.constEnd(); ++it)
+        m_varStore[it.key()] = BPValue::fromJsonValue(it.value());
+    m_localScope.setStore(&m_varStore);
+}
 
 void ActorBPRuntime::triggerBeginPlay() {
     triggerEvent("Event.BeginPlay");
@@ -44,6 +77,7 @@ void ActorBPRuntime::triggerTick(float dt) {
 void ActorBPRuntime::triggerCollision(const QString& selfId, const QString& otherId,
                                       const QString& otherTag) {
     if (selfId != m_actorId) return;   // 只响应自己的碰撞
+    m_context.setEventName("Event.OnCollision");
     m_collOther = otherId; m_collTag = otherTag;
     for (const BPNode& node : m_bpClass->nodes) {
         if (node.type != "Event.OnCollision") continue;
@@ -53,6 +87,7 @@ void ActorBPRuntime::triggerCollision(const QString& selfId, const QString& othe
 }
 
 void ActorBPRuntime::triggerEvent(const QString& eventType, const QString& pinName) {
+    m_context.setEventName(eventType);
     const QString pin = pinName.isEmpty() ? "exec_out" : pinName;
     for (const BPNode& node : m_bpClass->nodes) {
         if (node.type != eventType) continue;
@@ -81,28 +116,29 @@ void ActorBPRuntime::executeChain(const QString& fromNodeId, const QString& from
 QString ActorBPRuntime::executeNode(const QString& nodeId) {
     const BPNode* node = findNode(nodeId);
     if (!node) return {};
+    m_context.enterNode(*node);
     ActorData* self = findSelf();
 
-    // 跳转关卡 / 返回上一关：转交 EditorWindow（与关卡蓝图同一套换关处理）
-    if (node->type == "Action.LoadLevel") {
-        const QString levelName = resolveDataPin(nodeId, "levelName");
-        if (!levelName.isEmpty()) emit loadLevelRequested(levelName);
-        return {};
-    }
-    if (node->type == "Action.BackLevel") {
-        emit backLevelRequested();
-        return {};
-    }
-
-    // ── 通用节点类型（复用关卡蓝图逻辑）─────────────────────────────────
-    if (node->type == "Action.Print") {
-        emit printOutput(resolveDataPin(nodeId, "text"));
-        return "exec_out";
-    }
-    if (node->type == "Flow.Branch") {
-        const QString cond = resolveDataPin(nodeId, "condition").toString().toLower();
-        const bool truthy = !cond.isEmpty() && cond != "0" && cond != "false";
-        return truthy ? "true" : "false";
+    BlueprintNodeExecutor::ExecState sharedState;
+    sharedState.context = &m_context;
+    sharedState.localScope = &m_localScope;
+    sharedState.globalScope = m_rt ? m_rt->globalScope() : nullptr;
+    sharedState.loopState = &m_loopState;
+    sharedState.print = [this](const QString& text) { emit printOutput(text); };
+    sharedState.diagnostic = [this](const QString& text) { emit printOutput(text); };
+    sharedState.loadLevel = [this](const QString& levelName) { emit loadLevelRequested(levelName); };
+    sharedState.backLevel = [this]() { emit backLevelRequested(); };
+    sharedState.runFromPin = [this](const QString& fromNodeId, const QString& fromPin) {
+        QSet<QString> bodyVisited;
+        executeChain(fromNodeId, fromPin, &bodyVisited);
+    };
+    QString sharedNextPin;
+    if (BlueprintNodeExecutor::executeSharedNode(
+            *node,
+            [this, nodeId](const QString& pinKey) { return resolveDataPin(nodeId, pinKey); },
+            sharedState,
+            &sharedNextPin)) {
+        return sharedNextPin;
     }
 
     if (!self) return {};
@@ -323,6 +359,11 @@ QString ActorBPRuntime::executeNode(const QString& nodeId) {
         return "exec_out";
     }
 
+    const QString unknownKey = node->id + ":" + node->type;
+    if (!m_reportedUnknownNodes.contains(unknownKey)) {
+        m_reportedUnknownNodes.insert(unknownKey);
+        emit printOutput(m_context.formatDiagnostic(QString("未处理的执行节点：%1").arg(node->type)));
+    }
     return {};
 }
 
@@ -363,10 +404,6 @@ BPValue ActorBPRuntime::resolveOutputPin(const QString& nodeId, const QString& p
         if (pinKey == "tag")   return m_collTag;
     }
 
-    // 全局变量读取（与关卡蓝图共用 EditorWindow 持有的同一张全局表）
-    if (node->type == "Global.Get" && m_rt)
-        return m_rt->globalVar(node->params.value("varName"));
-
     // UI 输出引脚
     if (node->type == "UI.Create" && pinKey == "uiRef")
         return m_uiRefs.value(nodeId);
@@ -382,6 +419,21 @@ BPValue ActorBPRuntime::resolveOutputPin(const QString& nodeId, const QString& p
         if (pinKey == "x") return BPValue::fromNumber(s.x);
         if (pinKey == "y") return BPValue::fromNumber(s.y);
         if (pinKey == "widgetName") return s.widgetName;
+    }
+
+    BlueprintNodeExecutor::ExecState sharedState;
+    sharedState.context = &m_context;
+    sharedState.localScope = &m_localScope;
+    sharedState.globalScope = m_rt ? m_rt->globalScope() : nullptr;
+    sharedState.loopState = &m_loopState;
+    BPValue sharedOut;
+    if (BlueprintNodeExecutor::resolveSharedOutput(
+            *node,
+            pinKey,
+            [this, nodeId](const QString& pk) { return resolveDataPin(nodeId, pk); },
+            sharedState,
+            &sharedOut)) {
+        return sharedOut;
     }
 
     // ── 纯数据节点（数学/比较/逻辑/数组/转换）：共享求值器，两套运行时一致 ──
@@ -406,6 +458,7 @@ ActorData* ActorBPRuntime::findSelf() {
 }
 
 void ActorBPRuntime::triggerButtonClick(const QString& instanceId, const QString& widgetName) {
+    m_context.setEventName("UI.OnButtonClick");
     QString uiName;
     if (m_uiRuntime) {
         for (const UIInstance* inst : m_uiRuntime->shownInstances())
@@ -422,6 +475,7 @@ void ActorBPRuntime::triggerButtonClick(const QString& instanceId, const QString
 }
 
 void ActorBPRuntime::triggerUIDragStarted(const QString& instanceId, const QString& widgetName, float x, float y) {
+    m_context.setEventName("UI.OnDragStart");
     QString uiName;
     if (m_uiRuntime) {
         for (const UIInstance* inst : m_uiRuntime->shownInstances())
@@ -439,6 +493,7 @@ void ActorBPRuntime::triggerUIDragStarted(const QString& instanceId, const QStri
 }
 
 void ActorBPRuntime::triggerUIDragMoved(const QString& instanceId, const QString& widgetName, float x, float y) {
+    m_context.setEventName("UI.OnDragMove");
     QString uiName;
     if (m_uiRuntime) {
         for (const UIInstance* inst : m_uiRuntime->shownInstances())
@@ -456,6 +511,7 @@ void ActorBPRuntime::triggerUIDragMoved(const QString& instanceId, const QString
 }
 
 void ActorBPRuntime::triggerUIDropped(const QString& instanceId, const QString& widgetName, float x, float y) {
+    m_context.setEventName("UI.OnDrop");
     QString uiName;
     if (m_uiRuntime) {
         for (const UIInstance* inst : m_uiRuntime->shownInstances())
@@ -473,6 +529,7 @@ void ActorBPRuntime::triggerUIDropped(const QString& instanceId, const QString& 
 }
 
 void ActorBPRuntime::triggerUIDragCanceled(const QString& instanceId, const QString& widgetName, float x, float y) {
+    m_context.setEventName("UI.OnDragCancel");
     QString uiName;
     if (m_uiRuntime) {
         for (const UIInstance* inst : m_uiRuntime->shownInstances())
@@ -491,6 +548,7 @@ void ActorBPRuntime::triggerUIDragCanceled(const QString& instanceId, const QStr
 
 void ActorBPRuntime::triggerDropdownChanged(const QString& instanceId,
                                              const QString& widgetName, int index) {
+    m_context.setEventName("UI.OnDropdownChanged");
     QString uiName;
     if (m_uiRuntime) {
         for (const UIInstance* inst : m_uiRuntime->shownInstances())
